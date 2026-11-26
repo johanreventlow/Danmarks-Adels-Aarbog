@@ -273,8 +273,13 @@ export const useStore = create<State>((set, get) => ({
         return loadFromSupabase();
       });
       if (gen !== loadGeneration) return; // logout/brugerskift imens: svaret tilhører den gamle identitet → kassér
-      // 6e-lagene (linjer pr. kanonisk linje, bogens kilder, udgaver) stemples på modellen som i web's loadModel.
-      const model: Model = { ...buildModel(res.db), ...res.udgaveLag };
+      // 6e-lagene (linjer pr. kanonisk linje, bogens kilder, udgaver) stemples på modellen som i web's loadModel —
+      // og (batch 6) samme_som-afbildningen og bogens »forældre ukendt«, som familieblokkens rækker (byggFokusRaekker)
+      // læser fra modellen ligesom på web.
+      const model: Model = {
+        ...buildModel(res.db), ...res.udgaveLag,
+        canonicalIdById: res.canonicalIdById, parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
+      };
       // Påfør proveniens på de foldede kanoniske personer (til badge i person-visningen).
       for (const [canon, prov] of Object.entries(res.mergedFrom)) {
         if (model.byId[canon]) model.byId[canon].mergedFrom = prov;

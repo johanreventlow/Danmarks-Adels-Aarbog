@@ -3,7 +3,7 @@
 // buildBidirectionalColumns/unknownParentRing/unknownChildSection + TreeColumn-typerne) er
 // ekstraheret til @daa/core/tree — kun de app-specifikke traverseringer (childrenOf/parentsOf,
 // der læser mobilens childrenByUnion/parentsByChild-indekser) og øvrige mobil-selektorer bor her.
-import { compareDanish, initialOf, synligeLinjer } from '@daa/core';
+import { compareDanish, initialOf, sorterBoernEfterBogen, synligeLinjer } from '@daa/core';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
@@ -14,27 +14,6 @@ export function counts(model: Model | null, aux: Aux | null) {
     linjer: synligeLinjer(model?.lineage?.list ?? []).length,
     godser: aux?.estateList.length ?? 0,
   };
-}
-
-// Børn pr. ægteskab for en person (rækkefølge: unions først, så __none).
-export function childrenByMarriage(
-  model: Model,
-  parentId: string,
-): { unionId: string; spouseName: string; children: ModelPerson[] }[] {
-  const groups = model.indexes.childrenByUnion[parentId];
-  if (!groups) return [];
-  return Object.keys(groups).map((unionId) => {
-    const union = model.indexes.unionById[unionId];
-    let spouseName = '';
-    if (union) {
-      const otherId = union.p1 === parentId ? union.p2 : union.p1;
-      spouseName = union.p2_name || (otherId ? model.byId[otherId]?.name ?? '' : '');
-    }
-    const children = groups[unionId]
-      .map((cid) => model.byId[cid])
-      .filter((c): c is ModelPerson => Boolean(c));
-    return { unionId, spouseName, children };
-  });
 }
 
 // Forældre for en person (fra primær fødselsfamilie).
@@ -99,12 +78,17 @@ export function buildSnapPath(
 }
 
 // Variant A "kort-fokus": bedsteforælder, forælder, denne generations søskende, børn & grene.
+// Søskende og børn står i Aarbogens rækkefølge (sorterBoernEfterBogen, paritetsplanens batch 6) — samme regel som
+// personskærmens børneliste, web's fokus-stamtræ og kolonne-stamtræet; et barn, der kun står i en ældre udgave,
+// flettes ind på sin plads.
 export function treeFocusA(model: Model, focusId: string) {
   const focus = model.byId[focusId] ?? null;
   const parent = focus?.parentId ? model.byId[focus.parentId] ?? null : null;
   const grandparent = parent?.parentId ? model.byId[parent.parentId] ?? null : null;
-  const siblings = focus ? siblingsOf(model, focusId) : [];
-  const children = focus ? childrenOf(model, focusId) : [];
+  const siblings = !focus ? [] : focus.parentId
+    ? sorterBoernEfterBogen(siblingsOf(model, focusId), focus.parentId, model.bogNrBy, model.udgaver)
+    : siblingsOf(model, focusId);
+  const children = focus ? sorterBoernEfterBogen(childrenOf(model, focusId), focusId, model.bogNrBy, model.udgaver) : [];
   const spouseName = focus?.spouse ?? '';
   return { focus, parent, grandparent, siblings, children, spouseName };
 }

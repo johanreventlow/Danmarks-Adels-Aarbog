@@ -2,13 +2,17 @@
 // (web/src/components/personVisning.tsx), som ren funktion: udgavevælger, linjemærker for den valgte udgave,
 // B6-noter om de andre udgavers placering, biografien for den valgte chip og »Kilde i Aarbogen«.
 //
-// Forskel fra web: mobilen henter ikke personens fakta (public_person_facts, paritetsplanens batch 7), så
-// udgavevælgerens tredje argument (udgaver med fakta) erstattes af de udgaver, personen har en bogpost i
-// (koordinatrækkerne i model.sourcesBy). Uden det fik en foldet person uden biografi i hver udgave ingen vælger,
-// og hovedet viste linjerne fra begge udgaver side om side.
+// Batch 7: fakta med kilde pr. udgave (public_person_facts, data/personFakta.ts). Udgavevælgerens tredje argument er
+// som på web de udgaver, personen har fakta i (udgaverMedFakta), og den valgte udgaves fakta bygges af
+// byggUdgaveFakta. Forskel fra web: indtil fakta er hentet — eller hvis hentningen fejlede — bruges de udgaver,
+// personen har en bogpost i (koordinatrækkerne i model.sourcesBy), hvor web bruger en tom liste. Uden det fik en
+// foldet person uden biografi i hver udgave ingen vælger, mens fakta hentes (eller offline), og hovedet viste
+// linjerne fra begge udgaver side om side.
 import {
-  b6Noter, byggUdgaveVaelger, erTekniskLinje, linjerForUdgave, sorterKilder, unikkeKildelinjer,
-  type BioSourceVersion, type BioSourceVersionV2, type SourceRef, type UdgaveChip, type UdgaveVaelger,
+  b6Noter, byggUdgaveFakta, byggUdgaveVaelger, erTekniskLinje, linjerForUdgave, sorterKilder, udgaverMedFakta,
+  unikkeKildelinjer,
+  type BioSourceVersion, type BioSourceVersionV2, type SourceRef, type UdgaveChip, type UdgaveFaktaInput,
+  type UdgaveFaktaVisning, type UdgaveVaelger,
 } from '@daa/core';
 import type { Model } from './types';
 
@@ -25,6 +29,8 @@ export type PersonUdgaveVisning = {
   // Biografien mangler i den valgte udgave, selv om en anden udgave har en (»Ingen biografi fra denne udgave.«).
   bioManglerIUdgave: boolean;
   sources: SourceRef[];
+  // Den valgte udgaves fakta (null: fakta er ikke hentet, eller hentningen fejlede).
+  faktaVisning: UdgaveFaktaVisning | null;
 };
 
 export function byggPersonUdgave(
@@ -41,18 +47,23 @@ export function byggPersonUdgave(
     fallbackBio: string;
     // Citations-proveniensen (aux.sourcesBy) for personer uden bogpost, typisk ægtefæller.
     fallbackKilder: SourceRef[];
+    // Personens fakta (data/personFakta.ts); null/udeladt = ikke hentet (endnu) eller fejlet.
+    faktaInput?: UdgaveFaktaInput | null;
   },
 ): PersonUdgaveVisning {
   const udgaver = model.udgaver ?? [];
   const kendt = new Set(udgaver.map((u) => u.sourceId));
   const bogKilder = model.sourcesBy?.[personId] ?? [];
   const udgaverMedPost = [...new Set(bogKilder.map((s) => s.sourceId).filter((id): id is string => id != null && kendt.has(id)))];
-  const vaelger = byggUdgaveVaelger(input.bioVersions ?? [], udgaver, udgaverMedPost);
+  const faktaInput = input.faktaInput ?? null;
+  const vaelger = byggUdgaveVaelger(input.bioVersions ?? [], udgaver, faktaInput ? udgaverMedFakta(faktaInput) : udgaverMedPost);
   const fundet = input.valgtUdgaveId != null ? vaelger.chips.findIndex((c) => c.sourceId === input.valgtUdgaveId) : -1;
   const valgtIdx = fundet >= 0 ? fundet : vaelger.standard;
   const aktivChip = vaelger.chips[valgtIdx] ?? null;
   // En chip fra en ukendt udgave (fx »label:…«) filtrerer intet.
   const valgtUdgave = aktivChip && kendt.has(aktivChip.sourceId) ? aktivChip.sourceId : null;
+
+  const faktaVisning = faktaInput ? byggUdgaveFakta(faktaInput, valgtUdgave) : null;
 
   // Linjerne i hovedet (6e-2, spec §12.4) — samme regel som web.
   const linjer = (model.lineage?.byPerson[personId] ?? []).filter((lk) => !erTekniskLinje(lk));
@@ -84,6 +95,6 @@ export function byggPersonUdgave(
 
   return {
     vaelger, valgtIdx, aktivChip, valgtUdgave, hovedLinjer, linjeNoter, tidligereUdgave,
-    bioText, bioManglerIUdgave: harPost && bioText === '', sources,
+    bioText, bioManglerIUdgave: harPost && bioText === '', sources, faktaVisning,
   };
 }

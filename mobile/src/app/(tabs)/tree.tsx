@@ -1,5 +1,6 @@
 // Stamtræ (README §5.2) — tre varianter + §9.2 linje-hop.
-//  A · Fokus     — lodret kort-fokus (bedsteforælder→forælder→søskende→børn).
+//  A · Fokus     — lodret kort-fokus (bedsteforælder→forælder→søskende→børn); søskende og børn i Aarbogens
+//                  rækkefølge med »Kun i …«-mærket (paritetsplanens batch 6).
 //  B · Kolonner  — vandret-scrollende drill-down kolonner, én pr. generation.
 //  C · Spor      — fuldskærms native snap-scroll-spor (lodret=generation, vandret=søskende;
 //                  flydende momentum + snap til midte; haptik pr. landing).
@@ -10,7 +11,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildBidirectionalColumns, kanoniskeLinjerPrPerson, synligeLinjer } from '@daa/core';
+import { buildBidirectionalColumns, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer } from '@daa/core';
 import { childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
@@ -98,7 +99,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
       <CenterKicker text="Denne generation ◂ ▸" style={{ marginVertical: 8 }} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 11, paddingHorizontal: 2, paddingBottom: 6 }}>
         {view.siblings.map((s) => (
-          <SiblingCard key={s.id} person={s} childCount={childrenOf(model, s.id).length} selected={s.id === view.focus!.id} onFocus={() => setFocus(s.id)} onOpen={() => router.push(`/person/${s.id}`)} />
+          <SiblingCard key={s.id} person={s} childCount={childrenOf(model, s.id).length} kunI={kunIAeldreTekst(model, s.id)?.maerke} selected={s.id === view.focus!.id} onFocus={() => setFocus(s.id)} onOpen={() => router.push(`/person/${s.id}`)} />
         ))}
       </ScrollView>
       {view.spouseName ? (
@@ -109,13 +110,18 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
           <Connector height={18} style={{ marginTop: 14 }} />
           <CenterKicker text="Børn & grene ▾" style={{ marginVertical: 8 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 2, paddingBottom: 6 }}>
-            {view.children.map((c) => (
-              <Pressable key={c.id} style={styles.childCard} onPress={() => setFocus(c.id)}>
-                <View style={styles.childAvatar}><Serif size={17} color={Colors.bordeaux}>{initial(c.name)}</Serif></View>
-                <Serif size={18} style={{ marginTop: 9, lineHeight: 19 }}>{c.name}</Serif>
-                {c.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
-              </Pressable>
-            ))}
+            {view.children.map((c) => {
+              // »Kun i DAA 1939« på stamtræets kort som på web's fokus-stamtræ (aldrig for en levende, core-reglen).
+              const kunI = kunIAeldreTekst(model, c.id);
+              return (
+                <Pressable key={c.id} style={styles.childCard} onPress={() => setFocus(c.id)}>
+                  <View style={styles.childAvatar}><Serif size={17} color={Colors.bordeaux}>{initial(c.name)}</Serif></View>
+                  <Serif size={18} style={{ marginTop: 9, lineHeight: 19 }}>{c.name}</Serif>
+                  {c.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
+                  {kunI ? <Mono size={8.5} color={Colors.goldInk} style={{ marginTop: 4, letterSpacing: 0.6, textTransform: 'uppercase' }}>{kunI.maerke}</Mono> : null}
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </>
       ) : null}
@@ -493,7 +499,7 @@ function Connector({ height, style }: { height: number; style?: object }) {
   return <View style={[styles.connector, { height }, style]} />;
 }
 
-function SiblingCard({ person, childCount, selected, onFocus, onOpen }: { person: ModelPerson; childCount: number; selected: boolean; onFocus: () => void; onOpen: () => void }) {
+function SiblingCard({ person, childCount, kunI, selected, onFocus, onOpen }: { person: ModelPerson; childCount: number; kunI?: string; selected: boolean; onFocus: () => void; onOpen: () => void }) {
   return (
     <Pressable onPress={onFocus} style={[styles.sibCard, selected ? styles.sibCardSelected : styles.sibCardIdle]}>
       {selected ? <Mono size={8} color={Colors.bordeaux} style={{ position: 'absolute', top: 11, right: 12, letterSpacing: 0.8 }}>I FOKUS</Mono> : null}
@@ -501,6 +507,7 @@ function SiblingCard({ person, childCount, selected, onFocus, onOpen }: { person
       <Serif size={23} style={{ marginTop: 12, lineHeight: 24 }}>{person.name}</Serif>
       {person.years ? <Mono size={10.5} color={Colors.inkMuted} style={{ marginTop: 4 }}>{person.years}</Mono> : null}
       {person.title ? <BtnLabel size={12} color={Colors.bordeaux} style={{ marginTop: 6, fontFamily: Fonts.sansMedium }}>{person.title}</BtnLabel> : null}
+      {kunI ? <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6, letterSpacing: 0.6, textTransform: 'uppercase' }}>{kunI}</Mono> : null}
       {childCount ? <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 8 }}>↓ {childCount} {childCount === 1 ? 'barn' : 'børn'}</Mono> : null}
       {selected ? <Pressable onPress={onOpen} style={styles.openBtn}><BtnLabel size={12} color={Colors.inkOnInverse}>Åbn profil ›</BtnLabel></Pressable> : null}
     </Pressable>

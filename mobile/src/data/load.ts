@@ -124,6 +124,8 @@ export function mapAppPersons(
       fornavne: p.visning_navn ?? null,
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
+      // Levende (RLS viser dem kun for redaktionen) — som web; »Kun i DAA 1939« gives aldrig en levende (batch 6).
+      levende: Boolean(p.levende),
       koen: normalizeKoen(p.koen),
     }));
 }
@@ -294,7 +296,7 @@ export async function loadFromSupabase(opts?: {
       // Alle tabel-læsninger her sorteres på en ENTYDIG nøgle (PK / alle PK-kolonner): getAll
       // offset-paginerer, og uden fast rækkefølge kan rækker springes over/gentages mellem sider.
       getAll<RawPerson>(() =>
-        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat').order('id'),
+        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat,levende').order('id'),
       ),
       getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')
         .order('family_id').order('person_id').order('rolle')),
