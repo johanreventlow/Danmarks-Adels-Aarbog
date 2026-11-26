@@ -744,7 +744,8 @@ DECLARE
   r_src bigint := 987650501; r_null bigint; r_ingen bigint; r_to bigint; r_to2 bigint; r_fp bigint; r_afb bigint; r_estsub bigint;
   a bigint; f_lok bigint; a_lok bigint; v_k bigint; v_kn bigint; v_h bigint; v_hn bigint; v_id bigint; v_cs bigint; v_cs_k bigint;
   v_cs_h bigint; v_sets bigint; v_rel bigint; v_ass bigint; v_cit bigint; v_kon bigint; v_src_foer jsonb; v_rel_row public.relation;
-  v_ny public.relation; k text;
+  v_ny public.relation; k text; p3 bigint; r_ekstra bigint; r_status bigint; r_valg bigint; r_ukonkl bigint;
+  r_ed1 bigint; r_ed2 bigint; r_cit bigint; v_e1 bigint; v_e2 bigint; v_hs2 bigint; c_cit bigint; c_ed1 bigint;
 BEGIN
   INSERT INTO public.source(slags, titel) VALUES ('bog', '__t5_kilde__') RETURNING id INTO src;
   INSERT INTO public.source(slags, titel) VALUES ('bog', '__t5_lokkekilde__') RETURNING id INTO src2;
@@ -804,6 +805,45 @@ BEGIN
     RETURNING id INTO r_estsub;
   INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_estsub,'ejer') RETURNING id INTO a;
   INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær');
+  -- Uklar kilde ud over citationerne (hver med præcis én citation): en ekstra påstand uden citation; en konklusion, der
+  -- er tilbagetrukket; en konklusion, der vælger en anden påstand; ingen konklusion.
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p3;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1801')
+    RETURNING id INTO r_ekstra;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_ekstra,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær');
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_ekstra,a,'afklaret');
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_ekstra,'ejer');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1802')
+    RETURNING id INTO r_status;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_status,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær');
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_status,a,'tilbagetrukket');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1803')
+    RETURNING id INTO r_valg;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_valg,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær');
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_valg,NULL,'afklaret');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1804')
+    RETURNING id INTO r_ukonkl;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_ukonkl,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær');
+  -- Samme ejer fra to udgaver med samme periode (afgørelse 4A), og et ejerforhold, hvis citation har bogens ordlyd.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1810')
+    RETURNING id INTO r_ed1;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_ed1,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src,'primær') RETURNING id INTO c_ed1;
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_ed1,a,'afklaret');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1810')
+    RETURNING id INTO r_ed2;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_ed2,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet) VALUES (a,src2,'primær');
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_ed2,a,'afklaret');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw) VALUES ('person',p3,'estate',ex,'ejer','1820')
+    RETURNING id INTO r_cit;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_cit,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,kvalitet,citat_tekst) VALUES (a,src,'primær','__t5_bogens ordlyd__') RETURNING id INTO c_cit;
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',r_cit,a,'afklaret');
 
   -- (0) Kun redaktionen.
   PERFORM pg_temp.g471_afvist_som('gaest', format('SELECT public.red_kopier_ejerforhold(%s, %s, %L)', r_src, ey, 'c'),
@@ -814,7 +854,8 @@ BEGIN
   END LOOP;
 
   -- (a) Kopien: ny relation person → til med kildens periode, én påstand, én afklaret konklusion og én citation med
-  -- kildens kilde, kvalitet og side og bogens fulde formulering som citat. Kilden selv er urørt.
+  -- kildens kilde, kvalitet og side og bogens fulde formulering som citat. Kilden får samme citat (dens var NULL);
+  -- ellers er den urørt.
   v_src_foer := pg_temp.g471_evidens(r_src);
   SELECT id, cs INTO v_k, v_cs_k FROM pg_temp.g471_kald(
     format('public.red_kopier_ejerforhold(%s, %s, %L)', r_src, ey, '__t5_Christianssæde med Aalstrup og Frihedsminde__'));
@@ -836,8 +877,12 @@ BEGIN
                                       AND cs.subjekt_type = 'estate' AND cs.subjekt_id = ey) THEN
     RAISE EXCEPTION 'GODSER_T5: red_kopier_ejerforhold åbnede ikke sit eget ændringssæt (estate, %)', ey;
   END IF;
-  IF pg_temp.g471_evidens(r_src) IS DISTINCT FROM v_src_foer THEN
-    RAISE EXCEPTION 'GODSER_T5: kopieringen ændrede kilden';
+  IF (pg_temp.g471_evidens(r_src) - 'citation') IS DISTINCT FROM (v_src_foer - 'citation')
+     OR pg_temp.g471_evidens(r_src)->'citation'
+        IS DISTINCT FROM jsonb_build_array((v_src_foer->'citation'->0)
+                           || jsonb_build_object('citat_tekst', '__t5_Christianssæde med Aalstrup og Frihedsminde__')) THEN
+    RAISE EXCEPTION 'GODSER_T5: kopieringen gav ikke kilden bogens formulering som citat (eller ændrede andet): %',
+      pg_temp.g471_evidens(r_src);
   END IF;
 
   -- (b) Idempotent på (person, til, rolle, periode): samme id, intet nyt sæt, intet nyt — også med et andet citat.
@@ -867,9 +912,12 @@ BEGIN
   v_sets := v_sets + 1; v_rel := v_rel + 1; v_ass := v_ass + 1; v_kon := v_kon + 1; v_cit := v_cit + 1;
 
   -- (d) Afvisninger, før noget skrives.
-  FOREACH v_id IN ARRAY ARRAY[r_ingen, r_to, r_to2] LOOP
+  FOREACH v_id IN ARRAY ARRAY[r_ingen, r_to, r_to2, r_ekstra, r_status, r_valg, r_ukonkl] LOOP
     PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_kopier_ejerforhold(%s, %s, %L)', v_id, ey, 'c'),
-      '23514', 'EJERFORHOLD_KILDE_UKLAR', 'kopi af et ejerforhold uden præcis én citation');
+      '23514', 'EJERFORHOLD_KILDE_UKLAR', format('kopi af et uklart ejerforhold (%s)',
+        CASE v_id WHEN r_ingen THEN 'ingen citation' WHEN r_to THEN 'to citationer' WHEN r_to2 THEN 'to påstande med citation'
+                  WHEN r_ekstra THEN 'ekstra påstand uden citation' WHEN r_status THEN 'tilbagetrukket konklusion'
+                  WHEN r_valg THEN 'konklusionen vælger ikke påstanden' ELSE 'ingen konklusion' END));
   END LOOP;
   FOREACH v_id IN ARRAY ARRAY[r_fp, r_afb, r_estsub] LOOP
     PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_kopier_ejerforhold(%s, %s, %L)', v_id, ey, 'c'),
@@ -912,6 +960,36 @@ BEGIN
   END IF;
   SELECT id INTO v_id FROM pg_temp.g471_kald(format('public.red_kopier_ejerforhold(%s, %s, %L)', r_src, ey, 'c'));
   IF v_id IS NULL OR v_id = v_k THEN RAISE EXCEPTION 'GODSER_T5: ny kopi efter fortryd gav %', v_id; END IF;
+
+  -- (f) Samme ejer fra to udgaver (samme periode, hver sin kilde) til samme gård: to ejerforhold, hver med sin kilde;
+  -- gentaget kald med samme kilde giver det eksisterende id.
+  SELECT id INTO v_e1 FROM pg_temp.g471_kald(format('public.red_kopier_ejerforhold(%s, %s, %L)', r_ed1, ey, '__t5_udgave 1__'));
+  SELECT id INTO v_e2 FROM pg_temp.g471_kald(format('public.red_kopier_ejerforhold(%s, %s, %L)', r_ed2, ey, '__t5_udgave 2__'));
+  IF v_e1 IS NULL OR v_e2 IS NULL OR v_e1 = v_e2 THEN
+    RAISE EXCEPTION 'GODSER_T5: to udgavers ejerforhold gav ikke to kopier (% og %)', v_e1, v_e2;
+  END IF;
+  PERFORM pg_temp.g471_kraev_evidens(v_e1, 'ejer', NULL, src, 'primær', NULL, '__t5_udgave 1__', 'kopien fra udgave 1');
+  PERFORM pg_temp.g471_kraev_evidens(v_e2, 'ejer', NULL, src2, 'primær', NULL, '__t5_udgave 2__', 'kopien fra udgave 2');
+  FOREACH k IN ARRAY ARRAY['1','2'] LOOP
+    SELECT id, cs INTO v_id, v_cs FROM pg_temp.g471_kald(format('public.red_kopier_ejerforhold(%s, %s, %L)',
+      CASE k WHEN '1' THEN r_ed1 ELSE r_ed2 END, ey, 'igen'));
+    IF v_id IS DISTINCT FROM (CASE k WHEN '1' THEN v_e1 ELSE v_e2 END) OR v_cs IS NOT NULL THEN
+      RAISE EXCEPTION 'GODSER_T5: gentaget kopi fra udgave % gav % og sæt %', k, v_id, v_cs;
+    END IF;
+  END LOOP;
+  IF (SELECT count(*) FROM public.relation WHERE subjekt_type = 'person' AND subjekt_id = p3 AND objekt_type = 'estate'
+        AND objekt_id = ey AND rolle = 'ejer') <> 2 THEN
+    RAISE EXCEPTION 'GODSER_T5: to udgavers ejerforhold gav ikke præcis to ejerforhold på gården';
+  END IF;
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c_ed1) IS DISTINCT FROM '__t5_udgave 1__' THEN
+    RAISE EXCEPTION 'GODSER_T5: kildens citation fik ikke citatet fra det første kald';
+  END IF;
+  -- En kilde, hvis citation allerede har bogens ordlyd, beholder den; kopien får p_citat.
+  SELECT id INTO v_id FROM pg_temp.g471_kald(format('public.red_kopier_ejerforhold(%s, %s, %L)', r_cit, ey, '__t5_godsmassen__'));
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c_cit) IS DISTINCT FROM '__t5_bogens ordlyd__' THEN
+    RAISE EXCEPTION 'GODSER_T5: kopieringen overskrev kildens eksisterende citat';
+  END IF;
+  PERFORM pg_temp.g471_kraev_evidens(v_id, 'ejer', NULL, src, 'primær', NULL, '__t5_godsmassen__', 'kopien af et citeret ejerforhold');
 
   -- ===== red_hoerer_under =====
   INSERT INTO public.estate(navn, slags) VALUES ('__t5_g1__', 'gård') RETURNING id INTO g1;
@@ -960,7 +1038,14 @@ BEGIN
     END IF;
   END LOOP;
   PERFORM pg_temp.g471_kraev_evidens(v_hn, 'hører_under', NULL, src, 'primær', NULL, '__t5_uden periode__', 'hører under uden periode');
-  v_sets := v_sets + 1; v_rel := v_rel + 1;
+  -- Samme gård, majorat og periode fra en anden kilde: en ny relation med sin egen kilde; gentaget kald giver den igen.
+  SELECT id INTO v_hs2 FROM pg_temp.g471_kald(format('public.red_hoerer_under(%s, %s, %L, %s, %L)', g1, m1, '1729-1924', src2, '__t5_anden udgave__'));
+  SELECT id, cs INTO v_id, v_cs FROM pg_temp.g471_kald(format('public.red_hoerer_under(%s, %s, %L, %s, %L)', g1, m1, '1729-1924', src2, 'x'));
+  IF v_hs2 IS NULL OR v_hs2 = v_h OR v_id IS DISTINCT FROM v_hs2 OR v_cs IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T5: hører under fra en anden kilde gav % (første %), gentaget % og sæt %', v_hs2, v_h, v_id, v_cs;
+  END IF;
+  PERFORM pg_temp.g471_kraev_evidens(v_hs2, 'hører_under', '1729-1924', src2, 'primær', NULL, '__t5_anden udgave__', 'hører under fra anden kilde');
+  v_sets := v_sets + 2; v_rel := v_rel + 2;
 
   -- (d) Afvisninger.
   PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_hoerer_under(%s, %s, NULL, %s, %L)', n1, m1, src, 'c'),

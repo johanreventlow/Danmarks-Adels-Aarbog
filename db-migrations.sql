@@ -51066,10 +51066,12 @@ GRANT EXECUTE ON FUNCTION public.red_sammenlaeg_estate(bigint,bigint) TO authent
 -- pr. gård. red_kopier_ejerforhold kopierer kildens ejerforhold (person → gods) til p_til_estate som en ny relation
 -- med samme ejer, periode og øvrige felter, med samme evidensmønster som importens ejerforhold: én uforanderlig påstand
 -- ('ejer', kildepåstandens datering), én afklaret konklusion med den valgt og én citation med kildecitationens
--- source_id, kvalitet og side og p_citat (bogens fulde formulering) som citat_tekst. Kilden skal have præcis én
--- citation (på tværs af sine påstande); ellers EJERFORHOLD_KILDE_UKLAR i stedet for at gætte. Idempotent på (ejer, til,
--- rolle, periode_raw; NULL = NULL): findes et sådant ejerforhold allerede (også et importeret, eller kilden selv, når
--- til er kildens eget gods), returneres dets id uden ændringssæt.
+-- source_id, kvalitet og side og p_citat (bogens fulde formulering) som citat_tekst. p_citat lægges også på kildens
+-- citation, hvis dens citat_tekst er NULL. Kilden skal være ét entydigt udsagn: præcis én påstand med præcis én
+-- citation, valgt af en afklaret konklusion; ellers EJERFORHOLD_KILDE_UKLAR i stedet for at gætte. Idempotent på (ejer,
+-- til, rolle, periode_raw; NULL = NULL) OG kildens source_id: findes et sådant ejerforhold med en citation fra samme
+-- kilde (også et importeret, eller kilden selv, når til er kildens eget gods), returneres dets id uden ændringssæt.
+-- Samme ejer fra to udgaver giver altså to ejerforhold, hver med sin kilde (afgørelse 4A).
 -- Låse: fortryd/slet-låsen (delt), begge godser i id-orden (FOR SHARE), så kilderelationen; relationstriggerne låser
 -- personen til sidst. Fejl: RELATION_FINDES_IKKE / ESTATE_FINDES_IKKE (P0002), ESTATE_CITAT_TOMT (22023),
 -- EJERFORHOLD_KILDE_ROLLE og EJERFORHOLD_KILDE_UKLAR (23514), ESTATE_FLYT_SAMTIDIG (40001); kopi til en sammenlagt
@@ -51103,24 +51105,40 @@ BEGIN
   IF p_til_estate IS NULL OR NOT EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate) THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_til_estate USING ERRCODE = 'P0002';
   END IF;
-  SELECT r.id INTO v_id FROM relation r
-   WHERE r.subjekt_type = v_r.subjekt_type AND r.subjekt_id = v_r.subjekt_id
-     AND r.objekt_type = 'estate' AND r.objekt_id = p_til_estate AND r.rolle = 'ejer'
-     AND r.periode_raw IS NOT DISTINCT FROM v_r.periode_raw
-   ORDER BY r.id LIMIT 1;
-  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
-  SELECT count(*) INTO v_n FROM citation c JOIN assertion a ON a.id = c.assertion_id
-   WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  -- Kilden skal være ét entydigt bogudsagn: præcis én påstand med præcis én citation, valgt af en afklaret konklusion.
+  SELECT count(*) INTO v_n FROM assertion a WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'EJERFORHOLD_KILDE_UKLAR: ejerforhold % har % påstande; kun et ejerforhold med præcis én kan kopieres',
+      p_relation_id, v_n USING ERRCODE = '23514';
+  END IF;
+  SELECT a.* INTO v_a FROM assertion a WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  SELECT count(*) INTO v_n FROM citation c WHERE c.assertion_id = v_a.id;
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'EJERFORHOLD_KILDE_UKLAR: ejerforhold % har % citationer; kun et ejerforhold med præcis én kan kopieres',
       p_relation_id, v_n USING ERRCODE = '23514';
   END IF;
-  SELECT a.* INTO v_a FROM citation c JOIN assertion a ON a.id = c.assertion_id
-   WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  IF NOT EXISTS (SELECT 1 FROM conclusion k WHERE k.target_type = 'relation' AND k.target_id = p_relation_id
+                    AND k.status = 'afklaret' AND k.valgt_assertion_id = v_a.id) THEN
+    RAISE EXCEPTION 'EJERFORHOLD_KILDE_UKLAR: ejerforhold % har ingen afklaret konklusion, der vælger dets påstand', p_relation_id
+      USING ERRCODE = '23514';
+  END IF;
   SELECT c.* INTO v_c FROM citation c WHERE c.assertion_id = v_a.id;
+  -- Idempotens: samme ejer, gård, rolle og periode OG samme kilde. Samme ejer fra to udgaver giver to ejerforhold,
+  -- så ingen udgaves evidens forsvinder lydløst.
+  SELECT r.id INTO v_id FROM relation r
+   WHERE r.subjekt_type = v_r.subjekt_type AND r.subjekt_id = v_r.subjekt_id
+     AND r.objekt_type = 'estate' AND r.objekt_id = p_til_estate AND r.rolle = 'ejer'
+     AND r.periode_raw IS NOT DISTINCT FROM v_r.periode_raw
+     AND EXISTS (SELECT 1 FROM assertion a JOIN citation c ON c.assertion_id = a.id
+                  WHERE a.target_type = 'relation' AND a.target_id = r.id
+                    AND c.source_id IS NOT DISTINCT FROM v_c.source_id)
+   ORDER BY r.id LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
 
   PERFORM begin_change_set('red_kopier_ejerforhold',
     format('Kopierede ejerforhold %s fra gods %s til gods %s', p_relation_id, v_fra, p_til_estate), 'estate', p_til_estate);
+  -- Bogens fulde formulering også på kildens citation (kun hvor den er NULL; invariant 1, globale krav).
+  UPDATE citation SET citat_tekst = v_citat WHERE id = v_c.id AND citat_tekst IS NULL;
   INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, erhvervelsesmaade,
                        start_min, start_max, end_min, end_max, period_type, periode_raw, konfidens, kvalifikator)
     VALUES (v_r.subjekt_type, v_r.subjekt_id, 'estate', p_til_estate, 'ejer', v_r.erhvervelsesmaade,
@@ -51145,8 +51163,8 @@ GRANT EXECUTE ON FUNCTION public.red_kopier_ejerforhold(bigint,bigint,text) TO a
 -- »Hører under« med kilde (#471): relationen gård → majorat (rolle 'hører_under', periode_raw), med én uforanderlig
 -- påstand ('hører_under', perioden som date_raw), én afklaret konklusion med den valgt og én primær citation med
 -- p_source_id og p_citat. Registreres kun, hvor bogen selv siger det, så kilde og citat er påkrævet. Perioden
--- trimmes, og tom tekst er NULL. Idempotent på (gård, majorat, periode_raw; NULL = NULL): returnerer eksisterende id
--- uden ændringssæt. Arten (gård → grevskab/baroni/stamhus), en relation til sig selv og en sammenlagt række afvises af
+-- trimmes, og tom tekst er NULL. Idempotent på (gård, majorat, periode_raw; NULL = NULL) og kilden: findes relationen
+-- med en citation fra p_source_id, returneres dens id uden ændringssæt; en anden kildes udsagn bliver en ny relation. Arten (gård → grevskab/baroni/stamhus), en relation til sig selv og en sammenlagt række afvises af
 -- trg_estate_relation_vagt (ESTATE_HOERER_UNDER_ART, ESTATE_RELATION_SELV, ESTATE_ER_SAMMENLAGT).
 -- Låse: fortryd/slet-låsen (delt), så begge godser i id-orden (FOR SHARE). Fejl: ESTATE_FINDES_IKKE og
 -- KILDE_FINDES_IKKE (P0002), ESTATE_CITAT_TOMT (22023).
@@ -51165,14 +51183,17 @@ BEGIN
   IF p_gaard IS NULL OR p_majorat IS NULL OR v_fundet <> (CASE WHEN p_gaard = p_majorat THEN 1 ELSE 2 END) THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % eller gods % findes ikke', p_gaard, p_majorat USING ERRCODE = 'P0002';
   END IF;
-  SELECT r.id INTO v_id FROM relation r
-   WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_gaard AND r.objekt_type = 'estate' AND r.objekt_id = p_majorat
-     AND r.rolle = 'hører_under' AND r.periode_raw IS NOT DISTINCT FROM v_periode
-   ORDER BY r.id LIMIT 1;
-  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
   IF p_source_id IS NULL OR NOT EXISTS (SELECT 1 FROM source s WHERE s.id = p_source_id) THEN
     RAISE EXCEPTION 'KILDE_FINDES_IKKE: kilde % findes ikke', p_source_id USING ERRCODE = 'P0002';
   END IF;
+  -- Idempotens: samme gård, majorat og periode OG samme kilde (to udgavers udsagn bliver to relationer).
+  SELECT r.id INTO v_id FROM relation r
+   WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_gaard AND r.objekt_type = 'estate' AND r.objekt_id = p_majorat
+     AND r.rolle = 'hører_under' AND r.periode_raw IS NOT DISTINCT FROM v_periode
+     AND EXISTS (SELECT 1 FROM assertion a JOIN citation c ON c.assertion_id = a.id
+                  WHERE a.target_type = 'relation' AND a.target_id = r.id AND c.source_id = p_source_id)
+   ORDER BY r.id LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
 
   PERFORM begin_change_set('red_hoerer_under',
     format('Gods %s hører under gods %s (%s)', p_gaard, p_majorat, coalesce(v_periode, 'uden periode')), 'estate', p_gaard);
