@@ -10,6 +10,7 @@ import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { orThrow } from './orThrow';
 import { signPaths, fetchThumbPathByMediaId } from './media';
+import { MEDIA_AFBILDET_OBJEKT_TYPER, MEDIA_INTERNE_FELTER_BID } from './mediaKontrakt';
 import type { Model } from './types';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
@@ -1046,6 +1047,50 @@ export function mapPersonMediaRows(
     });
 }
 
+// Review 37 R37S8-1 (#397): original_filnavn og sha256 er ikke læsbare direkte på media (kolonne-kontrakten i
+// mediaKontrakt.ts); redaktionen henter dem gennem den rolle-gatede red_media_interne_felter i bidder à højst
+// MEDIA_INTERNE_FELTER_BID id'er (serverens loft er 1000). Svaret caster id til tekst, så et bigint-id aldrig passerer
+// et JavaScript number; et id over 2^53 sendes som streng (PostgREST læser JSON-arrayet ind i bigint[]).
+export type MediaInterneFelter = { originalFilnavn: string | null; sha256: string | null };
+type RawMediaInterneFelter = { id: number | string; original_filnavn: string | null; sha256: string | null };
+type InterneFelterRpc = (ids: (number | string)[]) => Promise<{ data: RawMediaInterneFelter[] | null; error: { message: string } | null }>;
+
+const defaultInterneFelterRpc: InterneFelterRpc = async (ids) => {
+  const { data, error } = await supabase.rpc('red_media_interne_felter', { p_ids: ids })
+    .select('id::text,original_filnavn,sha256');
+  return { data: data as RawMediaInterneFelter[] | null, error };
+};
+
+const bigintArg = (id: number | string): number | string => {
+  if (typeof id === 'number') return id;
+  const n = Number(id);
+  return Number.isSafeInteger(n) ? n : id;
+};
+
+export async function fetchMediaInterneFelter(
+  ids: readonly (number | string)[],
+  rpc: InterneFelterRpc = defaultInterneFelterRpc,
+): Promise<Map<string, MediaInterneFelter>> {
+  const unikke = [...new Map(ids.map((id) => [String(id), id])).values()];
+  const out = new Map<string, MediaInterneFelter>();
+  for (let i = 0; i < unikke.length; i += MEDIA_INTERNE_FELTER_BID) {
+    const bid = unikke.slice(i, i + MEDIA_INTERNE_FELTER_BID).map(bigintArg);
+    const rows = orThrow(await rpc(bid), 'red_media_interne_felter') ?? [];
+    for (const r of rows) out.set(String(r.id), { originalFilnavn: r.original_filnavn, sha256: r.sha256 });
+  }
+  return out;
+}
+
+/** Fletter de interne felter ind på id; et medie uden svar (fx slettet imellem) får null i begge. */
+export function flettInterneFelter<T extends { id: number | string }>(
+  rows: readonly T[], felter: ReadonlyMap<string, MediaInterneFelter>,
+): (T & { original_filnavn: string | null; sha256: string | null })[] {
+  return rows.map((r) => {
+    const f = felter.get(String(r.id));
+    return { ...r, original_filnavn: f?.originalFilnavn ?? null, sha256: f?.sha256 ?? null };
+  });
+}
+
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
 async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number; primaer?: boolean }[]): Promise<PersonMedia[]> {
@@ -1053,11 +1098,13 @@ async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number; p
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
   const primaerByMediaId = new Map(pairs.map((p) => [String(p.mediaId), p.primaer === true]));
   const mediaIds = pairs.map((p) => p.mediaId);
-  const [rows, thumbPathByMediaId] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256').in('id', mediaIds).order('id')),
+  const [tabelRows, interne, thumbPathByMediaId] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn' | 'sha256'>>(() =>
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at').in('id', mediaIds).order('id')),
+    fetchMediaInterneFelter(mediaIds),
     fetchThumbPathByMediaId(mediaIds),
   ]);
+  const rows = flettInterneFelter(tabelRows, interne);
   const signed = await signPaths([
     ...rows.map((r) => r.storage_path ?? ''),
     ...thumbPathByMediaId.values(),
@@ -1179,7 +1226,8 @@ type RawMediaMentionCount = { maal_id: number | string };
 // PostgREST SELECT'en og sker dermed før JSON-dekodning; filtre nedenfor bruger fortsat rå kolonner.
 export function mediaBibliotekQuerySpecs() {
   return {
-    media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256' },
+    // Uden original_filnavn/sha256 (R37S8-1): de flettes ind fra red_media_interne_felter.
+    media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at' },
     personRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_id::text' },
     objektRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_type,objekt_id::text' },
     mentions: { table: 'text_mention', select: 'maal_id::text' },
@@ -1229,18 +1277,22 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   // Ingen upload_status-filter her: kladder, fejl og fjernede rækker er selve grundlaget for
   // bibliotekets strandede-/papirkurvskøer. RLS afgør fortsat, hvem der må se dem.
   const specs = mediaBibliotekQuerySpecs();
-  const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
+  const [tabelRows, personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn' | 'sha256'>>(() =>
       supabase.from(specs.media.table).select(specs.media.select).order('id')),
     getAll<RawPersonMediaRelation>(() =>
       supabase.from(specs.personRelationer.table).select(specs.personRelationer.select).eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id')),
     getAll<RawObjectMediaRelation>(() =>
-      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select).eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet').order('id')),
+      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select).eq('subjekt_type', 'media').in('objekt_type', [...MEDIA_AFBILDET_OBJEKT_TYPER]).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMentionCount>(() =>
       supabase.from(specs.mentions.table).select(specs.mentions.select).eq('maal_type', 'media').order('kilde_type').order('kilde_id').order('maal_id')),
   ]);
-  const mediaIds = mediaRows.map((m) => m.id);
-  const thumbPathByMediaId = await fetchThumbPathByMediaId(mediaIds);
+  const mediaIds = tabelRows.map((m) => m.id);
+  const [interne, thumbPathByMediaId] = await Promise.all([
+    fetchMediaInterneFelter(mediaIds),
+    fetchThumbPathByMediaId(mediaIds),
+  ]);
+  const mediaRows = flettInterneFelter(tabelRows, interne);
   const signed = await signPaths([
     ...mediaRows.map((m) => m.storage_path ?? ''),
     ...thumbPathByMediaId.values(),
@@ -1344,6 +1396,14 @@ async function fetchMediaSubjectNames(subjects: { type: string; id: number | str
       const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
         supabase.from('lineage').select('id::text,navn').in('id', ids).order('id'));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'place') {
+      const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
+        supabase.from('place').select('id::text,navn').in('id', ids).order('id'));
+      rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'family') {
+      // R37B-3: en familie (union) har intet navn; etiketten er læsbar uden ekstra opslag. Partnernes navne ville
+      // kræve family_member + person og levende-hensyn for et billede, der endnu ikke findes i prod (0 rækker 26/11).
+      ids.forEach((id) => out.set(subjectKey(type, id), `Familie #${id}`));
     } else if (type === 'slaegt') {
       ids.forEach((id) => out.set(subjectKey(type, id), 'Slægten (generelt)'));
     }

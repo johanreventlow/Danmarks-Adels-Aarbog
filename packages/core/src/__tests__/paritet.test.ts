@@ -42,6 +42,8 @@ const RPCER: Record<string, Post> = {
   red_registrer_media_variant: B, red_slet_person_preview: B, red_udrens_media_preview: B,
   public_person_facts: B,
   hist_for_subjekter: web('mobilen viser kun historik for ét subjekt ad gangen; samlet historik er ikke planlagt (paritetsrapport 2.6)'),
+  red_media_efter_sha: web('midlertidigt: mobilen flyttes til RPC\'en i næste commit (#397 R37S8-1)'),
+  red_media_interne_felter: web('midlertidigt: mobilen flyttes til RPC\'en i næste commit (#397 R37S8-1)'),
   red_ocr_historik: web(IKKE_OCR),
   red_person_grid_udsnit: web(IKKE_OCR),
   red_ret_ocr_felt: web(IKKE_OCR),

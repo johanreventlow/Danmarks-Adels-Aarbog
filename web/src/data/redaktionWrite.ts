@@ -8,6 +8,7 @@ import { performUpload } from './mediaUpload';
 import type { ResizedVariant } from './mediaUpload';
 import { MEDIA_FAKTATYPER } from './media';
 import type { MediaFaktatype } from './media';
+import { MEDIA_AFBILDET_OBJEKT_TYPER } from './mediaKontrakt';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
 // daab/begravelse/floruit/naturalisering er del af rygraden og lå allerede i DB (loaderen
@@ -526,7 +527,8 @@ export function buildRpcCall(c: Change): RpcCall | null {
     const mediaId = parsePostgresBigintId(c.mediaId);
     const maalId = parsePostgresBigintId(c.payload?.maalId);
     const maalType = c.payload?.maalType;
-    const tilladteMaal = new Set(['person', 'estate', 'coat_of_arms', 'lineage']);
+    // Review 37 R37B-3: samme mål som red_relation's kanoniske afbildninger (også family/place, fx ved medieflet).
+    const tilladteMaal = new Set<string>(['person', ...MEDIA_AFBILDET_OBJEKT_TYPER]);
     if (mediaId == null || maalId == null || typeof maalType !== 'string' || !tilladteMaal.has(maalType)) return null;
     const person = maalType === 'person';
     return { fn: 'red_relation', args: {

@@ -6,6 +6,7 @@ import {
   mediaMentionFingerprint,
   sortMediaForQueue,
 } from '../mediaMerge';
+import { buildRpcCall } from '../redaktionWrite';
 
 const media = (overrides: Partial<MediaBibliotekPost>): MediaBibliotekPost => ({
   id: '1', slags: 'foto', titel: null, kunstner: null, datering: null,
@@ -90,6 +91,41 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
       { art: 'tilknytMedia', subjektType: 'media', subjektId: '9007199254740993', mediaId: '9007199254740993', payload: { maalType: 'estate', maalId: '7' } },
       { art: 'sletMediaRelationUdenEvidens', subjektType: 'media', subjektId: '9223372036854775807', relationId: '81' },
     ]);
+  });
+
+  it('flytter familie- og stedbilleder (R37B-3): link-original-trinnet har en gyldig tilknytMedia-change', () => {
+    const familie = { type: 'family', id: '9007199254740995', navn: 'Familie #9007199254740995', relationId: '301', primaer: false };
+    const sted = { type: 'place', id: '12', navn: 'Vemmetofte', relationId: '302', primaer: false };
+    const plan = buildMediaMergePlan({
+      copyId: '91', copyStatus: 'fjernet', originalId: '92',
+      copyAnvendelse: anvendelse([familie, sted]),
+      originalAnvendelse: anvendelse(),
+    });
+    expect(plan.steps.map((s) => s.kind)).toEqual([
+      'link-original', 'delete-copy-relation', 'link-original', 'delete-copy-relation',
+    ]);
+    const links = plan.steps.filter((s) => s.kind === 'link-original');
+    expect(links.map((s) => s.description)).toEqual([
+      'Tilknyt original #92 til Familie #9007199254740995', 'Tilknyt original #92 til Vemmetofte',
+    ]);
+    expect(links.map((s) => buildRpcCall(s.change))).toEqual([
+      { fn: 'red_relation', args: { p_subjekt_type: 'media', p_subjekt_id: 92, p_objekt_type: 'family',
+        p_objekt_id: '9007199254740995', p_rolle: 'afbildet', p_periode_raw: null } },
+      { fn: 'red_relation', args: { p_subjekt_type: 'media', p_subjekt_id: 92, p_objekt_type: 'place',
+        p_objekt_id: 12, p_rolle: 'afbildet', p_periode_raw: null } },
+    ]);
+    expect(plan.steps.filter((s) => s.kind === 'delete-copy-relation').map((s) => buildRpcCall(s.change))).toEqual([
+      { fn: 'red_slet_medierelation_uden_evidens', args: { p_relation_id: 301 } },
+      { fn: 'red_slet_medierelation_uden_evidens', args: { p_relation_id: 302 } },
+    ]);
+  });
+
+  it('afviser stadig en ukendt måltype i kopiens relationer', () => {
+    expect(() => buildMediaMergePlan({
+      copyId: '91', copyStatus: 'fjernet', originalId: '92',
+      copyAnvendelse: anvendelse([{ type: 'organisation', id: '5', navn: 'Org', relationId: '303', primaer: false }]),
+      originalAnvendelse: anvendelse(),
+    })).toThrow('Ukendt mediemåltype i relation 303: organisation');
   });
 
   it('springer link over når originalen allerede har målet, men rydder kopiens relation', () => {

@@ -13,6 +13,8 @@ import {
   mapUdrensPreview,
   mediaAnvendelseQuerySpecs,
   mediaBibliotekQuerySpecs,
+  fetchMediaInterneFelter,
+  flettInterneFelter,
   mapStories,
   storyPrefillFraPost,
 } from '../redaktionRead';
@@ -442,10 +444,43 @@ describe('mapMediaAnvendelse', () => {
   });
 });
 
+describe('interne mediefelter via red_media_interne_felter (R37S8-1)', () => {
+  it('beder i bidder à højst 500 unikke id\'er og sender store bigint-id\'er som strenge', async () => {
+    const ids: (number | string)[] = [...Array.from({ length: 1001 }, (_, i) => String(i + 1)), '7', '9223372036854775807'];
+    const kald: (number | string)[][] = [];
+    const felter = await fetchMediaInterneFelter(ids, async (bid) => {
+      kald.push(bid);
+      return { data: bid.map((id) => ({ id: String(id), original_filnavn: `f${id}.jpg`, sha256: String(id) === '7' ? 'a'.repeat(64) : null })), error: null };
+    });
+    expect(kald.map((b) => b.length)).toEqual([500, 500, 2]);
+    expect(kald[0][0]).toBe(1);
+    expect(kald[2]).toEqual([1001, '9223372036854775807']);
+    expect(felter.get('7')).toEqual({ originalFilnavn: 'f7.jpg', sha256: 'a'.repeat(64) });
+    expect(felter.get('9223372036854775807')).toEqual({ originalFilnavn: 'f9223372036854775807.jpg', sha256: null });
+  });
+
+  it('kalder ikke RPC\'en uden id\'er og kaster en RPC-fejl frem', async () => {
+    const rpc = vi.fn();
+    expect((await fetchMediaInterneFelter([], rpc)).size).toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+    await expect(fetchMediaInterneFelter([1], async () => ({ data: null, error: { message: 'Kun redaktion' } })))
+      .rejects.toThrow('red_media_interne_felter: Kun redaktion');
+  });
+
+  it('fletter felterne ind på id; et medie uden svar får null', () => {
+    const rows = [{ id: '1', titel: 'a' }, { id: 2, titel: 'b' }];
+    const felter = new Map([['1', { originalFilnavn: 'portraet.jpg', sha256: 'c'.repeat(64) }]]);
+    expect(flettInterneFelter(rows, felter)).toEqual([
+      { id: '1', titel: 'a', original_filnavn: 'portraet.jpg', sha256: 'c'.repeat(64) },
+      { id: 2, titel: 'b', original_filnavn: null, sha256: null },
+    ]);
+  });
+});
+
 describe('merge-læsequeries caster bigint før JSON-dekodning', () => {
   it('biblioteksqueries caster media- og relationsmål; filtre er separate specs', () => {
     expect(mediaBibliotekQuerySpecs()).toEqual({
-      media: { table: 'media', select: expect.stringContaining('id::text') },
+      media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at' },
       personRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_id::text' },
       objektRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_type,objekt_id::text' },
       mentions: { table: 'text_mention', select: 'maal_id::text' },
