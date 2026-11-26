@@ -350,6 +350,18 @@ BEGIN
   END IF;
   v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Christianssæde (med Pederstrup)__', 'baroni'));
   IF v_cs IS NOT NULL THEN RAISE EXCEPTION 'GODSER_T3: et kald uden ændring åbnede ændringssæt %', v_cs; END IF;
+  -- Mellemrum efter det gamle navn er ingen omdøbning: intet sæt, intet citat (og et citat er altid uden mellemrum).
+  UPDATE public.estate SET navn = '__t3_Christianssæde (med Pederstrup)__  ' WHERE id = e1;
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Christianssæde (med Pederstrup)__', 'baroni'));
+  IF v_cs IS NOT NULL OR (SELECT citat_tekst FROM public.citation WHERE id = c1) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T3: et gammelt navn med mellemrum til sidst blev behandlet som en omdøbning (sæt %)', v_cs;
+  END IF;
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Ny__', 'baroni'));
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c1) IS DISTINCT FROM '__t3_Christianssæde (med Pederstrup)__' THEN
+    RAISE EXCEPTION 'GODSER_T3: citatet fik ikke det gamle navn uden mellemrum (fik »%«)', (SELECT citat_tekst FROM public.citation WHERE id = c1);
+  END IF;
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));
+  UPDATE public.estate SET navn = '__t3_Christianssæde (med Pederstrup)__' WHERE id = e1;
 
   -- (e) Afvisninger: tomt navn, ukendt art, sammenlagt række, gods der ikke findes.
   PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, NULL)', e1, '  '),
@@ -404,8 +416,9 @@ BEGIN
     RAISE EXCEPTION 'GODSER_T3: citationen fulgte ikke med, eller fra-godsets navn blev ikke sat som citat';
   END IF;
   IF v_cs IS NULL OR NOT EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id = v_cs
-                                    AND cs.operation = 'red_flyt_estate_relation') THEN
-    RAISE EXCEPTION 'GODSER_T3: red_flyt_estate_relation åbnede ikke sit eget ændringssæt';
+                                    AND cs.operation = 'red_flyt_estate_relation'
+                                    AND cs.subjekt_type = 'estate' AND cs.subjekt_id = e2) THEN
+    RAISE EXCEPTION 'GODSER_T3: red_flyt_estate_relation åbnede ikke sit eget ændringssæt (estate, %)', e2;
   END IF;
   -- Fortryd: ejerforholdet tilbage på fra-godset og citat_tekst NULL igen.
   PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));

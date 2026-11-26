@@ -6791,6 +6791,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_estate_id USING ERRCODE = 'P0002';
   END IF;
+  -- Sammenlign og citér uden mellemrum i enderne: et gammelt navn med mellemrum til sidst er ingen omdøbning.
+  v_gammelt := btrim(v_gammelt);
   IF EXISTS (SELECT 1 FROM relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_estate_id
                 AND r.rolle = 'sammenlagt_i') THEN
     RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er lagt sammen med et andet gods; ret det i stedet', p_estate_id
@@ -6802,7 +6804,7 @@ BEGIN
   PERFORM begin_change_set('red_saet_estate',
     format('Rettede gods %s: »%s« (%s) → »%s« (%s)', p_estate_id, v_gammelt, coalesce(v_gammel_slags,'art ukendt'),
            v_navn, coalesce(v_slags,'art ukendt')), 'estate', p_estate_id);
-  IF v_navn IS DISTINCT FROM v_gammelt AND nullif(btrim(v_gammelt), '') IS NOT NULL THEN
+  IF v_navn IS DISTINCT FROM v_gammelt AND nullif(v_gammelt, '') IS NOT NULL THEN
     UPDATE citation c SET citat_tekst = v_gammelt
       FROM relation r, assertion a
      WHERE r.objekt_type = 'estate' AND r.objekt_id = p_estate_id AND r.rolle = 'ejer'
@@ -6850,8 +6852,8 @@ BEGIN
     format('Flyttede %s-relation %s fra gods %s til gods %s', v_rolle, p_relation_id, v_fra, p_til_estate),
     'estate', p_til_estate);
   IF v_rolle = 'ejer' THEN
-    SELECT e.navn INTO v_fra_navn FROM estate e WHERE e.id = v_fra;
-    IF nullif(btrim(v_fra_navn), '') IS NOT NULL THEN
+    SELECT btrim(e.navn) INTO v_fra_navn FROM estate e WHERE e.id = v_fra;
+    IF nullif(v_fra_navn, '') IS NOT NULL THEN
       UPDATE citation c SET citat_tekst = v_fra_navn
         FROM assertion a
        WHERE a.target_type = 'relation' AND a.target_id = p_relation_id
