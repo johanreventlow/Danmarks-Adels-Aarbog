@@ -4,10 +4,10 @@
 // De DELTE typer (Model/Db/Geo/collapse m.fl.) bor nu i @daa/core og re-eksporteres
 // herfra, så eksisterende imports fra './types' virker uændret. Kun mobil-specifikke
 // typer (Aux, Raw-rækker loaderen alene bruger, media-typer, normaliserings-helpers)
-// defineres lokalt. Core's Model er et SUPERSET (valgfrie web-lag som lineage/geo) —
-// mobil sætter dem ikke, hvilket er additivt sikkert.
+// defineres lokalt. Core's Model er et SUPERSET (valgfrie lag som lineage/geo); mobilen sætter 6e-lagene
+// (lineage, sourcesBy, udgaver, linjeRaekkerBy, bogNrBy) via data/udgaveLag.ts.
 import { KONFIDENS_VALUES } from '@daa/core';
-import type { Koen, Konfidens, SourceRef, LinjeEntry } from '@daa/core';
+import type { Koen, Konfidens, SourceRef } from '@daa/core';
 
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from '@daa/core';
 export type {
@@ -127,7 +127,9 @@ export type OfficeRef = { label: string; period: string; _y: number };
 export type OwnerRef = { personId: string; period: string; _y: number };
 export type EstateListEntry = { id: string; navn: string; ownerCount: number };
 
+// Linjerne bor ikke her men på modellen (model.lineage, 6e): én nøgle pr. kanonisk linje på tværs af udgaver.
 export type Aux = {
+  // Bogens opslag, ellers citations-proveniensen (ægtefæller). Personsiden tager model.sourcesBy først, som web.
   sourcesBy: Record<string, SourceRef[]>;
   estatesBy: Record<string, EstateRef[]>;
   officesBy: Record<string, OfficeRef[]>;
@@ -136,11 +138,6 @@ export type Aux = {
   ownersByEstate: Record<string, OwnerRef[]>;
   estateList: EstateListEntry[];
   estateById: Record<string, { id: string; navn: string; slags: string }>;
-  linjeByPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
-  linjeList: LinjeEntry[];
-  linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
-  adelsnavnByPerson?: Record<string, string>; // valgfri (seed/ældre fixtures); kanonisk person-id → linjens adelsnavn (»af Reventlow«); kun med regel
-  slaegtsnavn?: string | null; // slægtsrodens navn (»Reventlow«), som web's slaegt.navn
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
   orgListe: { id: string; navn: string; slags: string }[];
   medieListe: {

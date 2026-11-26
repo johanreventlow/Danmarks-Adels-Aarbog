@@ -3,11 +3,13 @@
 // SEPARAT bagefter (i storen) for at udlede parentId/spouse + indekser.
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
+import { byggUdgaveLag, type UdgaveLag } from './udgaveLag';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
-  byggLinjeAdelsnavne, type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow, type LinjeAdelsnavne,
+  byggLinjeAdelsnavne, slaegtsrodensNavn, type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow, type LinjeAdelsnavne,
+  type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -36,7 +38,6 @@ import type {
   RawEstate,
   RawExtId,
   RawFact,
-  RawLineage,
   RawMedia,
   RawMember,
   RawOrg,
@@ -62,6 +63,9 @@ export type LoadResult = {
   // samme_som-collapse: ethvert medlems-id → kanonisk id + proveniens pr. kanonisk (til badge).
   canonicalIdById: Record<string, string>;
   mergedFrom: Record<string, Provenance[]>;
+  // 6e (paritetsplanens batch 4): linjer pr. kanonisk linje på tværs af udgaver, bogens kilder, udgaver og
+  // linjerækker pr. udgave. Storen stempler felterne på modellen efter buildModel, som web's loadModel.
+  udgaveLag: UdgaveLag;
   // Geo-lag (kortpunkter) — starter TOMT (review 27 P3, "lazy geo-kæde"): place+fact hentes ikke
   // ved cold-start. loadGeo() henter dem + bygger den rigtige Geo, kaldt af storen ved første
   // kort-brug (Slægtens kort, Godser-kort, livsrejse-minikort). Spejler web/src/data/model.ts.
@@ -281,6 +285,9 @@ export async function loadFromSupabase(opts?: {
     media,
     mediaVariants,
     lineage,
+    schemes,
+    schemeEntries,
+    schemeMappings,
     arms,
     sameAsEdges,
   ] = await Promise.all([
@@ -343,8 +350,17 @@ export async function loadFromSupabase(opts?: {
       getAll<{ media_id: number; tier: string; storage_path: string }>(() =>
         sb.from('media_variant').select('media_id,tier,storage_path').in('tier', ['thumb', 'medium']).order('id'),
       ).catch(() => [] as { media_id: number; tier: string; storage_path: string }[]),
-      // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
-      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id,slaegtsnavn').order('id')).catch(() => [] as RawLineage[]),
+      // Linjer og stamtavleskemaer (6e) som web (model.ts): små tabeller, sorteret på entydig nøgle til getAll. Tolerant
+      // og logget: mangler lineage, bruges de trykte koder som navne; mangler skemaerne, falder linjerne tilbage til de
+      // trykte koder i stedet for at fælde hele indlæsningen.
+      getAll<RawLineageContext>(() => sb.from('lineage').select('id,source_id,kode,navn,canonical_label,slaegt_id,slaegtsnavn,parent_lineage_id').order('id'))
+        .catch((e) => { console.warn('[loadFromSupabase] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineageContext[]; }),
+      getAll<RawLineageScheme>(() => sb.from('lineage_scheme').select('id,slaegt_id,source_id,kind').order('id'))
+        .catch((e) => { console.warn('[loadFromSupabase] lineage_scheme utilgængelig — linjer vises med trykte koder:', e); return [] as RawLineageScheme[]; }),
+      getAll<RawLineageSchemeEntry>(() => sb.from('lineage_scheme_entry').select('id,scheme_id,code,label').order('id'))
+        .catch((e) => { console.warn('[loadFromSupabase] lineage_scheme_entry utilgængelig — linjer vises med trykte koder:', e); return [] as RawLineageSchemeEntry[]; }),
+      getAll<RawLineageSchemeEntryLineage>(() => sb.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind').order('entry_id').order('lineage_id').order('relation_kind'))
+        .catch((e) => { console.warn('[loadFromSupabase] lineage_scheme_entry_lineage utilgængelig — linjer vises med trykte koder:', e); return [] as RawLineageSchemeEntryLineage[]; }),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note').order('id')).catch(() => [] as RawArms[]),
       // samme_som-kanter (relation + afklaret konklusion) i bidder med genforsøg; en fejl afviser hele load'en
@@ -436,9 +452,13 @@ export async function loadFromSupabase(opts?: {
     return (thumb || medium) ? { ...m, thumb_storage_path: thumb, medium_storage_path: medium } : m;
   });
 
+  const udgaveLag = byggUdgaveLag(
+    { extIds, sources, lineageRows: lineage, schemeRows: { schemes, entries: schemeEntries, mappings: schemeMappings } },
+    collapsed.canonicalIdById,
+  );
   const [citationKilder, adelsnavne] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb)]);
   const aux = buildAux(
-    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms, citationKilder, adelsnavne },
+    { bogKilder: udgaveLag.sourcesBy, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, arms, citationKilder },
     collapsed.canonicalIdById,
   );
 
@@ -508,6 +528,8 @@ export async function loadFromSupabase(opts?: {
     relBId: relB.id,
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
+    // Linjernes adelsnavn + slægtsrodens navn til bogens formelle navneform (plan 2026-11-26), lagt på modellen som web.
+    udgaveLag: { ...udgaveLag, adelsnavne, slaegtsnavn: slaegtsrodensNavn(lineage) },
     geo,
     loadGeo,
     loadBios,

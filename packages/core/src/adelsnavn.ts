@@ -2,7 +2,6 @@
 // følger linjen (IV »de Reventlou«, V »af Reventlow«: et kildebundet `adelsnavn`-faktum på lineage); titelordet følger
 // personen (visningscachens adelstitel, allerede kønsbøjet). Ren visningsregel: der skrives intet i navn eller cache.
 import { erAdelsTitel } from './adelsTitler';
-import { compareLineHead } from './placementCoordinates';
 import { udenSlaegtsnavnTilSidst } from './slaegtsnavn';
 import type { Lineage } from './types';
 
@@ -85,48 +84,4 @@ export function personensAdelsnavn(personId: string, lineage: Lineage, regler: L
     .map((l) => lineageIdAfNoegle(l.linje))
     .filter((id): id is string => id != null);
   return adelsnavnForLinjer(ids, regler, stifterAf);
-}
-
-/**
- * Adelsnavn pr. kanonisk person ud fra de rå koordinater (mobilens vej; web bruger `personensAdelsnavn` på sin
- * kanoniske linjemodel). Linjen findes som `(source_id, linjekode)` → lineage-række, aldrig koden alene: udgaverne
- * nummererer linjerne forskelligt (1939 »IV« er 2018-20's V). Stifteren af en koordinat er medlemmet med laveste
- * slægtled/nr (samme regel som linjelistens hoved, `compareLineHead`). Personer uden regel udelades.
- */
-export function adelsnavnFraKoordinater(
-  extIds: readonly { person_id: Id; source_id: Id; linje: string | null; nr: number | null; nr_label?: string | null; slaegtled_lokal?: number | null }[],
-  lineageRows: readonly { id?: Id | null; source_id?: Id | null; kode?: string | null }[],
-  regler: LinjeAdelsnavne,
-  canonicalIdById: Record<string, string> = {},
-): Record<string, string> {
-  const cid = (id: Id) => canonicalIdById[String(id)] ?? String(id);
-  const koordinat = (sourceId: Id, kode: string) => `${String(sourceId)}:${kode}`;
-  const lineageAf = new Map<string, string>();
-  lineageRows.forEach((l) => { if (l.id != null && l.source_id != null && l.kode) lineageAf.set(koordinat(l.source_id, l.kode), String(l.id)); });
-  const linjer = new Map<string, Set<string>>();
-  const hoved = new Map<string, { pid: string; key: { slaegtled: number | null; nr: number | null; nr_label: string | null } }>();
-  extIds.forEach((x) => {
-    if (!x.linje) return;
-    const lid = lineageAf.get(koordinat(x.source_id, x.linje));
-    if (!lid) return;
-    const pid = cid(x.person_id);
-    const s = linjer.get(pid) ?? new Set<string>();
-    s.add(lid);
-    linjer.set(pid, s);
-    const key = { slaegtled: x.slaegtled_lokal ?? null, nr: x.nr ?? null, nr_label: x.nr_label ?? null };
-    const k = koordinat(x.source_id, x.linje);
-    const cur = hoved.get(k);
-    if (!cur || compareLineHead(key, cur.key) < 0) hoved.set(k, { pid, key });
-  });
-  const stifterAf = new Map<string, string[]>();
-  hoved.forEach((h, k) => {
-    const lid = lineageAf.get(k);
-    if (lid) stifterAf.set(h.pid, [...(stifterAf.get(h.pid) ?? []), lid]);
-  });
-  const ud: Record<string, string> = {};
-  linjer.forEach((ids, pid) => {
-    const r = adelsnavnForLinjer([...ids], regler, stifterAf.get(pid) ?? []);
-    if (r) ud[pid] = r;
-  });
-  return ud;
 }

@@ -3,6 +3,7 @@
 // Ikke autoritativt: live-data er kilden (README §8). Udvides ikke — det er kun en sikkerheds-net.
 import { EMPTY_GEO } from '@daa/core';
 import type { Aux, Db } from './types';
+import type { UdgaveLag } from './udgaveLag';
 
 const db: Db = {
   persons: [
@@ -36,9 +37,6 @@ const aux: Aux = {
   ownersByEstate: {},
   estateList: [],
   estateById: {},
-  linjeByPerson: { s1: ['I'], s2: ['I'], s3: ['I'], s4: ['I'], s5: ['I'] },
-  linjeList: [{ linje: 'I', count: 5, headId: 's1', navn: 'Den holstenske linje' }],
-  linjeNavn: { I: 'Den holstenske linje' },
   kildeListe: [],
   orgListe: [],
   medieListe: [],
@@ -47,9 +45,25 @@ const aux: Aux = {
   vaabenListe: [],
 };
 
+// Linjelaget som en uden skemaer (ingen udgaver, trykt kode som nøgle) — samme form som en live-base, hvor
+// skematabellerne ikke kunne hentes.
+const udgaveLag: UdgaveLag = {
+  lineage: {
+    byPerson: { s1: ['I'], s2: ['I'], s3: ['I'], s4: ['I'], s5: ['I'] },
+    list: [{ linje: 'I', count: 5, headId: 's1', navn: 'Den holstenske linje' }],
+    navn: { I: 'Den holstenske linje' },
+  },
+  sourcesBy: { s1: [{ ref: 'Linje I, nr. 1', work: 'Danmarks Adels Aarbog' }] },
+  linjeRaekkerBy: {},
+  udgaver: [],
+  udgaveForPersonRaekke: {},
+  bogNrBy: {},
+};
+
 export const SEED = {
   db,
   aux,
+  udgaveLag,
   // Offline-seed har ingen berigede koordinater → tomt geo-lag (kort viser ingen markører offline).
   geo: EMPTY_GEO,
   rootId: 's1',

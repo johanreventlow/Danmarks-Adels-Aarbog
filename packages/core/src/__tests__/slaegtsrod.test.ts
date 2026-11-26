@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { effektivtSlaegtsnavn, findSlaegtsrod } from '../slaegtsrod';
+import { effektivtSlaegtsnavn, findSlaegtsrod, slaegtsrodensNavn } from '../slaegtsrod';
 
 // Mirror af DB'ens lineage_effective_slaegtsnavn(): slægtsnavnet bor på slægts-roden og arves
 // ned ad parent_lineage_id. Klienten skal folde det samme, ellers viser præsenslisten tomt
@@ -61,5 +61,19 @@ describe('findSlaegtsrod', () => {
 
   test('grene uden eget navn er aldrig roden', () => {
     expect(findSlaegtsrod([{ id: 1, slaegtsnavn: null, parent_lineage_id: 6 }])).toBeNull();
+  });
+});
+
+describe('slaegtsrodensNavn (formel navneform, mobil, 2026-11-26)', () => {
+  test('rodens navn fra rå rækker; rækker uden id ignoreres', () => {
+    expect(slaegtsrodensNavn([
+      { id: 6, slaegtsnavn: 'Reventlow', parent_lineage_id: null },
+      { id: 5, slaegtsnavn: null, parent_lineage_id: 6 },
+      { slaegtsnavn: 'Ikke-rod', parent_lineage_id: null },
+    ])).toBe('Reventlow');
+  });
+  test('ingen rod → null', () => {
+    expect(slaegtsrodensNavn([])).toBeNull();
+    expect(slaegtsrodensNavn([{ id: 5, slaegtsnavn: null, parent_lineage_id: 6 }])).toBeNull();
   });
 });

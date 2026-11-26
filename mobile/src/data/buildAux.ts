@@ -1,14 +1,13 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
-// kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { adelsnavnFraKoordinater, buildProvenanceSources, effektivtSlaegtsnavn, findSlaegtsrod, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type LinjeAdelsnavne } from '@daa/core';
+// kilder (bogreference + citations-faldback), embeder/godser (relation), medier. Linjerne bor siden 6e (batch 4) på
+// modellen (model.lineage, data/udgaveLag.ts): nøglet på den kanoniske linje, ikke på den trykte kode.
+import { buildProvenanceSources, compareDanish, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type SourceRef } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
   Aux,
   RawArms,
   RawEstate,
-  RawExtId,
-  RawLineage,
   RawMedia,
   RawOrg,
   RawRelation,
@@ -17,7 +16,8 @@ import type {
 } from './types';
 
 type BuildAuxInput = {
-  extIds: RawExtId[];
+  // Bogens opslag pr. kanonisk person (buildSources i udgaveLag, = model.sourcesBy). Allerede kanoniseret.
+  bogKilder?: Record<string, SourceRef[]>;
   sources: RawSource[];
   relations: RawRelation[];
   mediaRelations?: RawRelation[];
@@ -25,30 +25,18 @@ type BuildAuxInput = {
   estates: RawEstate[];
   orgs: RawOrg[];
   media: RawMedia[];
-  lineage?: RawLineage[];
   arms?: RawArms[];
   // Proveniens fra evidenslaget (citation→source). Bruges KUN for personer uden bog-nummer —
   // se flettKilder. Mirror af web/src/data/public.ts's fetchProveniens.
   citationKilder?: CitationProvenanceRow[];
-  // Linjernes adelsnavn (lineage-id → »af Reventlow«) til bogens formelle navneform; udeladt = ingen.
-  adelsnavne?: LinjeAdelsnavne;
 };
 
 // Antal forskellige ejere (kanoniske person-id'er): en ejer med to perioder tæller én gang, som web's antalEjere.
 const antalEjere = (ejere: readonly { personId: string }[]): number => new Set(ejere.map((o) => o.personId)).size;
 
-// Slægtsrodens navn (»Reventlow«) — mobilens spejl af web's `slaegt.navn`; bruges til at fjerne et slægtsnavn, der
-// allerede står i fornavnene, fra bogens formelle navneform.
-function slaegtsnavnAf(lineage: readonly RawLineage[]): string | null {
-  const arv = lineage.filter((l) => l.id != null)
-    .map((l) => ({ id: l.id as string | number, slaegtsnavn: l.slaegtsnavn ?? null, parent_lineage_id: l.parent_lineage_id ?? null }));
-  const rod = findSlaegtsrod(arv);
-  return rod == null ? null : effektivtSlaegtsnavn(arv, rod);
-}
-
 export function buildAux(
   {
-    extIds,
+    bogKilder,
     sources,
     relations,
     mediaRelations,
@@ -56,20 +44,14 @@ export function buildAux(
     estates,
     orgs,
     media,
-    lineage,
     arms,
     citationKilder,
-    adelsnavne,
   }: BuildAuxInput,
   // samme_som-collapse: alle person-id-bærende strukturer kanoniseres, så hjælpedata for en foldet
   // person samles under den kanoniske id (spec §8). Default {} for bagudkompat i eksisterende tests.
   canonicalIdById: Record<string, string> = {},
 ): Aux {
   const cid = (id: string) => canonicalIdById[id] ?? id;
-  const srcById: Record<string, RawSource> = {};
-  (sources || []).forEach((s) => {
-    srcById[String(s.id)] = s;
-  });
   const estById: Record<string, string> = {};
   (estates || []).forEach((e) => {
     estById[String(e.id)] = e.navn ?? '';
@@ -79,58 +61,12 @@ export function buildAux(
     orgById[String(o.id)] = o.navn ?? '';
   });
 
-  // Kilder pr. person: trykt værk + "Linje X, nr. N". Nøgle kanoniseres → union pr. foldet person.
-  const bogKilder: Aux['sourcesBy'] = {};
-  (extIds || []).forEach((x) => {
-    const src = srcById[String(x.source_id)] || ({} as RawSource);
-    const work = src.titel || src.udgave || 'Kilde';
-    const nrTekst = x.nr_label ?? (x.nr != null ? String(x.nr) : null);
-    const place = [x.linje ? 'Linje ' + x.linje : '', nrTekst != null ? 'nr. ' + nrTekst : '']
-      .filter(Boolean)
-      .join(', ');
-    const pid = cid(String(x.person_id));
-    (bogKilder[pid] = bogKilder[pid] || []).push({ ref: place, work });
-  });
   // Ægtefæller har intet bog-nummer og fik derfor ingen kilde vist. Deres proveniens står i
   // citationerne — bog-nummeret vinder hvor det findes.
   const sourcesBy: Aux['sourcesBy'] = flettKilder(
-    bogKilder,
+    bogKilder ?? {},
     buildProvenanceSources(citationKilder ?? [], canonicalIdById),
   );
-
-  // Linjer (grene): hver person hører til en (eller flere) linje(r); hver linje har en stamfader
-  // (laveste nr). En collapsed grundlægger tilhører både oprindelses- og grundlagt-linje.
-  const linjeByPerson: Aux['linjeByPerson'] = {};
-  const linjeCounts: Record<string, number> = {};
-  const linjeHead: Record<string, { id: string; nr: number; nr_label: string | null }> = {};
-  (extIds || []).forEach((x) => {
-    if (!x.linje) return;
-    const pid = cid(String(x.person_id));
-    const arr = (linjeByPerson[pid] = linjeByPerson[pid] || []);
-    // Tæl distinkte kanoniske personer pr. linje (ikke ext-rækker), så en foldet person med
-    // flere rækker i samme linje ikke inflaterer count.
-    if (!arr.includes(x.linje)) {
-      arr.push(x.linje);
-      linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
-    }
-    // Laveste trykte nr.; ved samme tal afgør bogstavsuffikset (15a før 15b), jf. 5c-2.
-    const kand = { id: pid, nr: x.nr ?? 9999, nr_label: x.nr_label ?? null };
-    const cur = linjeHead[x.linje];
-    if (!cur || compareLineHead(kand, cur) < 0) linjeHead[x.linje] = kand;
-  });
-  // Linje-navne fra lineage-tabellen (kode → navn). Fallback til kode hvis tabellen mangler/tom.
-  const linjeNavn: Aux['linjeNavn'] = {};
-  (lineage || []).forEach((l) => {
-    if (l.kode && l.navn) linjeNavn[l.kode] = l.navn;
-  });
-  const linjeList: Aux['linjeList'] = Object.keys(linjeCounts)
-    .sort()
-    .map((l) => ({
-      linje: l,
-      count: linjeCounts[l],
-      headId: linjeHead[l]?.id ?? null,
-      navn: linjeNavn[l] ?? null,
-    }));
 
   // Embeder/godser fra relation (kun subjekt_type=person — loaderen filtrerer allerede).
   const estatesBy: Aux['estatesBy'] = {};
@@ -282,12 +218,6 @@ export function buildAux(
     ownersByEstate,
     estateList,
     estateById,
-    linjeByPerson,
-    linjeList,
-    linjeNavn,
-    // Via (kilde, linjekode) → lineage-id, ikke linjeByPersons rå koder: udgaverne nummererer linjerne forskelligt.
-    adelsnavnByPerson: adelsnavne ? adelsnavnFraKoordinater(extIds || [], lineage || [], adelsnavne, canonicalIdById) : {},
-    slaegtsnavn: slaegtsnavnAf(lineage || []),
     kildeListe,
     orgListe,
     medieListe,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adelsnavnForLinjer, adelsnavnFraKoordinater, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn,
+  adelsnavnForLinjer, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn,
 } from '../adelsnavn';
 import { ADELS_TITLER, erAdelsTitel } from '../adelsTitler';
 import { lineageContextKey } from '../lineage';
@@ -144,28 +144,3 @@ describe('byggLinjeAdelsnavne — fact/konklusion/påstand → regel pr. linje',
   });
 });
 
-describe('adelsnavnFraKoordinater — mobilens vej: (kilde, linjekode) → lineage-id, aldrig koden alene', () => {
-  // 2018-20 (kilde 1) har IV=4 og V=5; 1939 (kilde 3) har ingen IV/V-rækker (og dens koder er byttet om).
-  const lineageRows = [
-    { id: 4, source_id: 1, kode: 'IV' }, { id: 5, source_id: 1, kode: 'V' }, { id: 7, source_id: 3, kode: 'VI' },
-  ];
-  const regler = { '4': 'de Reventlou', '5': 'af Reventlow' };
-  const ext = (person_id: number, source_id: number, linje: string, nr: number) => ({ person_id, source_id, linje, nr, slaegtled_lokal: null });
-  const extIds = [
-    ext(392, 1, 'V', 1), ext(501, 1, 'V', 2), ext(298, 1, 'IV', 1), ext(310, 1, 'IV', 5),
-    ext(1300, 3, 'IV', 7), // 1939-only i »IV« (= grevelige 1673): ingen 1939-række → ingen regel, ikke IV's
-    ext(1501, 3, 'IV', 9), // alias for 501 via samme_som
-  ];
-  const ud = adelsnavnFraKoordinater(extIds, lineageRows, regler, { '1501': '501' });
-  it('efterkommere får deres linjes regel', () => {
-    expect(ud['501']).toBe('af Reventlow');
-    expect(ud['310']).toBe('de Reventlou');
-  });
-  it('stifterne (laveste nr i koordinaten) får ingen', () => {
-    expect(ud['392']).toBeUndefined();
-    expect(ud['298']).toBeUndefined();
-  });
-  it('1939-koden »IV« slås aldrig op som IV i 2018-20', () => {
-    expect(ud['1300']).toBeUndefined();
-  });
-});

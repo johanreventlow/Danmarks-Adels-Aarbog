@@ -194,6 +194,9 @@ export type Model = {
   // Linjernes adelsnavn (lineage-id → »af Reventlow«) til bogens formelle navneform. Valgfrit: tomt/udefineret =
   // ingen formel form (data ikke hentet eller ikke i basen endnu).
   adelsnavne?: LinjeAdelsnavne;
+  // Slægtsrodens navn (»Reventlow«). Valgfrit: mobilen sætter det (web bruger SlaegtRef.navn); bruges til at fjerne et
+  // slægtsnavn, der allerede står i fornavnene, fra bogens formelle navneform.
+  slaegtsnavn?: string | null;
   // "Kilde i Aarbogen"-referencer pr. person (§ + trykt værk + "Linje X, nr. N"). Valgfrit.
   sourcesBy?: Record<string, SourceRef[]>;
   // samme_som-collapse: ethvert medlems-id → kanonisk id. Bor på modellen (én kilde), så
