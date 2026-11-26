@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-25 — Personsidens fakta hentes op til ti gange hurtigere
+
+Fakta-sektionen tog op til et halvt sekund at hente for en gæst, fordi publiceringstjekket blev gentaget for hver
+kombination af faktum og biografi. Nu tjekkes hver biografi én gang: de langsomste personsider henter fakta på 30-50 ms.
+Et gæstekald må højst spørge efter 20 personer ad gangen. Samme dag: en fortrydelse kan ikke selv fortrydes (før skete
+der tavst ingenting); redaktøren får besked om at gentage den oprindelige ændring. I prod 2026-11-25
+(`database-current-state.md` §55, #397).
+
 ## 2026-11-25 — »s.å.« og »s.m.« oversættes også midt i teksten
 
 Fakta-sektionen viste fx »døbt 18. aug. s.å. i Vesterborg Kirke«, fordi forkortelserne kun blev oversat, når datoen

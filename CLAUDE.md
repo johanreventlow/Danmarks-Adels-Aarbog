@@ -24,6 +24,8 @@ målet foreningens samlede data.
 | DB | `schema.sql` = **source of truth** · `db-migrations.sql` (idempotent → prod) · `db-verify.sql` (asserts) · `db-rls.sql` (politikker) |
 | CI | `.github/workflows/ci.yml` — kører kun på PR'er (ikke docs/`.md`-rene) + manuelt (`workflow_dispatch`), **ikke** ved push til main: Actions-minutter er begrænsede. 7 jobs: node (core · feed · theme · web · mobil m. `tsc --noEmit`) · r · python · 4 PostgreSQL-jobs. node, R og python kører ved enhver ikke-docs-PR; jobbet `changes` springer de fire PostgreSQL-jobs over, når PR'en kun rører `web/`/`mobile/`/`packages/`/`package*.json` (~11 min mod ~30); manuel start kører alt. Saml rettelser i få PR'er, push først når en PR er færdig, og brug `[skip ci]` i mellemliggende push |
 
+**PR'er** følger `docs/pull_request_template.md` — også når beskrivelsen skrives med `gh pr create --body` (som springer skabelonen over). Rører PR'en `web/`, `packages/` eller databasen, skal den have en **»mobil:«-linje**: følger med her / følger i issue #… / ikke relevant, fordi …. Paritetstesten (`packages/core/src/__tests__/paritet.test.ts`, fra #493) fanger kun nye databasekald i én app, ikke ny visningslogik.
+
 Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git.
 
 ## Datamodellens invarianter (SKAL respekteres)

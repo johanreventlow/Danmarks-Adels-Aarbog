@@ -92,7 +92,7 @@ END $$;
 DO $person_facts$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-0000005c2b11'; m jsonb; m2 jsonb; r record; t record; v_ref uuid;
   v_sha text; v_v2 uuid; v_fp text; v_src2 jsonb; v_rec2 uuid; v_int2 uuid; pv jsonb; items jsonb; n int;
-  x1 jsonb; x2 jsonb; c0 bigint; c1 bigint; c2 bigint;
+  x1 jsonb; x2 jsonb; c0 bigint; c1 bigint; c2 bigint; g0 bigint; g1 bigint; n_bind int; v_fejl text;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   PERFORM pg_temp.km_kaldere();
@@ -436,6 +436,50 @@ BEGIN
   IF c2-c1<>0 THEN
     RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: VEJ_B_PER_ROW public_person_facts kalder assertion_binding_current pr. promotion-række (% kald)',c2-c1;
   END IF;
+
+  -- Review 37 ceremoni 3 (#397, Y13): publiceringsgaten kaldes højst én gang pr. gældende binding, ikke for hver
+  -- kombination af påstandsrække og binding (A×B: prod-kopien 24/11 havde 66 gatekald for 11 rækker og 6 bindinger).
+  -- Den blandede person har flere fakta end bindinger, så A×B-formen er rød her.
+  SELECT count(*) INTO n_bind FROM public.public_person_facts(ARRAY[-2861]) WHERE record_ref IS NOT NULL;
+  g0:=coalesce((SELECT s.calls FROM pg_stat_xact_user_functions s
+                 WHERE s.funcid='public.person_daa_narrative_publication_allowed(bigint)'::regprocedure),0);
+  PERFORM count(*) FROM public.public_person_facts(ARRAY[-2861]);
+  g1:=coalesce((SELECT s.calls FROM pg_stat_xact_user_functions s
+                 WHERE s.funcid='public.person_daa_narrative_publication_allowed(bigint)'::regprocedure),0);
+  IF n_bind<2 OR (SELECT count(*) FROM public.public_person_facts(ARRAY[-2861]))<=n_bind THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: C3 fixturen har ikke flere rækker end bindinger (% bundne)',n_bind;
+  END IF;
+  RAISE NOTICE 'C3 gatekald=% bindinger=% raekker=%',g1-g0,n_bind,(SELECT count(*) FROM public.public_person_facts(ARRAY[-2861]));
+  IF g1-g0>n_bind THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: C3_GATE_PER_ROW gaten kaldt % gange for % bindinger',g1-g0,n_bind;
+  END IF;
+
+  -- Review 37 ceremoni 3 (CLAUDE.md, anon-RPC'er): højst 20 id'er pr. kald gennem REST-API'et (4× den største
+  -- samme_som-gruppe i prod-kopien 24/11, 5 personer). PostgREST simuleres med request.jwt.claims hhv. request.method,
+  -- som den sætter i hver forespørgsel. 20 går igennem; 21 afvises med 22023. Uden dem (psql-orakler) intet loft.
+  PERFORM set_config('request.jwt.claims','{"role":"anon"}',true);
+  PERFORM count(*) FROM public.public_person_facts(ARRAY(SELECT -3000-g FROM generate_series(1,20) g));
+  v_fejl:=NULL;
+  BEGIN
+    PERFORM count(*) FROM public.public_person_facts(ARRAY(SELECT -3000-g FROM generate_series(1,21) g));
+  EXCEPTION WHEN SQLSTATE '22023' THEN v_fejl:=SQLERRM;
+  END;
+  IF v_fejl IS DISTINCT FROM 'PUBLIC_PERSON_FACTS_FOR_MANGE_ID' THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: C3_LOFT 21 id''er via REST ikke afvist (%)',coalesce(v_fejl,'ingen fejl');
+  END IF;
+  PERFORM set_config('request.jwt.claims','',true);
+  PERFORM set_config('request.method','POST',true);
+  v_fejl:=NULL;
+  BEGIN
+    PERFORM count(*) FROM public.public_person_facts(ARRAY(SELECT -3000-g FROM generate_series(1,21) g));
+  EXCEPTION WHEN SQLSTATE '22023' THEN v_fejl:=SQLERRM;
+  END;
+  IF v_fejl IS DISTINCT FROM 'PUBLIC_PERSON_FACTS_FOR_MANGE_ID' THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: C3_LOFT 21 id''er med kun request.method ikke afvist (%)',coalesce(v_fejl,'ingen fejl');
+  END IF;
+  PERFORM set_config('request.method','',true);
+  -- Uden REST-markører (psql-orakel): 21 id'er går igennem.
+  PERFORM count(*) FROM public.public_person_facts(ARRAY(SELECT -3000-g FROM generate_series(1,21) g));
 
   RAISE NOTICE 'OK: public_person_facts og assertion_binding_current';
 END $person_facts$;

@@ -50512,3 +50512,131 @@ BEGIN
   RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
 END $$;
 -- END review37-r37c2-1
+
+-- BEGIN review37-c3
+-- Review 37 ceremoni 3 (#397 Y4 + Y13, projektejeren 25/11 efter måling i prod): public_person_facts.
+--  Y13  publiceringsgaten og etiketterne beregnes én gang pr. binding (MATERIALIZED CTE bl) i stedet for i
+--       hovedforespørgslens LATERAL, hvor planneren kunne kalde gaten for hver kombination af påstandsrække og binding.
+--  Y4   ankeret slås op pr. occurrence (LATERAL) i stedet for at bygge hele source_record_anchor_current pr. binding.
+--  Loft højst 20 id'er pr. kald gennem REST-API'et (request.jwt.claims/request.method); psql-orakler rammes ikke.
+-- Rækkerne er uændrede (bevist for alle personer i prod-kopien 24/11, som gæst og som redaktør). Deploy-området for
+-- prod er blokkene review37-r37c2-1 og review37-c3 i ÉN transaktion. Kroppen er kopieret fra schema.sql og er den
+-- endelige definition. Samme signatur, returtype og ACL. Ingen data ændres.
+CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
+  chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
+  date_certainty text, source_id bigint, source_label text, side text, record_ref uuid, record_label text,
+  citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personers fakta. Kildehenvisningen
+  -- følger fortsat narrativets udgivelsesregel (lab nederst, trin 2).
+  v_red boolean:=public.current_rolle()='redaktion';
+BEGIN
+  -- Review 37 ceremoni 3 (CLAUDE.md, anon-RPC'er): højst 20 id'er pr. kald gennem REST-API'et, 4× den største
+  -- samme_som-gruppe i prod-kopien 24/11 (5 personer); webben sender én persons samme_som-medlemmer. PostgREST sætter
+  -- request.jwt.claims og request.method i hver forespørgsels transaktion, og en klient kan ikke fjerne dem. Interne
+  -- psql-orakler (ceremoni- og målescripts, der hasher læserens visning for alle personer) rammes ikke
+  -- (projektejerens valg 2026-11-25, docs/decisions.md).
+  IF cardinality(p_person_ids)>20
+     AND coalesce(nullif(current_setting('request.jwt.claims',true),''),
+                  nullif(current_setting('request.method',true),'')) IS NOT NULL THEN
+    RAISE EXCEPTION 'PUBLIC_PERSON_FACTS_FOR_MANGE_ID' USING ERRCODE='22023';
+  END IF;
+  IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH f AS (
+    SELECT fa.id,fa.subjekt_id,fa.faktatype,cn.status,cn.valgt_assertion_id
+      FROM public.fact fa
+      JOIN public.conclusion cn ON cn.target_type='fact' AND cn.target_id=fa.id
+     WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
+       AND cn.status IN ('afklaret','omstridt')
+       AND (v_red OR public.entitet_offentlig('person',fa.subjekt_id))
+  ), pr AS (
+    -- Personernes assertion-promotions med fortolkningsnøgle.
+    SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+     WHERE p.target_type='assertion'
+       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
+  ), cur AS (
+    -- interpretation_current én gang for de berørte nøgler (filteret på nøglen skubbes ind under DISTINCT ON).
+    SELECT ic.id,ic.interpretation_key,ic.status,ic.source_id,ic.source_persona_id,ic.value
+      FROM private.interpretation_current ic
+     WHERE ic.interpretation_key=ANY(ARRAY(SELECT pr.interpretation_key FROM pr))
+  ), b AS (
+    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
+    -- assertion_binding_current, for alle rækker på én gang.
+    SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
+           -- Review 37 Y4: ankeret slås op pr. occurrence i stedet for at bygge hele view'et pr. binding. OFFSET 0
+           -- forhindrer, at planneren flader underforespørgslen ud (så bliver filteret en join-betingelse igen); nu
+           -- skubbes filteret på view'ets DISTINCT ON-nøgle ind og bruger UNIQUE(occurrence_id,source_record_id,version).
+           (SELECT array_agg(an.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              CROSS JOIN LATERAL (
+                SELECT ac.source_record_id FROM private.source_record_anchor_current ac
+                 WHERE ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted' OFFSET 0) an
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM pr
+      JOIN cur ON cur.interpretation_key=pr.interpretation_key AND cur.id=pr.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=pr.rule_key AND r.rule_version=pr.rule_version
+      JOIN public.assertion ba ON ba.id=pr.target_id AND ba.target_type='fact'
+      JOIN public.fact bf ON bf.id=ba.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE bf.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND bf.subjekt_type='person' AND bf.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,ba.vaerdi_tekst,ba.date_raw)
+  ), bp AS (
+    -- Betingelse 2 og 3: én record i fortolkningens kilde, én publiceret narrativ for den.
+    SELECT b.assertion_id,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM b
+      JOIN private.source_record sr ON sr.id=b.recs[1] AND sr.source_id=b.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE b.n_support=1 AND cardinality(b.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  ), bl AS MATERIALIZED (
+    -- Review 37 ceremoni 3 (Y13): narrativets publiceringsgate og etiketterne én gang pr. binding. Før stod de i
+    -- hovedforespørgslens LATERAL, hvor planneren kunne bygge hele bp og kalde gaten for hver kombination af
+    -- påstandsrække og binding (prod-kopien 24/11: 66 gatekald for 11 rækker og 6 bindinger). Samme betingelser,
+    -- samme seneste event; personkoblingen (narrativets subjekt = faktummets person) står fortsat nedenfor. Gaten står i
+    -- select-listen, ikke i WHERE: et WHERE-filter kan planneren lægge på scanningen af ALLE narrativer før joinet
+    -- (testen så 35 kald for 2 bindinger); select-listen evalueres kun for bp's rækker.
+    SELECT bp.assertion_id,n.subjekt_id AS narrativ_person_id,bp.public_ref,
+           ev.after_state #>> '{labels,record_label}' AS record_label,
+           ev.after_state #>> '{labels,citation_label}' AS citation_label,
+           public.person_daa_narrative_publication_allowed(n.id) AS tilladt
+      FROM bp
+      JOIN public.narrative n ON n.id=bp.narrative_id AND n.subjekt_type='person'
+      JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                     WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+  ), bn AS (
+    -- Entydighed: præcis én gældende binding pr. assertion, ellers ingen.
+    SELECT a.id AS assertion_id,
+           (SELECT count(*) FROM b WHERE b.assertion_id=a.id) AS n_bind
+      FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id
+  )
+  SELECT f.subjekt_id,f.id,f.faktatype,f.status,a.id,
+         coalesce(a.id=f.valgt_assertion_id,false),
+         a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.date_certainty,
+         s.id,coalesce(s.udgave,s.titel),public.source_trykt_side(s.id,c.side),
+         lab.public_ref,lab.record_label,lab.citation_label
+    FROM f
+    JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
+    JOIN bn ON bn.assertion_id=a.id
+    LEFT JOIN public.citation c ON c.assertion_id=a.id
+    LEFT JOIN public.source s ON s.id=c.source_id
+    LEFT JOIN LATERAL (
+      SELECT bl.public_ref,bl.record_label,bl.citation_label
+        FROM bl
+       WHERE bl.assertion_id=a.id AND bn.n_bind=1 AND bl.narrativ_person_id=f.subjekt_id AND bl.tilladt
+    ) lab ON true
+   ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
+END $$;
+-- END review37-c3
