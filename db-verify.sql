@@ -9306,11 +9306,11 @@ END $$;
 -- END-VERIFY r37s3
 
 -- BEGIN-VERIFY r37s8
--- ===== Review 37 S8: gæster og medlemmer læser kun læserens kolonner på story og feed_pin; gæster også på media =====
--- anon har ingen tabelret på de tre tabeller; authenticated har ingen på story/feed_pin og kun SELECT på media
--- (redaktionens medieliste læser original_filnavn/sha256 — kendt rest, #397). Kolonneretterne er PRÆCIS
--- læserlisten (kun SELECT; listen her er bevidst skrevet uafhængigt af db-rls.sql); de interne kolonner er skjult,
--- media.storage_path er en bevidst undtagelse. Udøves også som rolle anon.
+-- ===== Review 37 S8 + R37S8-1: gæster, medlemmer og redaktion læser kun læserens kolonner på story, feed_pin og media =====
+-- Hverken anon eller authenticated har tabelret på de tre tabeller. Kolonneretterne er PRÆCIS læserlisten for begge
+-- roller (kun SELECT; listen her er bevidst skrevet uafhængigt af db-rls.sql); de interne kolonner er skjult,
+-- media.storage_path er en bevidst undtagelse. Redaktionen læser media.original_filnavn/sha256 gennem de rolle-gatede
+-- RPC'er (R37S8-1, #397; verify-enheden r37c5a). Udøves som anon og som authenticated med redaktørprofil.
 DO $$
 DECLARE r record; v_fejl text := ''; v_state text;
 BEGIN
@@ -9321,6 +9321,8 @@ BEGIN
       ('feed_pin','oprettet_af')) v(t,c) LOOP
     IF has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
       v_fejl := v_fejl || format(' skjult-men-læsbar:%s.%s', r.t, r.c); END IF;
+    IF has_column_privilege('authenticated', format('public.%I', r.t), r.c, 'SELECT') THEN
+      v_fejl := v_fejl || format(' skjult-men-læsbar-for-authenticated:%s.%s', r.t, r.c); END IF;
   END LOOP;
   -- Eksakt mængde: kolonneretterne (alle typer) for anon og authenticated på de tre tabeller = præcis læserlisten.
   -- Fanger både en manglende læserkolonne (fx story.subjekt_type, som forsiden filtrerer på) og en ekstra ret.
@@ -9335,7 +9337,7 @@ BEGIN
       ('feed_pin','id'),('feed_pin','kort_noegle'),('feed_pin','handling'),('feed_pin','oprettet_naar')),
   forventet(l) AS (
     SELECT 'anon:'||t||'.'||c||':SELECT' FROM laeser
-    UNION ALL SELECT 'authenticated:'||t||'.'||c||':SELECT' FROM laeser WHERE t IN ('story','feed_pin')),
+    UNION ALL SELECT 'authenticated:'||t||'.'||c||':SELECT' FROM laeser),
   faktisk(l) AS (
     SELECT x.grantee::regrole::text||':'||c.relname||'.'||at.attname||':'||x.privilege_type
       FROM pg_attribute at JOIN pg_class c ON c.oid=at.attrelid, aclexplode(at.attacl) x
@@ -9345,16 +9347,15 @@ BEGIN
                                             ELSE ' uventet-kolonneret:'||f.l END, '' ORDER BY coalesce(e.l,f.l)), '')
     INTO v_fejl
     FROM forventet e FULL JOIN faktisk f ON e.l=f.l WHERE e.l IS NULL OR f.l IS NULL;
-  -- Tabelretter: præcis authenticated SELECT på media; intet andet for de to roller.
+  -- Tabelretter: ingen for de to roller (R37S8-1: authenticated har heller ikke længere tabelret på media).
   SELECT v_fejl || coalesce(string_agg(' uventet-tabelret:'||l, '' ORDER BY l), '')
     INTO v_fejl
     FROM (SELECT x.grantee::regrole::text||':'||c.relname||':'||x.privilege_type AS l
             FROM pg_class c, aclexplode(c.relacl) x
            WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass)
-             AND x.grantee IN ('anon'::regrole,'authenticated'::regrole)) s
-   WHERE l <> 'authenticated:media:SELECT';
-  IF NOT has_table_privilege('authenticated','public.media','SELECT') THEN
-    v_fejl := v_fejl || ' authenticated-mangler-select:media'; END IF;
+             AND x.grantee IN ('anon'::regrole,'authenticated'::regrole)) s;
+  IF has_table_privilege('authenticated','public.media','SELECT') THEN
+    v_fejl := v_fejl || ' authenticated-har-tabelret:media'; END IF;
   IF EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) x
               WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass) AND x.grantee = 0) THEN
     v_fejl := v_fejl || ' PUBLIC-ret'; END IF;
@@ -9378,9 +9379,36 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
   IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — anon læste story.* (%)', v_state; END IF;
   EXECUTE 'RESET ROLE';
+
+  -- R37S8-1: som authenticated MED redaktørprofil — læserens kolonner virker, original_filnavn/sha256 (også som filter)
+  -- og select * afvises på tabellen, mens den rolle-gatede RPC giver felterne.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO media(id,slags,titel,upload_status,original_filnavn,sha256)
+    VALUES (-937711,'foto','s8 redaktør','klar','Privat navn.jpg',repeat('8a',32));
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'FEJL: S8 — testen kører ikke som redaktør'; END IF;
+  PERFORM count(*) FROM (SELECT id, titel, storage_path, upload_status, byte_size FROM public.media) q;
+  FOR r IN SELECT * FROM (VALUES
+      ('SELECT original_filnavn FROM public.media'),('SELECT sha256 FROM public.media'),
+      ('SELECT id FROM public.media WHERE sha256 = repeat(''8a'',32)'),('SELECT * FROM public.media')) v(q) LOOP
+    BEGIN
+      EXECUTE 'SELECT count(*) FROM ('||r.q||') x';
+      v_state := 'ingen fejl';
+    EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+    IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — redaktøren læste direkte: % (%)', r.q, v_state; END IF;
+  END LOOP;
+  IF (SELECT original_filnavn FROM public.red_media_interne_felter(ARRAY[-937711]::bigint[])) IS DISTINCT FROM 'Privat navn.jpg'
+     OR (SELECT id FROM public.red_media_efter_sha(repeat('8a',32))) IS DISTINCT FROM -937711 THEN
+    RAISE EXCEPTION 'FEJL: S8 — redaktørens RPC-vej til original_filnavn/sha256 virker ikke'; END IF;
+  EXECUTE 'RESET ROLE';
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
-  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S8 — gæster og medlemmer læser kun læserens kolonner (gæster også på media)';
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S8 — gæster, medlemmer og redaktion læser kun læserens kolonner (interne mediefelter kun via RPC)';
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37s8

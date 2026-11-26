@@ -1,9 +1,10 @@
 -- Review 37 R37S8-1 (#397): kaldermatrix for redaktionens to medie-RPC'er med rigtige klientroller
 -- (tests/sql/fixtures/kalder-matrix.sql). Gæsten (anon) har ingen EXECUTE (42501, »permission denied«); bruger uden
 -- profil og medlem (authenticated) afvises med »Kun redaktion« — også ved ugyldigt input, så afvisningen intet afslører.
--- Redaktionen får original_filnavn/sha256 flettet på id og dublettjekkets ene række. Syntetiske negative id'er; alt rulles
--- tilbage. Forvent: NOTICE "OK: review37 c5 kaldere". Køres i CI mod frisk schema (»Evidens-hardening på frisk
--- schema-sti«) og af test-review37-c5-upgrade.sh efter blok A.
+-- Redaktionen får original_filnavn/sha256 flettet på id og dublettjekkets ene række. Blok B (review37-c5b): direkte på
+-- tabellen er de to kolonner (også som filter) lukket for ALLE fire kaldere, redaktionen med. Syntetiske negative id'er;
+-- alt rulles tilbage. Forvent: NOTICE "OK: review37 c5 kaldere". Køres i CI mod frisk schema (»Evidens-hardening på frisk
+-- schema-sti«) og af test-review37-c5-upgrade.sh efter blok B.
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/kalder-matrix.sql
@@ -55,6 +56,20 @@ BEGIN
   IF v_msg NOT LIKE '22023 MEDIA_SHA_UGYLDIG%' THEN
     RAISE EXCEPTION 'KALDER_MATRIX_FAILED: c5 redaktion: ugyldig sha gav «%»',coalesce(v_msg,'(succes)');
   END IF;
+  -- Blok B: ingen kalder læser de interne kolonner direkte, mens læserens kolonner virker for alle.
+  FOREACH k IN ARRAY ARRAY['gaest','uden_profil','medlem','redaktion'] LOOP
+    FOREACH q IN ARRAY ARRAY[
+        'SELECT original_filnavn FROM public.media',
+        'SELECT sha256 FROM public.media',
+        'SELECT id FROM public.media WHERE sha256=repeat(''5c'',32)'] LOOP
+      v_msg:=pg_temp.c5_fejl(k,q);
+      IF v_msg IS NULL OR v_msg NOT LIKE '42501 permission denied for table media' THEN
+        RAISE EXCEPTION 'KALDER_MATRIX_FAILED: c5 % læste direkte (%): %',k,coalesce(v_msg,'ingen fejl'),q;
+      END IF;
+    END LOOP;
+    v_msg:=pg_temp.c5_fejl(k,'SELECT id,titel,storage_path,upload_status FROM public.media');
+    IF v_msg IS NOT NULL THEN RAISE EXCEPTION 'KALDER_MATRIX_FAILED: c5 % kan ikke læse læserens kolonner: %',k,v_msg; END IF;
+  END LOOP;
   RAISE NOTICE 'OK: review37 c5 kaldere';
 END $t$;
 ROLLBACK;

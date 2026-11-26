@@ -128,8 +128,8 @@ function appListe(app: App): string[] {
 describe('kolonne-kontrakt for public.media', () => {
   const rls = rlsListe();
 
-  it('db-rls.sql giver anon listen, uden de interne felter', () => {
-    expect(rls.modtagere).toBe('anon');
+  it('db-rls.sql giver anon og authenticated SAMME liste, uden de interne felter (blok review37-c5b)', () => {
+    expect(rls.modtagere).toBe('anon, authenticated');
     expect(rls.kolonner.length).toBeGreaterThan(10);
     for (const k of INTERNE) expect(rls.kolonner).not.toContain(k);
   });

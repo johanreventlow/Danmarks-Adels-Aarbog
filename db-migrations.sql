@@ -50778,3 +50778,22 @@ $red_media_efter_sha$;
 REVOKE ALL ON FUNCTION public.red_media_efter_sha(text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_media_efter_sha(text) TO authenticated;
 -- END review37-c5a
+
+-- BEGIN review37-c5b
+-- Review 37 R37S8-1 (#397), blok B af to: authenticated mister tabelretten på media og får PRÆCIS gæsternes
+-- kolonneliste (original_filnavn og sha256 er ude). Medlemmer og redaktion deler rollen authenticated, så det er kun
+-- de rolle-gatede red_media_interne_felter/red_media_efter_sha (blok A), der fortsat giver redaktionen de to felter.
+-- KØRES FØRST, NÅR DEN NYE KLIENT ER DEPLOYET (web efter blok A): den gamle klient læser original_filnavn/sha256 direkte og
+-- får »permission denied« efter blokken. Samme rækkefølge af REVOKE/GRANT som db-rls.sql's $review37_s8_anon_kolonner$
+-- (media-delen), så ACL-teksten ender ens ad begge veje; REVOKE af tabelretten fjerner også eksisterende kolonneret, så
+-- blokken er idempotent. Ingen data ændres.
+DO $review37_c5b_media_kolonner$
+BEGIN
+  REVOKE ALL ON TABLE public.media FROM anon;
+  REVOKE ALL ON TABLE public.media FROM authenticated;
+  GRANT SELECT (id, slags, titel, kunstner, datering, bucket, storage_path, mime_type, byte_size,
+                bredde, hoejde, upload_status, maa_publiceres, rettigheder_status, created_at)
+    ON TABLE public.media TO anon, authenticated;
+END
+$review37_c5b_media_kolonner$;
+-- END review37-c5b
