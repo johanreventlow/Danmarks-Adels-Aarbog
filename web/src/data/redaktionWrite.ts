@@ -30,7 +30,7 @@ const MEDIA_DATE_FAKTATYPER = new Set(['hentedato', 'datering']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
-     | 'redigerOplysning' | 'retLaesefejl' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson' | 'sletPersonHelt' | 'kvitterPersonPurgeFil'
+     | 'redigerOplysning' | 'retLaesefejl' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'setLevende' | 'sletPerson' | 'sletPersonHelt' | 'kvitterPersonPurgeFil'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
@@ -313,6 +313,11 @@ export function buildRpcCall(c: Change): RpcCall | null {
   }
   if (c.art === 'setPrivat') {
     return { fn: 'red_set_privat', args: { p_person_id: sid, p_privat: Boolean(c.payload?.privat) } };
+  }
+  // Review 37 R37P11-2: levende skal være eksplicit sand/falsk — en manglende værdi sendes ikke som »afdød«.
+  if (c.art === 'setLevende') {
+    if (typeof c.payload?.levende !== 'boolean') return null;
+    return { fn: 'red_set_levende', args: { p_person_id: sid, p_levende: c.payload.levende } };
   }
   if (c.art === 'sletPersonHelt') {
     const id = parsePostgresBigintId(c.subjektId);
@@ -697,7 +702,7 @@ export function buildSuggestCall(c: Change): RpcCall {
 // Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
 // struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
 // handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
-const KRAEVER_GYLDIGT_KALD = new Set(['retLaesefejl', 'tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering', 'sletPersonHelt', 'kvitterPersonPurgeFil']);
+const KRAEVER_GYLDIGT_KALD = new Set(['retLaesefejl', 'tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering', 'sletPersonHelt', 'kvitterPersonPurgeFil', 'setLevende']);
 
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);
@@ -842,6 +847,7 @@ export function oversaetFejl(message: string): string {
   }
   // Review 37 R37C2-1: red_fortryd_change_set afviser et sæt, der selv er en fortrydelse (HistorikPanel skjuler knappen).
   if (message.includes('FORTRYD_AF_FORTRYDELSE')) return 'En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.';
+  if (message.includes('LEVENDE_UGYLDIG')) return 'Vælg om personen er levende eller afdød.';
   // Review 37 P11: den simple sletning afviser en person, der (nu) ikke er offentlig.
   const sletHelt = sletKraeverSletHelt(message);
   if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);

@@ -24,6 +24,7 @@ import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
 import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from './data/ocrPaastand';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
+import { LevendeKnap } from './components/LevendeKnap';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
 import {
@@ -1317,6 +1318,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               <span style={{ width: 26, height: 15, borderRadius: 8, background: p.privat ? T.bordeaux : '#cfc6b5', position: 'relative' }}><span style={{ position: 'absolute', top: 1.5, left: p.privat ? 12.5 : 1.5, width: 11, height: 11, borderRadius: '50%', background: '#fff' }} /></span>
               <span style={{ fontSize: 13, fontWeight: 600, color: p.privat ? T.bordeaux : T.inkMuted }}>Privat</span>
             </div>
+            {/* Review 37 R37P11-2: levende kan rettes efter oprettelsen; afdød-retningen kræver bekræftelse. */}
+            <LevendeKnap personId={p.id} levende={p.levende} privat={p.privat} run={run} />
             {/* Review 37 P11: én knap; dialogen afgør, om sletningen kan fortrydes, eller om personen skal slettes helt. */}
             <button type="button" onClick={() => setSletPerson({ id: p.id, navn: p.navn })} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.surfaceRaised, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer', fontFamily: 'inherit' }}>
               <span aria-hidden="true" style={{ fontSize: 13, color: T.danger }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>Slet person…</span>
