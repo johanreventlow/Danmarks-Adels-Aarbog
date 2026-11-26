@@ -273,7 +273,8 @@ export const useStore = create<State>((set, get) => ({
         return loadFromSupabase();
       });
       if (gen !== loadGeneration) return; // logout/brugerskift imens: svaret tilhører den gamle identitet → kassér
-      const model = buildModel(res.db);
+      // 6e-lagene (linjer pr. kanonisk linje, bogens kilder, udgaver) stemples på modellen som i web's loadModel.
+      const model: Model = { ...buildModel(res.db), ...res.udgaveLag };
       // Påfør proveniens på de foldede kanoniske personer (til badge i person-visningen).
       for (const [canon, prov] of Object.entries(res.mergedFrom)) {
         if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
@@ -341,7 +342,7 @@ export const useStore = create<State>((set, get) => ({
     } catch (e) {
       if (gen !== loadGeneration) return; // en forældet fejl må ikke lægge seed oven på en nyere indlæsning
       // Offline-fallback: indlejret Reventlow-seed, så appen ikke står blank.
-      const model = buildModel(SEED.db);
+      const model: Model = { ...buildModel(SEED.db), ...SEED.udgaveLag };
       const snap = buildSnapPath(model, SEED.focusId, SEED.rootId);
       // SEED.geo er allerede fuldt bygget (intet loadGeo() at kalde) — geoLoaded:true gør
       // loadGeo()-actionen til en no-op i offline-tilstand.
@@ -523,7 +524,7 @@ export const useStore = create<State>((set, get) => ({
       const res = await loadFromSupabase({ includePrivat: true, collapse: false });
       // Review 37 M11: fold-prognosen skal se det rå grundlag (ægteskaber + alle forældrekanter), som
       // buildModel ikke bevarer.
-      const model = { ...buildModel(res.db), grundlagDb: res.db };
+      const model = { ...buildModel(res.db), ...res.udgaveLag, grundlagDb: res.db };
       if (gen !== redaktionGeneration) return; // logout/brugerskift/nyere reload imens → kassér
       set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
     } catch {

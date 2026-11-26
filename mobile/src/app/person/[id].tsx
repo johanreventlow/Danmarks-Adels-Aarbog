@@ -1,7 +1,8 @@
 // Persondetalje (README §5.3) — tro port af v2-designet (linje 395-543): stribet portræt-
 // pladsholder, inline "barn af"/"gift med" i Cormorant, badges (Dig/Linje/titel), bio-klamp
 // 7 linjer, børn pr. ægteskab (50px avatarer), embeder, godser-tags, materiale-tomtilstand,
-// kilder m. §-tegn + "trykt værk", handlinger.
+// kilder m. §-tegn + "trykt værk", handlinger. 6e (paritetsplanens batch 5): udgavevælger, linjemærker for den
+// valgte udgave og B6-noter (data/personUdgave.ts, som web's usePersonVisning).
 import { SignedImage } from '../../components/SignedImage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -12,8 +13,9 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
-import type { BioSourceVersion, BioSourceVersionV2 } from '@daa/core';
+import { lifeJourney } from '@daa/core';
+import type { BioSourceVersion } from '@daa/core';
+import { byggPersonUdgave } from '../../data/personUdgave';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { erPortraetSlags, usePersonMedia } from '../../lib/media';
@@ -38,7 +40,8 @@ export default function PersonScreen() {
   const [bioExpanded, setBioExpanded] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A
   const [bioVersionResult, setBioVersionResult] = useState<{ personId: string; versions: BioSourceVersion[] | null } | null>(null);
-  const [selectedBioVersion, setSelectedBioVersion] = useState<{ personId: string; index: number } | null>(null);
+  // Læserens udgavevalg, bundet til personen og chippens identitet (som web): en anden person giver standarden.
+  const [valg, setValg] = useState<{ personId: string; sourceId: string } | null>(null);
 
   // Lazy geo-kæde (review 27 P3): persondetaljen viser et livsrejse-minikort hvis personen har
   // geo-punkter — udløs hentningen ved mount (mirror af web's Folgesvend.tsx detailOpen-trigger).
@@ -87,33 +90,27 @@ export default function PersonScreen() {
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
-  const linjer = aux?.linjeByPerson[person.id] ?? [];
-  // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
-  const mergedFrom = person.mergedFrom ?? [];
-  const proveniens =
-    mergedFrom.length > 1
-      ? mergedFrom
-          .map((m) => {
-            const navn = m.linje ? aux?.linjeNavn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
-            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr_label ?? m.nr})` : '';
-            return `${navn}${ref}`;
-          })
-          .join(' og ')
-      : null;
   const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
-  const sources = aux?.sourcesBy[person.id] ?? [];
+  // Udgavevælger (én chip pr. udgave, standard = nyeste udgave med en post), linjerne i den valgte udgave, B6-noter
+  // og »Kilde i Aarbogen« — samme regler som web. »Optræder i Aarbogen som« er fjernet som på web (e0618472):
+  // kilderne står nederst på siden.
+  const bioVersions = bioVersionResult?.personId === personId ? bioVersionResult.versions : null;
+  const v = byggPersonUdgave(model, person.id, {
+    bioVersions,
+    valgtUdgaveId: valg?.personId === person.id ? valg.sourceId : null,
+    fallbackBio: person.bio,
+    fallbackKilder: aux?.sourcesBy[person.id] ?? [],
+  });
+  const vaelgChip = (idx: number) => {
+    const c = v.vaelger.chips[idx];
+    if (c) setValg({ personId: person.id, sourceId: c.sourceId });
+  };
+  const sources = v.sources;
+  const activeBio = v.bioText;
   // Vis udfold-toggle hvis bio enten er lang (tegn) ELLER har mange linjeskift — ellers
   // ville en kort men afsnits-opdelt prosa blive klampet til 7 linjer uden mulighed for udfold.
-  const bioVersions = bioVersionResult?.personId === personId ? bioVersionResult.versions : null;
-  const v2Versions = bioVersions?.length && bioVersions.every((version) => 'sourceId' in version)
-    ? bioVersions as BioSourceVersionV2[]
-    : null;
-  const defaultBioVersion = v2Versions ? selectDefaultPublicBioSourceVersionV2(v2Versions) : null;
-  const defaultBioVersionIdx = defaultBioVersion && bioVersions ? bioVersions.indexOf(defaultBioVersion) : 0;
-  const bioVersionIdx = selectedBioVersion?.personId === personId ? selectedBioVersion.index : defaultBioVersionIdx;
-  const activeBio = bioVersions?.[bioVersionIdx]?.narrativeText ?? person.bio;
   const bioNewlines = (activeBio.match(/\n/g)?.length ?? 0);
   const bioLong = activeBio.length > BIO_CLAMP_CHARS || bioNewlines >= BIO_CLAMP_LINES;
 
@@ -139,9 +136,9 @@ export default function PersonScreen() {
                   <BtnLabel size={11} color={Colors.inkOnInverse} style={{ fontFamily: Fonts.sansBold }}>★ Dig</BtnLabel>
                 </View>
               ) : null}
-              {linjer.map((lk) => (
-                <View key={lk} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.surfaceSunken }]}>
-                  <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{aux?.linjeNavn[lk] ?? `Linje ${lk}`}</Mono>
+              {v.hovedLinjer.map((navn) => (
+                <View key={navn} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.surfaceSunken }]}>
+                  <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{navn}</Mono>
                 </View>
               ))}
               {person.title ? (
@@ -150,11 +147,23 @@ export default function PersonScreen() {
                 </View>
               ) : null}
             </View>
-            {proveniens ? (
-              <Body size={11} color={Colors.inkMuted} style={{ marginTop: 9, lineHeight: 11 * 1.45 }}>
-                Optræder i Aarbogen som {proveniens}.
-              </Body>
+            {v.vaelger.form !== 'ingen' ? (
+              <View style={styles.udgaveRow} accessibilityRole="radiogroup" accessibilityLabel="Udgave">
+                {v.vaelger.chips.map((c, i) => (
+                  <Pressable key={c.sourceId} onPress={() => vaelgChip(i)} accessibilityRole="radio"
+                    accessibilityState={{ selected: i === v.valgtIdx }}
+                    style={[styles.udgaveChip, i === v.valgtIdx ? styles.udgaveChipActive : null]}>
+                    <BtnLabel size={11.5} color={i === v.valgtIdx ? Colors.bordeaux : Colors.inkSecondary}>{c.label}</BtnLabel>
+                  </Pressable>
+                ))}
+              </View>
             ) : null}
+            {v.tidligereUdgave ? (
+              <Body size={11} color={Colors.inkMuted} style={styles.udgaveNote}>Du ser en tidligere udgave.</Body>
+            ) : null}
+            {v.linjeNoter.map((n) => (
+              <Body key={n} size={11} color={Colors.inkMuted} style={styles.udgaveNote}>{n}</Body>
+            ))}
           </View>
         </View>
 
@@ -172,19 +181,13 @@ export default function PersonScreen() {
         ) : null}
 
         {/* Biografi — klamp 7 linjer */}
+        {v.bioManglerIUdgave ? (
+          <View style={styles.block}>
+            <Body size={13} color={Colors.inkMuted}>Ingen biografi fra denne udgave.</Body>
+          </View>
+        ) : null}
         {activeBio ? (
           <View style={styles.block}>
-            {bioVersions && bioVersions.length > 1 ? (
-              <View style={styles.badgeRow}>
-                {bioVersions.map((version, index) => (
-                  <Pressable key={version.recordRef ?? `${version.sourceLabel}:${index}`} onPress={() => setSelectedBioVersion({ personId: person.id, index })}>
-                    <Mono size={10} color={index === bioVersionIdx ? Colors.bordeaux : Colors.inkMuted}>
-                      {version.sourceLabel} · {version.provenanceKind === 'source_record' ? version.recordLabel : 'overgangsdata'}
-                    </Mono>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
             <NarrativRenderer tekst={activeBio} size={14} color={Colors.inkSecondary}
               style={{ lineHeight: 14 * 1.55 }}
               numberOfLines={bioExpanded ? undefined : BIO_CLAMP_LINES} />
@@ -310,9 +313,9 @@ export default function PersonScreen() {
           )}
         </Section>
 
-        {/* Kilder */}
+        {/* Kilder: alle udgavers poster (som web — vælgeren filtrerer ikke kilderne), nyeste udgave først. */}
         {sources.length ? (
-          <Section title="Kilder i Aarbogen">
+          <Section title="Kilde i Aarbogen">
             {sources.map((s, i) => (
               <View key={i} style={styles.sourceRow}>
                 <Serif size={18} color={Colors.bordeaux}>§</Serif>
@@ -366,6 +369,10 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' },
   badge: { borderRadius: 7, paddingHorizontal: 10, paddingVertical: 5 },
   badgeBordered: { borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  udgaveRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginTop: 10, alignSelf: 'flex-start', backgroundColor: Colors.surfaceSunken, borderRadius: Radius.field, padding: 3 },
+  udgaveChip: { borderRadius: 8, paddingHorizontal: 11, paddingVertical: 6 },
+  udgaveChipActive: { backgroundColor: Colors.surfaceRaised },
+  udgaveNote: { marginTop: 7, lineHeight: 11 * 1.45 },
   barnAf: {
     marginHorizontal: 22,
     marginTop: 18,

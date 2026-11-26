@@ -3,14 +3,15 @@
 // buildBidirectionalColumns/unknownParentRing/unknownChildSection + TreeColumn-typerne) er
 // ekstraheret til @daa/core/tree — kun de app-specifikke traverseringer (childrenOf/parentsOf,
 // der læser mobilens childrenByUnion/parentsByChild-indekser) og øvrige mobil-selektorer bor her.
-import { compareDanish, initialOf } from '@daa/core';
+import { compareDanish, initialOf, synligeLinjer } from '@daa/core';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
 export function counts(model: Model | null, aux: Aux | null) {
   return {
     personer: model?.persons.length ?? 0,
-    linjer: aux?.linjeList.length ?? 0,
+    // Én pr. kanonisk linje på tværs af udgaver, aldrig tekniske nøgler (som web's HomeView).
+    linjer: synligeLinjer(model?.lineage?.list ?? []).length,
     godser: aux?.estateList.length ?? 0,
   };
 }

@@ -16,7 +16,6 @@ const B: Post = { side: 'begge' };
 const web = (grund: string): Post => ({ side: 'web', grund });
 const mobil = (grund: string): Post => ({ side: 'mobil', grund });
 
-const BAGUD4 = 'mobilen er bagud — planlagt i paritetsplanen (batch 4: 6e-datalaget)';
 const IKKE_RECORDFANER = 'bevidst udeladt på mobil: ingen narrativ-recordfaner (#152, paritetsrapport 2.6)';
 const IKKE_SLET_HELT = 'bevidst udeladt på mobil: ingen »Slet helt« (decisions.md:304, paritetsrapport 2.6)';
 const IKKE_OCR = 'ikke planlagt på mobil: OCR-ark er skrivebordsarbejde (paritetsrapport 2.6)';
@@ -25,12 +24,10 @@ const IKKE_PERSONA = 'ikke planlagt på mobil: source-persona-køen er kun til w
 // Tabeller og views (.from('…')).
 const TABELLER: Record<string, Post> = {
   assertion: B, bookmark: B, citation: B, coat_of_arms: B, conclusion: B, estate: B, fact: B, family: B,
-  family_member: B, feed_pin: B, haendelse: B, lineage: B, media: B, media_variant: B, narrative: B,
+  family_member: B, feed_pin: B, haendelse: B, lineage: B, lineage_scheme: B, lineage_scheme_entry: B,
+  lineage_scheme_entry_lineage: B, media: B, media_variant: B, narrative: B,
   organisation: B, person: B, person_external_id: B, place: B, profiles: B, red_foraeldre_konflikt: B,
   relation: B, source: B, story: B, story_kilde: B,
-  lineage_scheme: web(BAGUD4),
-  lineage_scheme_entry: web(BAGUD4),
-  lineage_scheme_entry_lineage: web(BAGUD4),
   note: web('ikke planlagt på mobil: medie-fletning (mediaMerge) findes kun på web; mobilen har kun dublet-tjek (paritetsrapport 2.6)'),
   red_doede_links: mobil('mobil-only: død-link-visning i redaktørfladen; web bruger den ikke (paritetsrapport 2.6)'),
   red_konflikt: mobil('mobil-only: konfliktvisning i redaktørfladen; web har den ikke (paritetsrapport 2.6)'),

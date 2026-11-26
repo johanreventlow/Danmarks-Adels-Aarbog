@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { synligeLinjer } from '@daa/core';
 import { TopBar } from '../../../components/TopBar';
 import { Body, Serif } from '../../../components/Typography';
 import { useStore } from '../../../store/useStore';
@@ -21,7 +22,7 @@ export default function Entiteter() {
 
   const celler = [
     { n: model?.persons.length ?? 0, label: 'Personer', rute: '/redaktion/entitet/person' },
-    { n: aux?.linjeList.length ?? 0, label: 'Slægten', rute: '/redaktion/entitet/slaegt' },
+    { n: synligeLinjer(model?.lineage?.list ?? []).length, label: 'Slægten', rute: '/redaktion/entitet/slaegt' },
     { n: aux?.godsListe.length ?? 0, label: 'Godser', rute: '/redaktion/entitet/gods' },
     { n: aux?.kildeListe.length ?? 0, label: 'Kilder', rute: '/redaktion/entitet/kilde' },
     { n: aux?.orgListe.length ?? 0, label: 'Organisationer', rute: '/redaktion/entitet/organisation' },

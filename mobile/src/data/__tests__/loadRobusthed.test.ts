@@ -5,8 +5,10 @@ type Ark = { tabel: string; ids?: unknown[]; filtre: Record<string, unknown> };
 const mock: {
   rows: Record<string, unknown[]>;
   fejlRelationPerson: boolean;
+  fejlSkema: boolean;
+  koord: unknown[];
   inKald: { tabel: string; kol: string; antal: number }[];
-} = { rows: {}, fejlRelationPerson: false, inKald: [] };
+} = { rows: {}, fejlRelationPerson: false, fejlSkema: false, koord: [], inKald: [] };
 
 jest.mock('../../lib/supabase', () => {
   const lav = (tabel: string) => {
@@ -21,6 +23,7 @@ jest.mock('../../lib/supabase', () => {
       if (tabel === 'relation' && ark.filtre.subjekt_type === 'person' && String(ark.filtre.__sel).includes('kvalifikator') && mock.fejlRelationPerson) {
         return { data: null, error: { code: '57014' } };
       }
+      if (tabel.startsWith('lineage_scheme') && mock.fejlSkema) return { data: null, error: { code: '42501', message: 'permission denied' } };
       const alle = (mock.rows[tabel] ?? []) as Record<string, unknown>[];
       const filtreret = alle.filter((r) => Object.entries(ark.filtre).filter(([k]) => k !== '__sel').every(([k, v]) => r[k] === v)
         && (!ark.ids || ark.ids.includes(r.target_id) || ark.ids.includes(r.assertion_id)));
@@ -31,7 +34,7 @@ jest.mock('../../lib/supabase', () => {
   };
   return {
     supabaseEnabled: true,
-    supabase: { from: lav, rpc: async () => ({ data: [], error: null }), auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) } },
+    supabase: { from: lav, rpc: async (fn: string) => ({ data: fn === 'public_person_source_coordinates_samlet' ? mock.koord : [], error: null }), auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) } },
   };
 });
 
@@ -41,6 +44,8 @@ import { supabase } from '../../lib/supabase';
 beforeEach(() => {
   mock.inKald = [];
   mock.fejlRelationPerson = false;
+  mock.fejlSkema = false;
+  mock.koord = [];
   mock.rows = {};
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -77,4 +82,21 @@ test('loadFromSupabase: 57014 på person-relationerne giver en degraderet model,
   const r = await loadFromSupabase();
   expect(r.db.persons.length).toBe(1);
   expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('person-relationer utilgængelige'), expect.anything());
+});
+
+// 6e (batch 4): fejler stamtavleskemaerne, falder linjerne tilbage til de trykte koder — indlæsningen fejler ikke.
+test('loadFromSupabase: utilgængelige lineage_scheme-tabeller giver trykte koder, ikke offline-seed', async () => {
+  mock.rows.person = [{ id: 446, visning_navn: 'A', visning_foedt: '1900', visning_doed: null, privat: false }];
+  mock.rows.source = [{ id: 2, slags: 'DAA-udgave', titel: 'DAA 2018-20', udgave: 'DAA 2018-20', aar: 2018, ekstern: null }];
+  mock.koord = [{
+    person_id: 446, source_id: 2, legacy_line_code: 'V', printed_number: 148, printed_number_label: null,
+    generation_local: 9, generation_global: null, kuld_label: null, provenance_kind: 'placement', printed_page: '512',
+  }];
+  mock.fejlSkema = true;
+  const r = await loadFromSupabase();
+  expect(r.db.persons.map((p) => p.id)).toEqual(['446']);
+  expect(r.udgaveLag.lineage.list.map((l) => l.linje)).toEqual(['V']);
+  expect(r.udgaveLag.sourcesBy['446']?.[0]?.ref).toBe('Linje V, nr. 148');
+  expect(r.aux.sourcesBy['446']?.[0]?.ref).toBe('Linje V, nr. 148');
+  expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('lineage_scheme utilgængelig'), expect.anything());
 });
