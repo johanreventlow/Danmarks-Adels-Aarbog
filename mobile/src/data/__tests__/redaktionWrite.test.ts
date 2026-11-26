@@ -323,7 +323,17 @@ describe('buildRpcCall opret-arter', () => {
   it('opretKilde → red_opret_kilde', () => {
     expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',
       payload: { titel: 'DAA 2018-20', slags: 'DAA-udgave', ekstern: false } } as const))
-      .toEqual({ fn: 'red_opret_kilde', args: { p_titel: 'DAA 2018-20', p_slags: 'DAA-udgave', p_ekstern: false } });
+      .toEqual({ fn: 'red_opret_kilde', args: { p_titel: 'DAA 2018-20', p_slags: 'DAA-udgave', p_udgave: null, p_ekstern: false, p_aar: null } });
+  });
+  it('opretKilde sender p_aar (som web)', () => {
+    expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',
+      payload: { titel: 'DAA 1939', udgave: '1939', aar: 1939 } } as never))
+      .toEqual({ fn: 'red_opret_kilde', args: { p_titel: 'DAA 1939', p_slags: null, p_udgave: '1939', p_ekstern: false, p_aar: 1939 } });
+  });
+  it('opretKilde: tom udgave/slags fra OpretSheet sendes som null, ikke tom tekst', () => {
+    expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',
+      payload: { titel: 'Kirkebog', slags: '', udgave: '', ekstern: true } } as never))
+      .toEqual({ fn: 'red_opret_kilde', args: { p_titel: 'Kirkebog', p_slags: null, p_udgave: null, p_ekstern: true, p_aar: null } });
   });
   it('opretOrganisation → red_opret_organisation', () => {
     expect(buildRpcCall({ art: 'opretOrganisation', subjektType: 'organisation', subjektId: '',
@@ -669,5 +679,33 @@ describe('buildRpcCall — story/feed_pin (fase 3)', () => {
     expect(buildRpcCall({ art: 'fjernFeedPin', subjektType: 'person', subjektId: '7',
       kortNoegle: 'portrait:12' }))
       .toEqual({ fn: 'red_fjern_feed_pin', args: { p_kort_noegle: 'portrait:12' } });
+  });
+});
+
+describe('review 37 M10: id-parsing og fejlkode (paritet med web)', () => {
+  it('sletRelation afviser ugyldigt/for stort id, accepterer bigint som streng', () => {
+    const base = { art: 'sletRelation', subjektType: 'person', subjektId: '1' } as const;
+    expect(buildRpcCall({ ...base, relationId: '0' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, relationId: '12abc' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, relationId: '' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, relationId: '9223372036854775808' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, relationId: '9223372036854775807' } as never))
+      .toEqual({ fn: 'red_slet_relation', args: { p_relation_id: '9223372036854775807' } });
+  });
+
+  it('fjernMedia afviser ugyldigt id', () => {
+    const base = { art: 'fjernMedia', subjektType: 'media', subjektId: '9' } as const;
+    expect(buildRpcCall({ ...base, mediaId: '9' } as never)).toEqual({ fn: 'red_fjern_media', args: { p_media_id: 9 } });
+    expect(buildRpcCall({ ...base, mediaId: '-3' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, mediaId: 'x' } as never)).toBeNull();
+    expect(buildRpcCall({ ...base } as never)).toBeNull();
+  });
+
+  it('submitChange bevarer error.code på RPC-fejl', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { supabase } = require('../../lib/supabase') as { supabase: { rpc: jest.Mock } };
+    supabase.rpc.mockResolvedValueOnce({ data: null, error: { message: 'nej', code: '42501' } });
+    await expect(submitChange({ art: 'sletRelation', subjektType: 'person', subjektId: '1', relationId: '5' } as never,
+      { dryRun: false })).rejects.toMatchObject({ message: 'nej', code: '42501' });
   });
 });
