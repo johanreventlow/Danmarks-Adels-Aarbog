@@ -84,10 +84,9 @@ export function buildSnapPath(
   return { path, depth: Math.max(0, up.length - 1) };
 }
 
-// Variant A "kort-fokus": bedsteforælder, forælder, denne generations søskende, børn & grene.
-// Søskende og børn står i Aarbogens rækkefølge (sorterBoernEfterBogen, paritetsplanens batch 6) — samme regel som
-// personskærmens børneliste, web's fokus-stamtræ og kolonne-stamtræet; et barn, der kun står i en ældre udgave,
-// flettes ind på sin plads.
+// Variant A "kort-fokus": bedsteforælder, forælder og denne generations søskende. Søskende står i Aarbogens
+// rækkefølge (sorterBoernEfterBogen, paritetsplanens batch 6); et barn, der kun står i en ældre udgave, flettes ind på
+// sin plads. Ægteskaber og børn pr. ægteskab tager variant A fra @daa/core's byggFokusRaekker (som personskærmen).
 export function treeFocusA(model: Model, focusId: string) {
   const focus = model.byId[focusId] ?? null;
   const parent = focus?.parentId ? model.byId[focus.parentId] ?? null : null;
@@ -95,9 +94,7 @@ export function treeFocusA(model: Model, focusId: string) {
   const siblings = !focus ? [] : focus.parentId
     ? sorterBoernEfterBogen(siblingsOf(model, focusId), focus.parentId, model.bogNrBy, model.udgaver)
     : siblingsOf(model, focusId);
-  const children = focus ? boernIBogensOrden(model, focusId) : [];
-  const spouseName = focus?.spouse ?? '';
-  return { focus, parent, grandparent, siblings, children, spouseName };
+  return { focus, parent, grandparent, siblings };
 }
 
 export type WayStep = 'up' | 'down' | 'left' | 'right' | 'arrived';

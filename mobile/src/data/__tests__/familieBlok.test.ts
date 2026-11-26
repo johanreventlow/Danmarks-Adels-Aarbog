@@ -74,11 +74,12 @@ describe('familieblokken (mobilens model, core-rækkerne)', () => {
     expect(kunIAeldreTekst(model, '20')).toBeNull();
   });
 
-  test('stamtræets fokusvisning (variant A): hele flokken i bogens rækkefølge som kolonne-stamtræet på web', () => {
-    // Flad liste på tværs af ægteskaber: 2018-20's numre (Bo 2, Anna 3, Dan 4), Carl flettet ind før Anna fra 1939, og
-    // Lis, som intet 1939-barn efter sig har, sidst.
-    expect(treeFocusA(model, '10').children.map((c) => c.name)).toEqual(['Bo', 'Carl', 'Anna', 'Dan', 'Lis']);
+  test('stamtræets fokusvisning (variant A): søskende i bogens rækkefølge; børnene pr. ægteskab som personskærmen', () => {
+    // Søskende er en flad liste på tværs af ægteskaber: 2018-20's numre (Bo 2, Anna 3, Dan 4), Carl flettet ind før Anna
+    // fra 1939, og Lis, som intet 1939-barn efter sig har, sidst. Børnene i variant A kommer fra byggFokusRaekker
+    // (testen ovenfor): Mor1-flokken og Mor2-flokken hver for sig.
     expect(treeFocusA(model, '20').siblings.map((c) => c.name)).toEqual(['Bo', 'Carl', 'Anna', 'Dan', 'Lis']);
+    expect(byggFokusRaekker(model, '10')!.aegteskaber.map((a) => a.navn)).toEqual(['Mor1', 'Mor2']);
   });
 });
 
