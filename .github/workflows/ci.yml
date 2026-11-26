@@ -208,7 +208,15 @@ jobs:
             --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_scripts_pass_mechanical_no_writer_audit
             --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_preview_scripts_only_writer_hit_is_the_read_only_preview_rpc
           )
-          python3 -m pytest .claude/skills/daa-extract/scripts .claude/skills/daa-haendelser/scripts .claude/skills/daa-presens/scripts -q -rs -p no:cacheprovider "${udeluk[@]}"
+          set -o pipefail
+          python3 -m pytest .claude/skills/daa-extract/scripts .claude/skills/daa-haendelser/scripts .claude/skills/daa-presens/scripts -q -rs -p no:cacheprovider "${udeluk[@]}" | tee pytest.log
+          # Skip-loft (review 37 C7): skips er tavse huller. Loftet er det målte antal (CI 45, lokalt 44; de fleste
+          # kommer fra de gitignorerede 1939-artefakter, bl.a. hele test_build_name_completion_manifest_1939_v50.py).
+          # Stiger tallet, skal den nye skip enten fjernes eller loftet hæves bevidst her (og i test_ci_python_coverage.py).
+          SKIP_LOFT=45
+          skipped=$(grep -Eo '[0-9]+ skipped' pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
+          echo "skippede python-tests: ${skipped:-0} (loft $SKIP_LOFT)"
+          if [ "${skipped:-0}" -gt "$SKIP_LOFT" ]; then echo "FEJL: ${skipped} skippede python-tests overstiger loftet $SKIP_LOFT"; exit 1; fi
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17

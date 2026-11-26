@@ -3941,35 +3941,10 @@ END $ero$;
 -- Existing case-ledger code still uses these two internal primitives. They are
 -- not writer tables or public wrappers, and remain private/revoked below.
 CREATE OR REPLACE FUNCTION private.require_reimport_1939_editor() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ DECLARE a uuid:=auth.uid(); BEGIN IF a IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF; RETURN a; END $$;
-CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_text(p_value jsonb)
-RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE v_piece text; v_key text; v_item jsonb;
-BEGIN
-  CASE jsonb_typeof(p_value)
-    WHEN 'object' THEN v_piece:='{'; FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.reimport_1939_canonical_json_text(p_value->v_key); END LOOP; RETURN v_piece||'}';
-    WHEN 'array' THEN v_piece:='['; FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||private.reimport_1939_canonical_json_text(v_item); END LOOP; RETURN v_piece||']';
-    ELSE RETURN p_value::text;
-  END CASE;
-END $$;
-CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
-RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
-BEGIN RETURN encode(digest(convert_to(private.reimport_1939_canonical_json_text(p_value),'UTF8'),'sha256'),'hex'); END $$;
 
--- Shared writer canonicalization.  The 1939 names remain below as legacy
--- aliases for the C3 surface, but generic writers must not depend on them.
-CREATE OR REPLACE FUNCTION private.reimport_canonical_json_text(p_value jsonb)
-RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE v_piece text; v_key text; v_item jsonb;
-BEGIN
-  CASE jsonb_typeof(p_value)
-    WHEN 'object' THEN v_piece:='{'; FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.reimport_canonical_json_text(p_value->v_key); END LOOP; RETURN v_piece||'}';
-    WHEN 'array' THEN v_piece:='['; FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||private.reimport_canonical_json_text(v_item); END LOOP; RETURN v_piece||']';
-    ELSE RETURN p_value::text;
-  END CASE;
-END $$;
-CREATE OR REPLACE FUNCTION private.reimport_canonical_json_sha256(p_value jsonb)
-RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
-BEGIN RETURN encode(digest(convert_to(private.reimport_canonical_json_text(p_value),'UTF8'),'sha256'),'hex'); END $$;
+-- Shared writer canonicalization: de generiske primitiver reimport_canonical_json_text/_sha256 er defineret ét sted
+-- (oven for, før reimport_profile's CHECK bruger dem). 1939-navnene herunder er legacy-aliasser til C3-fladen, men
+-- generiske writere må ikke afhænge af dem.
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_text(p_value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$ SELECT private.reimport_canonical_json_text(p_value) $$;
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
@@ -3979,9 +3954,6 @@ RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,
 -- cumulative migration's final catalog.
 DROP FUNCTION private.reimport_1939_canonical_json_text(jsonb);
 
-
-CREATE UNIQUE INDEX IF NOT EXISTS reimport_batch_profile_replay_uidx ON private.reimport_batch
-  (source_id,profile_id,profile_sha256,manifest_sha256,preview_sha256,principal_id);
 
 
 CREATE TABLE IF NOT EXISTS private.reimport_name_completion_result (
@@ -6283,6 +6255,8 @@ EXCEPTION WHEN OTHERS THEN
   RAISE;
 END $$;
 
+-- Review 37 A13: TIDLIG definition, bevaret fordi REVOKE/GRANT lige nedenfor kræver, at funktionen findes. Den
+-- vindende (nyeste) definition står længere nede (Trin 6d-2a) og erstatter denne ved load.
 CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(p_person_ids bigint[])
 RETURNS TABLE(person_id bigint,record_ref uuid,source_label text,record_label text,narrative_text text,citation_label text,provenance_kind text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -16473,6 +16447,9 @@ BEGIN
 END
 $$;
 
+
+-- Review 37 A13: TIDLIG definition, bevaret fordi REVOKE-blokken nedenfor kræver, at funktionen findes. Den vindende
+-- (nyeste) definition står længere nede og erstatter denne ved load.
 CREATE OR REPLACE FUNCTION private.narrative_legacy_publication_state(
   p_legacy_publication_ref uuid
 ) RETURNS jsonb
@@ -16550,6 +16527,7 @@ BEGIN
   RETURN v_state;
 END
 $$;
+
 
 CREATE OR REPLACE FUNCTION private.narrative_legacy_state(
   p_legacy_publication_ref uuid,

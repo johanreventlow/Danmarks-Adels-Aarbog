@@ -123,7 +123,9 @@ export function normalizeKoen(k: string | null | undefined): Koen {
 }
 
 // Aux-indekser (kilder, embeder, godser, linjer, medier) pr. person — mobil-specifik.
-export type EstateRef = { navn: string; period: string };
+// id = godsets id (samler samme gods i flere rækker); personId = relationens rå subjekt-id (før samme_som-foldningen),
+// som @daa/core's godserIUdgave slår rækkens udgave op på — samme form som web's PersonEstate.
+export type EstateRef = { id: string; navn: string; period: string; personId: string };
 export type OfficeRef = { label: string; period: string; _y: number };
 export type OwnerRef = { personId: string; period: string; _y: number };
 export type EstateListEntry = { id: string; navn: string; ownerCount: number };
