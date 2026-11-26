@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { buildBidirectionalColumns, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer } from '@daa/core';
-import { childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { boernIBogensOrden, childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -293,11 +293,11 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const moveSnapSib = useStore((s) => s.moveSnapSib);
 
   // Hver generation (depth d) = en vandret snap-ScrollView med ALLE søskende; den valgte
-  // centreres. d=0 er kun roden. Førstefødt = indeks 0.
+  // centreres. d=0 er kun roden. Rækkefølgen er bogens (boernIBogensOrden); først i bogen = indeks 0.
   const rows = useMemo(() => {
     const out: { d: number; sibIds: string[]; selIndex: number }[] = [];
     for (let d = 0; d < snapPath.length; d++) {
-      const sibIds = d === 0 ? [snapPath[0]] : childrenOf(model, snapPath[d - 1]).map((p) => p.id);
+      const sibIds = d === 0 ? [snapPath[0]] : boernIBogensOrden(model, snapPath[d - 1]).map((p) => p.id);
       const selIndex = Math.max(0, sibIds.indexOf(snapPath[d]));
       out.push({ d, sibIds, selIndex });
     }

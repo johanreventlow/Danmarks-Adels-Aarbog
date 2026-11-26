@@ -39,6 +39,13 @@ export function childrenOf(model: Model, id: string): ModelPerson[] {
   return [...ids].map((cid) => model.byId[cid]).filter((c): c is ModelPerson => Boolean(c));
 }
 
+// Børn i Aarbogens rækkefølge (sorterBoernEfterBogen) — Spor-variantens eneste rækkefølge. Rækkerne, førstefødt-halen
+// i buildSnapPath, søskende-indekset i vej-til-mig og storens moveSnapSib SKAL bruge samme rækkefølge, ellers lander et
+// stryg på et andet barn end det, ruten/badgen regnede med. childrenOf selv forbliver usorteret (tællinger, kolonner).
+export function boernIBogensOrden(model: Model, id: string): ModelPerson[] {
+  return sorterBoernEfterBogen(childrenOf(model, id), id, model.bogNrBy, model.udgaver);
+}
+
 // Søskende = den primære forælders børn (inkl. personen selv). Hvis ingen forælder: kun personen.
 export function siblingsOf(model: Model, id: string): ModelPerson[] {
   const person = model.byId[id];
@@ -48,7 +55,7 @@ export function siblingsOf(model: Model, id: string): ModelPerson[] {
   return sibs.length ? sibs : [person];
 }
 
-// Variant C · slægtsspor: byg en lodret linje [rod … fokus … første-barn-efterkommere].
+// Variant C · slægtsspor: byg en lodret linje [rod … fokus … første-barn-efterkommere]; »første« = først i bogen.
 // depth = indeks for fokus-personen i path. Port af buildSnapPath fra v2-designet (linje 997).
 export function buildSnapPath(
   model: Model,
@@ -68,7 +75,7 @@ export function buildSnapPath(
   let cur = path[path.length - 1];
   let h = 0;
   while (cur && h < 40) {
-    const kids = childrenOf(model, cur);
+    const kids = boernIBogensOrden(model, cur);
     if (!kids.length) break;
     cur = kids[0].id;
     path.push(cur);
@@ -88,7 +95,7 @@ export function treeFocusA(model: Model, focusId: string) {
   const siblings = !focus ? [] : focus.parentId
     ? sorterBoernEfterBogen(siblingsOf(model, focusId), focus.parentId, model.bogNrBy, model.udgaver)
     : siblingsOf(model, focusId);
-  const children = focus ? sorterBoernEfterBogen(childrenOf(model, focusId), focusId, model.bogNrBy, model.udgaver) : [];
+  const children = focus ? boernIBogensOrden(model, focusId) : [];
   const spouseName = focus?.spouse ?? '';
   return { focus, parent, grandparent, siblings, children, spouseName };
 }
@@ -128,7 +135,7 @@ function planToMe(model: Model, snapPath: string[], snapDepth: number, meId: str
 
   // Søskende-indeks (førstefødt = 0). -1 hvis ikke fundet (defensivt).
   const childIndex = (parentId: string, childId: string): number =>
-    childrenOf(model, parentId).findIndex((p) => p.id === childId);
+    boernIBogensOrden(model, parentId).findIndex((p) => p.id === childId);
 
   // Lodret fra fokus til toDepth (op eller ned langs snapPath).
   const vertical = (toDepth: number) => {
