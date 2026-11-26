@@ -185,3 +185,49 @@ test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder
   expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
   expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
 });
+
+describe('buildAux: sammenlagte godser og hører under (#471)', () => {
+  const ejer = (id: number, gods: number) => ({ subjekt_type: 'person', subjekt_id: id, objekt_type: 'estate', objekt_id: gods, rolle: 'ejer', periode_raw: null });
+  const gr = (s: number, o: number, rolle: string, periode: string | null = null) => ({ subjekt_type: 'estate', subjekt_id: s, objekt_type: 'estate', objekt_id: o, rolle, periode_raw: periode });
+  const input = {
+    ...base,
+    estates: [
+      { id: 5, navn: 'Gods fem', slags: 'gård' }, { id: 405, navn: 'Gods fem (dublet)', slags: null },
+      { id: 7, navn: 'Grevskabet', slags: 'grevskab' },
+    ] as never,
+    relations: [ejer(1, 5), ejer(2, 405), ejer(3, 7)] as never,
+  };
+  const medRel = { ...input, godsRelationer: [gr(405, 5, 'sammenlagt_i'), gr(5, 7, 'hører_under', '1700-1800')] as never };
+
+  test('sammenlagt række skjules i lister og er alias til den overlevende', () => {
+    const aux = buildAux(medRel);
+    expect(aux.estateList.map((g) => g.id).sort()).toEqual(['5', '7']);
+    expect(aux.godsListe.map((g) => g.id).sort()).toEqual(['5', '7']);
+    expect(aux.estateById['405'].id).toBe('5');
+    expect(aux.estateById['405'].navn).toBe('Gods fem');
+  });
+  test('art, hører under og omfattede', () => {
+    const aux = buildAux(medRel);
+    expect(aux.estateById['5'].art).toBe('Gård');
+    expect(aux.estateById['5'].hoererUnder).toEqual([{ id: '7', navn: 'Grevskabet', periode: '1700-1800' }]);
+    expect(aux.estateById['7'].art).toBe('Grevskab');
+    expect(aux.estateById['7'].omfattede).toEqual([{ id: '5', navn: 'Gods fem' }]);
+  });
+  test.each([['udeladt', undefined], ['tom', []]])('uden gods-relationer (%s) er alt som før #471', (_n, rel) => {
+    const aux = buildAux({ ...input, godsRelationer: rel as never });
+    expect(aux.estateList.map((g) => [g.id, g.navn])).toEqual([['5', 'Gods fem'], ['405', 'Gods fem (dublet)'], ['7', 'Grevskabet']]);
+    expect(aux.godsListe.map((g) => [g.id, g.navn, g.slags])).toEqual([['5', 'Gods fem', 'gård'], ['405', 'Gods fem (dublet)', ''], ['7', 'Grevskabet', 'grevskab']]);
+    expect(Object.keys(aux.estateById).sort()).toEqual(['405', '5', '7']);
+    expect(aux.estateById['405'].id).toBe('405');
+    expect(aux.estateById['405'].navn).toBe('Gods fem (dublet)');
+    expect(aux.estateById['5'].hoererUnder).toEqual([]);
+    expect(aux.estateById['7'].omfattede).toEqual([]);
+  });
+  test('kreds i sammenlagt_i: begge rækker forbliver synlige og er deres eget alias', () => {
+    const aux = buildAux({ ...input, godsRelationer: [gr(5, 405, 'sammenlagt_i'), gr(405, 5, 'sammenlagt_i')] as never });
+    expect(aux.estateList.map((g) => g.id).sort()).toEqual(['405', '5', '7']);
+    expect(aux.godsListe.map((g) => g.id).sort()).toEqual(['405', '5', '7']);
+    expect(aux.estateById['5'].id).toBe('5');
+    expect(aux.estateById['405'].id).toBe('405');
+  });
+});

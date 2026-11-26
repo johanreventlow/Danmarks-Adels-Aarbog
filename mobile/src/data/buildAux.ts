@@ -1,7 +1,7 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference + citations-faldback), embeder/godser (relation), medier. Linjerne bor siden 6e (batch 4) på
 // modellen (model.lineage, data/udgaveLag.ts): nøglet på den kanoniske linje, ikke på den trykte kode.
-import { buildProvenanceSources, compareDanish, estateArtEtiket, estateKanonisk, MAJORAT_SLAGS, type EstateSlags, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type SourceRef } from '@daa/core';
+import { buildProvenanceSources, compareDanish, estateArtEtiket, estateKanonisk, flettKilder, MAJORAT_SLAGS, parseYear, stripParen, type CitationProvenanceRow, type EstateSlags, type SourceRef } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -163,7 +163,7 @@ export function buildAux(
     .sort((a, b) => compareDanish(a.navn, b.navn));
   // Gamle (sammenlagte) id'er viser den overlevende; ejere hentes på det kanoniske id (estate.id).
   Object.keys(estById2).filter(erSammenlagt).forEach((eid) => { estateById[eid] = estateById[kanon(eid)] ?? detalje(kanon(eid)); });
-  
+
   // Medier pr. person: relation person(subjekt) → media(objekt), rolle 'afbildet' (samme retning
   // som DB'ens afbildet-gating). media-rækken slås op på id. RLS har allerede skjult ikke-offentlige
   // rækker. (Tidligere nøglede denne på m.person_id — en kolonne der ikke findes i skemaet → altid tom.)

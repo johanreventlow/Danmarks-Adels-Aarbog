@@ -24,6 +24,7 @@ export default function EstateScreen() {
   // Ejere og kort hentes på det kanoniske id: et sammenlagt id viser den overlevende række (#471).
   const kanonId = estate?.id ?? id;
   const owners = kanonId && aux ? aux.ownersByEstate[kanonId] ?? [] : [];
+  const linje = estate ? tilhoererLinje(estate) : '';
   const point = kanonId ? geo.byEstate[kanonId] : null;
 
   // Lazy geo-kæde (review 27 P3): gods-detaljen viser et minikort for godsets sted — udløs
@@ -45,8 +46,8 @@ export default function EstateScreen() {
                   <BtnLabel size={11.5} color={Colors.bordeaux}>{estate.art ?? estate.slags}</BtnLabel>
                 </View>
               ) : null}
-              {tilhoererLinje(estate) ? (
-                <Body size={14} color={Colors.inkMuted} style={{ marginTop: 10, lineHeight: 14 * 1.5 }}>{tilhoererLinje(estate)}</Body>
+              {linje ? (
+                <Body size={14} color={Colors.inkMuted} style={{ marginTop: 10, lineHeight: 14 * 1.5 }}>{linje}</Body>
               ) : null}
 
               {geoLoading ? (
