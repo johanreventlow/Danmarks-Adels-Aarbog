@@ -79,6 +79,9 @@ export * from './bogensOrden';
 export * from './kunIAeldreUdgave';
 export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
+export { ADELS_TITLER, erAdelsTitel } from './adelsTitler';
+export { adelsnavnForLinjer, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn } from './adelsnavn';
+export type { LinjeAdelsnavne } from './adelsnavn';
 export * from './sletVej';
 export * from './mediaVisning';
 // 6e-projektionen (linjer, udgaver, kilder) — flyttet fra web/src/data (mobil-paritet, batch 3).

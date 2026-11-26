@@ -50643,6 +50643,14 @@ BEGIN
 END $$;
 -- END review37-c3
 
+-- ===== adelsnavn-faktatype =====
+-- Plan docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md. Kun vocab-data; idempotent. Linjens navn efter titlen
+-- (»af Reventlow«) som faktum på lineage; læserfladen sammensætter bogens formelle navneform af det.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','adelsnavn','Adelsnavn — linjens navn efter titlen, som bogen skriver det (fx »af Reventlow«)')
+ON CONFLICT (scheme, code) DO NOTHING;
+-- END adelsnavn-faktatype
+
 -- BEGIN review37-r37p11-2
 -- Review 37 R37P11-2 (#397, projektejeren 26/11: »begge veje, med advarsel«): redaktørens vej til at rette
 -- person.levende efter oprettelsen. Ny funktion med samme protokol som red_set_privat (rollegate, ukendt id før

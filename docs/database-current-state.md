@@ -529,6 +529,30 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 56. Linjernes adelsnavn: bogens formelle navneform — DATA i prod (2026-11-26)
+
+**Grundlag:** PR #499 (CI grøn i alle 8 jobs på `8b6ddf90`, inkl. `tests/sql/test-adelsnavn-upgrade.sh` fra prods SQL
+`607d4c38`). Afgørelse: `docs/decisions.md` 2026-11-26 (»linjens adelsnavn giver bogens formelle navneform«). Kørt via
+Supabase-MCP efter projektejerens ja (arbejder via remote control; psql mod prod afvises af klassifikatoren), **før** merge.
+
+- **Backup før skrivning:** `~/.private/adelsnavn/daa-prod-pre-adelsnavn-20261126103225.dump` (pg_dump 17.10, -Fc,
+  21 MB, 0600, SHA-256 `ef996a80…`), `pg_restore --list` 2714 poster / 145 tabeldata, 0 advarsler.
+- **Preflight:** main uden SQL siden `607d4c38`; prod uden `adelsnavn`; 2 linjer (2018-20 IV/V); 1 redaktør. Før: vocab
+  174, fact 7449, change_set 4199.
+- **DDL (data):** kun blokken `-- ===== adelsnavn-faktatype` … `-- END adelsnavn-faktatype` fra `db-migrations.sql` @
+  `8f65e291` (sha `3df300ee…`): vocab 174 → 175, intet andet ændret.
+- **Data:** én DO-blok med `docs/runbooks/2026-11-26-linjernes-adelsnavn.sql`'s logik og ordrette kildetekster (MCP kan
+  ikke køre psql-`\if`; aktøren slås op som den ene `profiles.rolle='redaktion'`, så id'et står ingen steder). Prøve først
+  (bevidst `ADELSNAVN_PROEVE_OK`-fejl → rullet tilbage, tal uændrede), så skrivning via `red_upsert_fakta`: fact 12453
+  (lineage 4, IV) »de Reventlou« og 12454 (lineage 5, V) »af Reventlow«, afklarede, `blaastemplet_af='Redaktør'`, kilde som
+  fritekst; ét ændringssæt (4860). Efter: fact 7451, change_set 4200.
+- **Verificeret som anon:** `IV »de Reventlou«, V »af Reventlow«`. **Advisors (security, MCP):** ingen ERROR; kun de kendte
+  WARN/INFO (`rls_enabled_no_policy`, `anon_/authenticated_security_definer_function_executable`,
+  `auth_leaked_password_protection`).
+- **Web/mobil:** personsiden viser »I Aarbogen« først efter merge af PR #499 (Vercel bygger main).
+- **Fortrydelse:** `red_fortryd_change_set(4860)` fjerner begge fakta; vocab-rækken kan derefter slettes med
+  `DELETE FROM vocab WHERE scheme='faktatype' AND code='adelsnavn'`, så længe intet faktum bruger typen.
+
 ## 55. Review 37 ceremoni 3 (Y4 + Y13) og R37C2-1: personsidens fakta og fortryd af fortryd — LIVE i prod (2026-11-25)
 
 **Grundlag:** PR #489 (CI grøn i alle jobs på `d23d3f73`; merget `d24c8df0` efter DDL) og R37C2-1's blok fra PR #488.

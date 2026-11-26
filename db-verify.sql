@@ -11404,6 +11404,16 @@ DO $verify_foedenavn$ BEGIN
   RAISE NOTICE 'OK: fødenavn-faktatype';
 END $verify_foedenavn$;
 
+-- Adelsnavn (plan docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md): linjens navn efter titlen (»af Reventlow«)
+-- som kildebundet faktum på lineage; læserfladen sammensætter bogens formelle navneform af det.
+-- Forvent: NOTICE "OK: adelsnavn-faktatype".
+DO $verify_adelsnavn$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND code='adelsnavn') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: adelsnavn-faktatype mangler';
+  END IF;
+  RAISE NOTICE 'OK: adelsnavn-faktatype';
+END $verify_adelsnavn$;
+
 -- ===== Person OCR kvalitetsark — identitet =====
 -- Selvstændig, rollback-sikker kontrakt for stabile importnøgler og den varige
 -- korrektionsjournal. Den bruger rigtige constraints, trigger og SET ROLE, ikke

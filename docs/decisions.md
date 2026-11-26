@@ -27,6 +27,39 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   ændringen; ingen klient læser den i dag.
 - **Ikke med:** mobilens redaktion (dev-only) får knappen med mobil-pariteten.
 
+## BESLUTTET: linjens adelsnavn giver bogens formelle navneform (2026-11-26)
+
+**Projektejeren valgte** (25-26/11, plan `docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md`): personsiden viser
+ud over brugsformen bogens formelle form, »Johan Martin greve af Reventlow« (V) og »Friedrich greve de Reventlou« (IV).
+Lister, træ, søgning og overskrift er uændrede.
+
+- **Partiklen og stavemåden følger linjen, titelordet følger personen.** Målt i 2018-20: IV skrives `{titel} de
+  Reventlou` (42 forekomster), V `{titel} af Reventlow` (58, også »lensgreve af Reventlow«); krydshenvisninger bruger
+  personens egen linjes form.
+- **Linjens regel er et faktum på `lineage`** (faktatype `adelsnavn`, værdi »af Reventlow«) med påstand, kilde og
+  konklusion (invariant 1-3; `lineage`-kommentaren i `schema.sql` forudså det). Ingen ny tabel, ingen cache-kolonne,
+  ingen nye grants: anon læser fakta på linjer via `entitet_offentlig`. Kilden er fritekst, fordi `red_upsert_fakta`
+  sætter `source_id` NULL (jf. #389).
+- **Kilderne.** IV: s. 164, »1767 (14. dec.) ophøjet i lensgrevelig stand med navnet de Reventlou«. V: s. 202,
+  »fik 1692 (8. nov.) bevilling på, at alle hans sønner og descendenter på sværdsiden er grever med navnet af
+  Reventlow«. Bogens »af« i V er altså bevillingens ord for efterkommerne, ikke patentet fra 1673 (»med navnet de
+  Reventlow«, primogenitur), som gjaldt stifteren.
+- **Ingen form** uden adelstitel (samme lukkede liste som præsenslisten, nu i `@daa/core`), uden regel, ved
+  modstridende linjer og **for linjens stifter**: Conrad (V) førte »de Reventlow« efter sit eget patent; Detlef (IV) får
+  heller ingen, selv om reglen ville ramme rigtigt — stifternes form hører til en senere `navneform`.
+- **Linjen findes via id, aldrig koden.** Udgaverne nummererer linjerne forskelligt: 1939 »IV« er lineage 5
+  (grevelige 1673), 1939 »V« lineage 4. Web og mobil (efter #494) går begge via stamtavle-skemaets kanoniske
+  kortlægning (`model.lineage`), så 1939-rækker får samme regel som deres 2018-20-linje.
+- **Søgning:** ingen ændring. Navne indeholder ikke »Reventlou«; søgefladens »Mente du …?«/»Andre stavemåder« dækker
+  stavemåden, og foldningen holder bevidst de to adskilt.
+- *Fravalgt:* patentets ordlyd som linjens regel (ville give »Johan Martin greve de Reventlow«, som bogen ikke bruger);
+  én påstand pr. forekomst i bogens overskrifter (redaktionel vane i 2018-20, ville give falsk uenighed mod 1939); en
+  cache-kolonne.
+- **Udskudt:** tyske former (projektejeren: V primært »Graf zu«, IV primært »Graf von«; afventer evt. tysk udgave af
+  siden), person-faktatypen `navneform` til undtagelser (stifterne, von Reventlow-Criminil, von Hardenberg-Reventlow,
+  enkelte »von Reventlou«), ingifte via ægtefællens linje (»Margarethe lensgrevinde de Reventlou«), oprydning af de 138
+  navne-påstande med titelord, udtræk i prompten (kontraktfrys).
+
 ## BESLUTTET: en slettet persons id må blive stående i maskinens identitetskandidater (#397 R37C2-2, 2026-11-26)
 
 **Projektejeren valgte** (26/11, efter læse-kun-måling på prod-kopien 24/11) at »Slet helt« ikke fjerner eller

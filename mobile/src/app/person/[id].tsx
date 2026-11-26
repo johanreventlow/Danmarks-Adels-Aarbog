@@ -19,7 +19,7 @@ import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import {
-  byggFokusRaekker, faktaTypeNavn, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, slaegtskabsKontekst, udgaveNoteTekst,
+  byggFokusRaekker, faktaTypeNavn, formelNavneform, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, personensAdelsnavn, slaegtskabsKontekst, udgaveNoteTekst,
 } from '@daa/core';
 import type { BioSourceVersion, UdgaveFaktaVisning } from '@daa/core';
 import { barnErAktivt } from '../../data/familieBlok';
@@ -136,6 +136,11 @@ export default function PersonScreen() {
   const spouses = spousesOf(model, person.id);
   const vielseBySpouse = vielser?.personId === person.id ? vielseForAegtefaeller(model.indexes, person.id, vielser.byFam) : {};
   const kunI = kunIAeldreTekst(model, person.id);
+  // Bogens formelle navneform (»Johan Martin greve af Reventlow«; plan 2026-11-26) — samme regel som web: linjens
+  // adelsnavn via den kanoniske linjemodel, ingen for stifteren, kun med adelstitel.
+  const formelNavn = model.lineage && model.adelsnavne
+    ? formelNavneform({ fornavne: person.fornavne, titel: person.title, adelsnavn: personensAdelsnavn(person.id, model.lineage, model.adelsnavne), slaegtsnavn: model.slaegtsnavn })
+    : null;
   const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
@@ -204,6 +209,12 @@ export default function PersonScreen() {
                 </View>
               ) : null}
             </View>
+            {formelNavn ? (
+              <View style={{ marginTop: 9 }}>
+                <Kicker color={Colors.inkMuted}>I Aarbogen</Kicker>
+                <Serif size={16} style={{ marginTop: 2, lineHeight: 16 * 1.3 }}>{formelNavn}</Serif>
+              </View>
+            ) : null}
             {v.vaelger.form !== 'ingen' ? (
               <View style={styles.udgaveRow} accessibilityRole="radiogroup" accessibilityLabel="Udgave">
                 {v.vaelger.chips.map((c, i) => (
