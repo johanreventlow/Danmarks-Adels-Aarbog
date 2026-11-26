@@ -9,7 +9,7 @@ import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { erTekniskLinje } from '../data/lineage';
 import {
-  byggUdgaveFakta, byggUdgaveVaelger, udgaveForRaekker,
+  byggUdgaveFakta, byggUdgaveVaelger, godserIUdgave,
   udgaverMedFakta, type BioSourceVersionV2, type UdgaveChip,
   sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
 } from '@daa/core';
@@ -64,18 +64,9 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   const portrait = pickPortrait(media);
   const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
   const lightboxItems = withUrl([portrait, ...gallery]);
-  // Godser (spec §5.8): kun dem, hvis personrække hører til den valgte udgave, eller hvis udgave ikke kendes.
-  // Rækkens udgave som for fakta (§5.1): fakta-rækkernes udgave, ellers personrækkens eksterne nøgle.
-  const raekkeUdgave = faktaInput ? udgaveForRaekker(faktaInput) : {};
-  const godsUdgave = (personId: string): string | null => {
-    if (!faktaInput) return null;
-    const r = raekkeUdgave[personId];
-    if (r !== undefined) return r;
-    const ext = faktaInput.udgaveForPersonRaekke[personId];
-    return ext != null && udgaver.some((u) => u.sourceId === ext) ? ext : null;
-  };
-  const godser = (detail?.estates ?? [])
-    .filter((e) => { const u = godsUdgave(e.personId); return valgtUdgave == null || u == null || u === valgtUdgave; })
+  // Godser (spec §5.8) i den valgte udgave — reglen bor i @daa/core (godserIUdgave), som mobilens personskærm også bruger.
+  // Samme gods i flere rækker vises én gang.
+  const godser = godserIUdgave(detail?.estates ?? [], faktaInput, udgaver, valgtUdgave)
     .filter((e, i, alle) => alle.findIndex((x) => x.id === e.id) === i);
   // »Tidligere udgave« kun når den aktive chips udgave er ældre end standardens (årstal); ukendt år → ingen etiket.
   const standardChip = vaelger.chips[vaelger.standard] ?? null;

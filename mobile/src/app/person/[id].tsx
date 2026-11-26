@@ -23,6 +23,7 @@ import {
 } from '@daa/core';
 import type { BioSourceVersion, UdgaveFaktaVisning } from '@daa/core';
 import { barnErAktivt } from '../../data/familieBlok';
+import { godserTilVisning } from '../../data/personGodser';
 import { hentPersonFakta, type PersonFaktaResultat } from '../../data/personFakta';
 import { byggPersonUdgave } from '../../data/personUdgave';
 import { linjeTekst, slaegtskabsLinje } from '../../data/slaegtskabsLinje';
@@ -143,7 +144,6 @@ export default function PersonScreen() {
     : null;
   const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
-  const estates = aux?.estatesBy[person.id] ?? [];
   // Udgavevælger (én chip pr. udgave, standard = nyeste udgave med en post), linjerne i den valgte udgave, B6-noter
   // og »Kilde i Aarbogen« — samme regler som web. »Optræder i Aarbogen som« er fjernet som på web (e0618472):
   // kilderne står nederst på siden.
@@ -156,6 +156,8 @@ export default function PersonScreen() {
     faktaInput: fakta?.personId === person.id ? fakta.input : null,
   });
   const faktaFejl = fakta?.personId === person.id && fakta.fejl;
+  // Besiddelser i den valgte udgave (samme regel som web's personside), samme gods samlet til én tag med alle perioder.
+  const estates = godserTilVisning(aux?.estatesBy[person.id] ?? [], fakta?.personId === person.id ? fakta.input : null, model.udgaver ?? [], v.valgtUdgave);
   const vaelgChip = (idx: number) => {
     const c = v.vaelger.chips[idx];
     if (c) setValg({ personId: person.id, sourceId: c.sourceId });
@@ -348,10 +350,10 @@ export default function PersonScreen() {
         {estates.length ? (
           <Section title="Besiddelser">
             <View style={styles.tagWrap}>
-              {estates.map((e, i) => (
-                <View key={i} style={styles.tag}>
+              {estates.map((e) => (
+                <View key={e.id} style={styles.tag}>
                   <Serif size={16}>{e.navn}</Serif>
-                  {e.period ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginLeft: 6 }}>{e.period}</Mono> : null}
+                  {e.perioder ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginLeft: 6 }}>{e.perioder}</Mono> : null}
                 </View>
               ))}
             </View>
