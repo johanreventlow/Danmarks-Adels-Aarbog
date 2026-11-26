@@ -41,3 +41,26 @@ export function vielsePraecision(tekst: string): number {
   if (tekst.startsWith('⚭ ca.')) return 1;
   return /^⚭ \d+\. /.test(tekst) ? 3 : 2;
 }
+
+// Vielsesdatoer pr. familie ud fra kædens tre rækkesæt: fact (familie, vielse) → conclusion (valgt påstand) →
+// assertion (date_min/date_max). Nøglen er family-id'et, værdien færdig tekst fra fmtVielse; familier uden brugbar
+// dato udelades, og står en familie med flere vielser, vinder den mest præcise. Flyttet fra web/src/data/vielser.ts
+// (mobil-paritet, batch 6): hentningen bliver i appen, sammenstillingen er delt.
+type VielseId = number | string;
+export function vielsesDatoerPrFamilie(
+  facts: readonly { id: VielseId; subjekt_id: VielseId }[],
+  konkl: readonly { target_id: VielseId; valgt_assertion_id: VielseId | null }[],
+  assertions: readonly { id: VielseId; date_min: string | null; date_max: string | null; date_qualifier?: string | null; date_raw?: string | null }[],
+): Record<string, string> {
+  // Den rå tekst bærer »ca.« (kvalifikatoren er tom for alle vielser i prod), så den læses med.
+  const tekstByAssertion = new Map(assertions.map((a) =>
+    [String(a.id), fmtVielse(a.date_min, a.date_max, { qualifier: a.date_qualifier, raw: a.date_raw })]));
+  const familieByFact = new Map(facts.map((f) => [String(f.id), String(f.subjekt_id)]));
+  const ud: Record<string, string> = {};
+  for (const c of konkl) {
+    const fam = familieByFact.get(String(c.target_id));
+    const tekst = c.valgt_assertion_id == null ? '' : tekstByAssertion.get(String(c.valgt_assertion_id)) ?? '';
+    if (fam && tekst && vielsePraecision(tekst) > vielsePraecision(ud[fam] ?? '')) ud[fam] = tekst;
+  }
+  return ud;
+}

@@ -1,5 +1,4 @@
 // Delte visnings-hjælpere (brugt af både Folgesvend og Redaktion).
-import type { Konfidens } from './types';
 
 // Initialer til avatar-badges: op til to forbogstaver, versaler.
 // Monogram: første bogstav i de to første ord, der rummer et bogstav. Parenteser, tal og
@@ -7,9 +6,8 @@ import type { Konfidens } from './types';
 export const initials = (navn: string): string =>
   navn.split(/\s+/).map((ord) => ord.match(/\p{L}/u)?.[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 
-// Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
-export const konfTekst = (k?: Konfidens): string =>
-  k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '';
+// konfTekst er flyttet til @daa/core (mobil-paritet, batch 6); re-eksport så web-imports er uændrede.
+export { konfTekst } from '@daa/core';
 
 // Fast dansk tidsstempel (DD.MM.YYYY HH:MM) til historik-visninger — bevidst IKKE
 // toLocaleString, så OCR-historik og ændringshistorik viser samme format uanset runtime-locale.

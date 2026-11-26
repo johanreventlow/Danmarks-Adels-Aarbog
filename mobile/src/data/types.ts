@@ -48,6 +48,7 @@ export type RawPerson = {
   visning_titel: string | null;
   koen: string | null;
   privat: boolean | null;
+  levende?: boolean | null;
 };
 export type RawFamily = { id: number | string; type: string | null };
 export type RawMember = {

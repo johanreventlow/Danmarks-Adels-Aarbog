@@ -51,7 +51,7 @@ test('loadFromSupabase: person og family_member sorteres på entydig nøgle; RPC
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   await loadFromSupabase({ includePrivat: true, collapse: false }).catch(() => undefined);
   warn.mockRestore();
-  const person = forTabel('person', 'id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat');
+  const person = forTabel('person', 'id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat,levende');
   expect(person.length).toBeGreaterThan(0);
   expect(orden(person[0])).toEqual(['id']);
   const fm = forTabel('family_member', 'family_id,person_id,rolle,ordinal,konfidens');
