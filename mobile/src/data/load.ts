@@ -7,7 +7,7 @@ import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
-  type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
+  byggLinjeAdelsnavne, type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow, type LinjeAdelsnavne,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -116,6 +116,8 @@ export function mapAppPersons(
       foedtTekst: p.visning_foedt ?? null,
       doedTekst: p.visning_doed ?? null,
       title: p.visning_titel || '',
+      // Navnet uden slægtsnavn, til bogens formelle navneform (som web's model.ts).
+      fornavne: p.visning_navn ?? null,
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
       koen: normalizeKoen(p.koen),
@@ -434,9 +436,9 @@ export async function loadFromSupabase(opts?: {
     return (thumb || medium) ? { ...m, thumb_storage_path: thumb, medium_storage_path: medium } : m;
   });
 
-  const citationKilder = await fetchNavnProveniens(sb);
+  const [citationKilder, adelsnavne] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb)]);
   const aux = buildAux(
-    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms, citationKilder },
+    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms, citationKilder, adelsnavne },
     collapsed.canonicalIdById,
   );
 
@@ -540,6 +542,27 @@ type ParentsUnknownRows = {
 // rammer gæsternes 3 s-loft), med begrænset parallelitet; et bud på web's feed-bidder (forside/kilder.ts).
 export const PROVENIENS_IN_CHUNK = 200;
 export const PROVENIENS_PARALLEL = 4;
+
+// Linjernes adelsnavn (plan 2026-11-26-linjernes-adelsnavn): fact på lineage → afklaret konklusion → valgt påstand,
+// stykket sammen af core (byggLinjeAdelsnavne; spejl af web/src/data/adelsnavn.ts). Tolerant: fejl → ingen regler.
+export async function fetchLinjeAdelsnavne(sb: NonNullable<typeof supabase>): Promise<LinjeAdelsnavne> {
+  try {
+    const facts = await getAll<{ id: number; subjekt_id: number }>(() =>
+      sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'lineage').eq('faktatype', 'adelsnavn').order('id'));
+    if (!facts.length) return {};
+    const conclusions = await getAll<{ target_id: number; valgt_assertion_id: number | null }>(() =>
+      sb.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+        .in('target_id', facts.map((f) => f.id)).order('id'));
+    const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number => v != null);
+    if (!assertionIds.length) return {};
+    const assertions = await getAll<{ id: number; vaerdi_tekst: string | null }>(() =>
+      sb.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id'));
+    return byggLinjeAdelsnavne(facts, conclusions, assertions);
+  } catch (e) {
+    console.warn('[loadFromSupabase] linjernes adelsnavn utilgængelige — ingen formel navneform:', e);
+    return {};
+  }
+}
 
 export async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
   try {

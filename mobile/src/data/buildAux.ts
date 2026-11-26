@@ -1,6 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { buildProvenanceSources, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow } from '@daa/core';
+import { adelsnavnFraKoordinater, buildProvenanceSources, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type LinjeAdelsnavne } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -30,6 +30,8 @@ type BuildAuxInput = {
   // Proveniens fra evidenslaget (citation→source). Bruges KUN for personer uden bog-nummer —
   // se flettKilder. Mirror af web/src/data/public.ts's fetchProveniens.
   citationKilder?: CitationProvenanceRow[];
+  // Linjernes adelsnavn (lineage-id → »af Reventlow«) til bogens formelle navneform; udeladt = ingen.
+  adelsnavne?: LinjeAdelsnavne;
 };
 
 // Antal forskellige ejere (kanoniske person-id'er): en ejer med to perioder tæller én gang, som web's antalEjere.
@@ -48,6 +50,7 @@ export function buildAux(
     lineage,
     arms,
     citationKilder,
+    adelsnavne,
   }: BuildAuxInput,
   // samme_som-collapse: alle person-id-bærende strukturer kanoniseres, så hjælpedata for en foldet
   // person samles under den kanoniske id (spec §8). Default {} for bagudkompat i eksisterende tests.
@@ -273,6 +276,8 @@ export function buildAux(
     linjeByPerson,
     linjeList,
     linjeNavn,
+    // Via (kilde, linjekode) → lineage-id, ikke linjeByPersons rå koder: udgaverne nummererer linjerne forskelligt.
+    adelsnavnByPerson: adelsnavne ? adelsnavnFraKoordinater(extIds || [], lineage || [], adelsnavne, canonicalIdById) : {},
     kildeListe,
     orgListe,
     medieListe,

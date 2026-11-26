@@ -139,6 +139,7 @@ export type Aux = {
   linjeByPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   linjeList: LinjeEntry[];
   linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
+  adelsnavnByPerson?: Record<string, string>; // valgfri (seed/ældre fixtures); kanonisk person-id → linjens adelsnavn (»af Reventlow«); kun med regel
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
   orgListe: { id: string; navn: string; slags: string }[];
   medieListe: {

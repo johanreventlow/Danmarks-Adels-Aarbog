@@ -12,7 +12,7 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
+import { formelNavneform, lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
 import type { BioSourceVersion, BioSourceVersionV2 } from '@daa/core';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
@@ -88,6 +88,8 @@ export default function PersonScreen() {
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
   const linjer = aux?.linjeByPerson[person.id] ?? [];
+  // Bogens formelle navneform (»Johan Martin greve af Reventlow«; plan 2026-11-26): kun med linjeregel og adelstitel.
+  const formelNavn = formelNavneform({ fornavne: person.fornavne, titel: person.title, adelsnavn: aux?.adelsnavnByPerson?.[person.id] ?? null });
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = person.mergedFrom ?? [];
   const proveniens =
@@ -150,6 +152,12 @@ export default function PersonScreen() {
                 </View>
               ) : null}
             </View>
+            {formelNavn ? (
+              <View style={{ marginTop: 9 }}>
+                <Kicker color={Colors.inkMuted}>I Aarbogen</Kicker>
+                <Serif size={16} style={{ marginTop: 2, lineHeight: 16 * 1.3 }}>{formelNavn}</Serif>
+              </View>
+            ) : null}
             {proveniens ? (
               <Body size={11} color={Colors.inkMuted} style={{ marginTop: 9, lineHeight: 11 * 1.45 }}>
                 Optræder i Aarbogen som {proveniens}.

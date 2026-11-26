@@ -295,3 +295,20 @@ test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder
   expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
   expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
 });
+
+test('buildAux: adelsnavnByPerson via (kilde, linjekode) → lineage-id; stifteren og 1939-koder uden række udelades', () => {
+  const aux = buildAux({ ...base,
+    lineage: [{ id: 4, source_id: 1, kode: 'IV', navn: 'IV' }, { id: 5, source_id: 1, kode: 'V', navn: 'V' }] as RawLineage[],
+    extIds: [
+      { person_id: 392, source_id: 1, linje: 'V', nr: 1 }, { person_id: 501, source_id: 1, linje: 'V', nr: 2 },
+      { person_id: 310, source_id: 1, linje: 'IV', nr: 5 }, { person_id: 298, source_id: 1, linje: 'IV', nr: 1 },
+      { person_id: 1300, source_id: 3, linje: 'IV', nr: 7 },
+    ] as RawExtId[],
+    adelsnavne: { '4': 'de Reventlou', '5': 'af Reventlow' },
+  });
+  expect(aux.adelsnavnByPerson).toEqual({ '501': 'af Reventlow', '310': 'de Reventlou' });
+});
+
+test('buildAux: uden adelsnavne er adelsnavnByPerson tom', () => {
+  expect(buildAux(base).adelsnavnByPerson).toEqual({});
+});
