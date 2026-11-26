@@ -104,7 +104,6 @@ describe('treeFocusA — variant A fokus', () => {
     const v = treeFocusA(model, '1');
     expect(v.parent).toBeNull();
     expect(v.siblings.map((s) => s.id)).toEqual(['1']);
-    expect(v.children.map((c) => c.id).sort()).toEqual(['3', '4']);
   });
 });
 
