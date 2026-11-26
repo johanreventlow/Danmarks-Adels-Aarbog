@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-26 — Redaktøren kan rette, om en person er levende
+
+Før kunne »levende« kun vælges, når en person blev oprettet. Nu har person-editoren knappen »Levende«: at markere en
+person som levende skjuler den straks for gæster; at markere den som afdød kræver et »Ja« efter en advarsel om, at
+personen kan blive synlig. Begge dele kan fortrydes i historikken. Samme dag: når »Slet helt« rydder filer op, bliver en
+fil først kvitteret som slettet, når den faktisk er væk fra lageret. I prod 2026-11-26 (`database-current-state.md`
+§57, #397).
+
 ## 2026-11-26 — Personsiden viser navnet, som Aarbogen skriver det
 
 Under titlen står nu bogens formelle form, fx »Johan Martin greve af Reventlow« (den grevelige linje af 1673) og
