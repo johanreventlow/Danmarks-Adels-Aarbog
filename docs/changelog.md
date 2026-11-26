@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-26 — Personsiden viser navnet, som Aarbogen skriver det
+
+Under titlen står nu bogens formelle form, fx »Johan Martin greve af Reventlow« (den grevelige linje af 1673) og
+»… greve de Reventlou« (den lensgrevelige linje af 1767), på web og mobil. Partiklen og stavemåden følger linjen og står som
+kildebundet oplysning på linjen (bevillingen 1692 og patentet 1767); titelordet følger personen. Stifterne, personer uden
+adelstitel og personer i flere linjer får ingen form, frem for en forkert. Tyske former (»Graf zu«/»Graf von«) og
+personlige undtagelser venter. I prod 2026-11-26 (`database-current-state.md` §56, PR #499).
+
 ## 2026-11-25 — Personsidens fakta hentes op til ti gange hurtigere
 
 Fakta-sektionen tog op til et halvt sekund at hente for en gæst, fordi publiceringstjekket blev gentaget for hver
