@@ -810,6 +810,8 @@ BEGIN
     'public.red_set_story_status(bigint,text)',
     'public.red_slet_familie_link(bigint,bigint,text)',
     'public.red_slet_medierelation_uden_evidens(bigint)',
+    'public.red_media_interne_felter(bigint[])',
+    'public.red_media_efter_sha(text)',
     'public.red_slet_oplysning(bigint)',
     'public.red_slet_person(bigint)',
     'public.red_slet_person_preview(bigint)',

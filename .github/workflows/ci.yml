@@ -305,6 +305,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-offentlig-gruppe.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-b3-gate.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-p11-kaldere.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-c5-kaldere.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-y1-udsnit.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
