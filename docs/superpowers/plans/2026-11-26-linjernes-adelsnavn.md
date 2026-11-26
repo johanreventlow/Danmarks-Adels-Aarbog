@@ -42,6 +42,18 @@ React (web, vitest), React Native/Expo (mobil, jest).
   ægtefællens linje (»Margarethe lensgrevinde de Reventlou«), 1939-only-personer uden 2018-20-linje, oprydning af de 138
   navne-påstande med titelord, udtræk i prompten (kontraktfrys).
 
+## Afvigelser under udførelsen (2026-11-26)
+
+1. **Stifterne får ingen form** (projektejerens valg A for Conrad): `adelsnavnForLinjer(…, stifterAf)` returnerer `null`
+   for linjens hoved. Grundlag: V, nr. 1 — 1673 »med navnet de Reventlow« (primogenitur), 1692-bevillingen på »af
+   Reventlow« gælder sønner og descendenter (s. 202). Detlef (IV) mister dermed også sin (korrekte) form indtil `navneform`.
+2. **Ingen variantklasse Reventlow/Reventlou**: søgefladens eksisterende »Mente du …?«/»Andre stavemåder« dækker
+   stavemåden, og `soeg.test.ts` låser bevidst, at foldningen holder dem adskilt.
+3. **Mobilen** slår linjen op via `(source_id, linjekode)` → lineage-id i core (`adelsnavnFraKoordinater`), fordi
+   mobilens `linjeByPerson` nøgler på rå koder på tværs af udgaver (1939's IV/V er byttet om). Regelsammenstykningen
+   er delt i core (`byggLinjeAdelsnavne`). Mobilens personside har ingen komponenttest; dækningen er core + `buildAux`.
+4. V-reglens kilde er bevillingen 1692 (s. 202), ikke overskriftseksemplet på s. 206.
+
 ## Global Constraints
 
 - Titler er aldrig en del af `person.name`/`navn`-fakta (decisions 2026-10-03); intet i denne plan skriver i `navn`.
