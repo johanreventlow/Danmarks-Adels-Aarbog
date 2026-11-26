@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { byggLinjeRaekker } from '../linjeRaekker';
-import { linjerForUdgave } from '@daa/core';
+import { linjerForUdgave } from '../index';
 import type { RawExtId, RawSource } from '../types';
 
 const sources = [
