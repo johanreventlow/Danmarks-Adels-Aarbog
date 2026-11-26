@@ -798,6 +798,7 @@ BEGIN
     'public.red_saet_estate(bigint,text,text)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',
+    'public.red_sammenlaeg_estate(bigint,bigint)',
     'public.red_seal_identity_control_run(uuid,text,text)',
     'public.red_set_familie_konfidens(bigint,bigint,text,text)',
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)',

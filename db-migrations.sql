@@ -18930,6 +18930,7 @@ DECLARE
     to_regprocedure('public.red_saet_estate(bigint,text,text)'),  -- #471 godser-fase1, defineres sidst
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
+    to_regprocedure('public.red_sammenlaeg_estate(bigint,bigint)'),  -- #471 godser-fase1, defineres sidst
     to_regprocedure('public.red_seal_identity_control_run(uuid,text,text)'),
     'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
@@ -50964,5 +50965,99 @@ END
 $flyt_estate_relation$;
 REVOKE ALL ON FUNCTION public.red_flyt_estate_relation(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_flyt_estate_relation(bigint,bigint) TO authenticated;
+
+-- Læg en dublet (p_fra) sammen i den overlevende række (p_til) (#471). Ejerforhold og billeder flyttes med
+-- red_flyt_estate_relation (samme id; bogens navneform som citat), hører_under omskrives i begge retninger (en gård
+-- under fra kommer under til, og fra's eget majorat bliver til's), og til sidst kobles fra til til med sammenlagt_i.
+-- Rækken bliver liggende, så gamle adresser kan sendes videre. Alt sker i ÉT ændringssæt ('estate', p_til), som
+-- red_fortryd_change_set kan fortryde: den spiller baglæns, så sammenlagt_i slettes først, og koblingerne derefter
+-- flyttes tilbage. Ejerforhold deduplikeres ikke: samme ejer på begge rækker bliver to ejerforhold (afgørelse 4A).
+-- Afvises, før noget flyttes: fra = til (ESTATE_RELATION_SELV), et gods der ikke findes (ESTATE_FINDES_IKKE, P0002),
+-- fra eller til er selv sammenlagt (ESTATE_ER_SAMMENLAGT), andre er lagt sammen i fra (ESTATE_SAMMENLAGT_KAEDE),
+-- fra har andre koblinger end ejerforhold, billeder og hører_under (ESTATE_HAR_ANDRE_KOBLINGER: narrativ, faktum,
+-- note, beskrivelse, tekstomtale, fortælling, hændelse eller en anden relation), samme billede er på begge rækker
+-- (ESTATE_BILLEDE_PAA_BEGGE, 23505; relation_afbildet_uidx). En hører_under med forkert art afvises af vagten.
+-- Låse: fortryd/slet-låsen (delt), så begge godser i id-orden (fra FOR NO KEY UPDATE som vagten ved sammenlagt_i,
+-- til FOR SHARE), derefter relationerne. Kendt rest: vagten låser hører_under's tredje gods uden for id-orden.
+CREATE OR REPLACE FUNCTION red_sammenlaeg_estate(p_fra bigint, p_til bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $sammenlaeg_estate$
+DECLARE v_fundet int := 0; v_fra_navn text; v_til_navn text; v_hvad text; v_rel record;
+        v_ejer int := 0; v_afb int := 0; v_hu int := 0; v_n int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  IF p_fra = p_til THEN
+    RAISE EXCEPTION 'ESTATE_RELATION_SELV: gods % kan ikke lægges sammen i sig selv', p_fra USING ERRCODE = '23514';
+  END IF;
+  IF p_fra < p_til THEN
+    SELECT e.navn INTO v_fra_navn FROM estate e WHERE e.id = p_fra FOR NO KEY UPDATE;
+    IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+    SELECT e.navn INTO v_til_navn FROM estate e WHERE e.id = p_til FOR SHARE;
+    IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+  ELSE
+    SELECT e.navn INTO v_til_navn FROM estate e WHERE e.id = p_til FOR SHARE;
+    IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+    SELECT e.navn INTO v_fra_navn FROM estate e WHERE e.id = p_fra FOR NO KEY UPDATE;
+    IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+  END IF;
+  IF v_fundet <> 2 THEN
+    RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % eller gods % findes ikke', p_fra, p_til USING ERRCODE = 'P0002';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_fra AND r.rolle = 'sammenlagt_i') THEN
+    RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er allerede lagt sammen med et andet gods', p_fra USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_til AND r.rolle = 'sammenlagt_i') THEN
+    RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er lagt sammen med et andet gods; læg sammen i det', p_til
+      USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation r WHERE r.objekt_type = 'estate' AND r.objekt_id = p_fra AND r.rolle = 'sammenlagt_i') THEN
+    RAISE EXCEPTION 'ESTATE_SAMMENLAGT_KAEDE: andre godser er lagt sammen i gods %, så det kan ikke selv lægges sammen', p_fra
+      USING ERRCODE = '23514';
+  END IF;
+  -- Andre koblinger end dem, der flyttes (hver med sin typekolonne: et id alene kan være en anden entitets).
+  v_hvad := CASE
+    WHEN EXISTS (SELECT 1 FROM narrative x WHERE x.subjekt_type = 'estate' AND x.subjekt_id = p_fra) THEN 'et narrativ'
+    WHEN EXISTS (SELECT 1 FROM fact x WHERE x.subjekt_type = 'estate' AND x.subjekt_id = p_fra) THEN 'et faktum'
+    WHEN EXISTS (SELECT 1 FROM note x WHERE x.target_type = 'estate' AND x.target_id = p_fra) THEN 'en note'
+    WHEN EXISTS (SELECT 1 FROM entity_description x WHERE x.subjekt_type = 'estate' AND x.subjekt_id = p_fra) THEN 'en beskrivelse'
+    WHEN EXISTS (SELECT 1 FROM text_mention x WHERE x.maal_type = 'estate' AND x.maal_id = p_fra) THEN 'en tekstomtale'
+    WHEN EXISTS (SELECT 1 FROM story x WHERE x.subjekt_type = 'estate' AND x.subjekt_id = p_fra) THEN 'en fortælling'
+    WHEN EXISTS (SELECT 1 FROM haendelse x WHERE x.subjekt_type = 'estate' AND x.subjekt_id = p_fra) THEN 'en hændelse'
+    WHEN EXISTS (SELECT 1 FROM relation r
+                  WHERE ((r.subjekt_type = 'estate' AND r.subjekt_id = p_fra) OR (r.objekt_type = 'estate' AND r.objekt_id = p_fra))
+                    AND NOT (r.rolle = 'hører_under'
+                             OR (r.rolle IN ('ejer','afbildet') AND r.objekt_type = 'estate' AND r.objekt_id = p_fra
+                                 AND r.subjekt_type IS DISTINCT FROM 'estate'))) THEN 'en anden relation'
+  END;
+  IF v_hvad IS NOT NULL THEN
+    RAISE EXCEPTION 'ESTATE_HAR_ANDRE_KOBLINGER: gods % har %, som ikke kan flyttes ved en sammenlægning; flyt eller fjern den først',
+      p_fra, v_hvad USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation a JOIN relation b
+                ON b.subjekt_type = a.subjekt_type AND b.subjekt_id = a.subjekt_id
+               AND b.objekt_type = 'estate' AND b.objekt_id = p_til AND b.rolle = 'afbildet'
+              WHERE a.objekt_type = 'estate' AND a.objekt_id = p_fra AND a.rolle = 'afbildet') THEN
+    RAISE EXCEPTION 'ESTATE_BILLEDE_PAA_BEGGE: samme billede er på gods % og gods %; fjern det ene først', p_fra, p_til
+      USING ERRCODE = '23505';
+  END IF;
+
+  PERFORM begin_change_set('red_sammenlaeg_estate',
+    format('Lagde gods %s »%s« sammen i gods %s »%s«', p_fra, v_fra_navn, p_til, v_til_navn), 'estate', p_til);
+  FOR v_rel IN SELECT r.id, r.rolle FROM relation r
+                WHERE r.objekt_type = 'estate' AND r.objekt_id = p_fra AND r.rolle IN ('ejer','afbildet') ORDER BY r.id LOOP
+    PERFORM red_flyt_estate_relation(v_rel.id, p_til);
+    IF v_rel.rolle = 'ejer' THEN v_ejer := v_ejer + 1; ELSE v_afb := v_afb + 1; END IF;
+  END LOOP;
+  UPDATE relation SET subjekt_id = p_til WHERE subjekt_type = 'estate' AND subjekt_id = p_fra AND rolle = 'hører_under';
+  GET DIAGNOSTICS v_n = ROW_COUNT; v_hu := v_n;
+  UPDATE relation SET objekt_id = p_til WHERE objekt_type = 'estate' AND objekt_id = p_fra AND rolle = 'hører_under';
+  GET DIAGNOSTICS v_n = ROW_COUNT; v_hu := v_hu + v_n;
+  INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ('estate', p_fra, 'estate', p_til, 'sammenlagt_i');
+  RETURN jsonb_build_object('flyttet_ejer', v_ejer, 'flyttet_afbildet', v_afb, 'flyttet_hoerer_under', v_hu);
+END
+$sammenlaeg_estate$;
+REVOKE ALL ON FUNCTION public.red_sammenlaeg_estate(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_sammenlaeg_estate(bigint,bigint) TO authenticated;
 
 -- END godser-fase1

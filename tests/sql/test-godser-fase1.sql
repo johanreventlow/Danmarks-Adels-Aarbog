@@ -460,6 +460,233 @@ BEGIN
 END
 $t3$;
 
+-- ---------- 4. Sammenlæg godser (red_sammenlaeg_estate) og fortrydelsen ----------
+-- Øjebliksbillede af alle relationer med en estate-ende i p_ids, deres citationer og godsrækkerne selv.
+CREATE FUNCTION pg_temp.g471_snap(p_ids bigint[]) RETURNS jsonb LANGUAGE sql AS $f$
+  WITH r AS (SELECT * FROM public.relation r
+              WHERE (r.subjekt_type = 'estate' AND r.subjekt_id = ANY(p_ids))
+                 OR (r.objekt_type = 'estate' AND r.objekt_id = ANY(p_ids)))
+  SELECT jsonb_build_object(
+    'relation', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM r),
+    'citation', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM public.citation c
+                   JOIN public.assertion a ON a.id = c.assertion_id JOIN r ON a.target_type = 'relation' AND a.target_id = r.id),
+    'estate',   (SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM public.estate e WHERE e.id = ANY(p_ids)));
+$f$;
+
+-- Kald red_sammenlaeg_estate som redaktion; returnér resultatet og ændringssættets id.
+CREATE FUNCTION pg_temp.g471_sammenlaeg(p_fra bigint, p_til bigint, OUT res jsonb, OUT cs bigint) LANGUAGE plpgsql AS $f$
+BEGIN
+  cs := pg_temp.g471_som('redaktion',
+    format('SELECT set_config(%L, public.red_sammenlaeg_estate(%s, %s)::text, true)', 'g471.res', p_fra, p_til));
+  res := current_setting('g471.res')::jsonb;
+END
+$f$;
+
+DO $t4$
+DECLARE
+  f bigint := 987650401; t bigint; m bigint; t2 bigint; x bigint; y bigint; mf bigint; mt bigint; g bigint;
+  p1 bigint; p2 bigint; p3 bigint; p_lok bigint := 987650401; md1 bigint; md2 bigint; src bigint; nar bigint;
+  r_f1 bigint; r_f2 bigint; r_t1 bigint; r_t2 bigint; r_afb bigint; r_hu bigint; r_x bigint; r_slet bigint;
+  a bigint; c_f1 bigint; c_f1b bigint; c_f2 bigint; c_t1 bigint;
+  v_foer jsonb; v_efter jsonb; v_res jsonb; v_cs bigint; v_cs_slet bigint; v_antal bigint; v_flyt_sets bigint; k text;
+BEGIN
+  INSERT INTO public.source(slags, titel) VALUES ('bog', '__t4_kilde__') RETURNING id INTO src;
+  INSERT INTO public.estate(id, navn, slags) VALUES (f, '__t4_Wittenberg (dublet)__', 'gård');
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_Wittenberg__', 'gård') RETURNING id INTO t;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_majorat__', 'grevskab') RETURNING id INTO m;
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p1;
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p2;
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p3;
+  INSERT INTO public.media(slags) VALUES ('gods') RETURNING id INTO md1;
+  INSERT INTO public.media(slags) VALUES ('gods') RETURNING id INTO md2;
+
+  -- To ejerforhold på hver række; p1 ejer begge (Review Focus 4). Ét billede på fra; fra hører under et majorat.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw)
+    VALUES ('person',p1,'estate',f,'ejer','1700-1720') RETURNING id INTO r_f1;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_f1,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id,side) VALUES (a,src,'12') RETURNING id INTO c_f1;
+  INSERT INTO public.citation(assertion_id,source_id,side,citat_tekst) VALUES (a,src,'12','bogens ordlyd') RETURNING id INTO c_f1b;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p2,'estate',f,'ejer') RETURNING id INTO r_f2;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_f2,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a,src) RETURNING id INTO c_f2;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw)
+    VALUES ('person',p1,'estate',t,'ejer','1720-1740') RETURNING id INTO r_t1;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_t1,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a,src) RETURNING id INTO c_t1;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p3,'estate',t,'ejer') RETURNING id INTO r_t2;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('media',md1,'estate',f,'afbildet') RETURNING id INTO r_afb;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',f,'estate',m,'hører_under') RETURNING id INTO r_hu;
+  -- Lokkemad: en person med samme id som fra-godset har et narrativ, et faktum og en note — det er ikke godsets koblinger.
+  INSERT INTO public.person(id) VALUES (p_lok);
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('person',p_lok,'__t4_lok__');
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',p_lok,'erhverv');
+  INSERT INTO public.note(target_type,target_id,indhold) VALUES ('person',p_lok,'__t4_lok__');
+
+  -- (0) Kun redaktionen.
+  PERFORM pg_temp.g471_afvist_som('gaest', format('SELECT public.red_sammenlaeg_estate(%s, %s)', f, t),
+    '42501', NULL, 'red_sammenlaeg_estate');
+  FOREACH k IN ARRAY ARRAY['uden_profil','medlem'] LOOP
+    PERFORM pg_temp.g471_afvist_som(k, format('SELECT public.red_sammenlaeg_estate(%s, %s)', f, t),
+      'P0001', 'Kun redaktion', 'red_sammenlaeg_estate');
+  END LOOP;
+
+  -- (a) Sammenlæg fra i til: alt flyttes med samme id, fra har kun sammenlagt_i tilbage; ét ændringssæt.
+  v_foer := pg_temp.g471_snap(ARRAY[f,t,m]);
+  SELECT count(*) INTO v_flyt_sets FROM public.change_set WHERE operation = 'red_flyt_estate_relation';
+  SELECT res, cs INTO v_res, v_cs FROM pg_temp.g471_sammenlaeg(f, t);
+  IF v_res IS DISTINCT FROM '{"flyttet_ejer": 2, "flyttet_afbildet": 1, "flyttet_hoerer_under": 1}'::jsonb THEN
+    RAISE EXCEPTION 'GODSER_T4: red_sammenlaeg_estate returnerede %', v_res;
+  END IF;
+  SELECT count(*) INTO v_antal FROM public.relation WHERE objekt_type = 'estate' AND objekt_id = t AND rolle = 'ejer';
+  IF v_antal <> 4 THEN RAISE EXCEPTION 'GODSER_T4: til har % ejerforhold, ventede 4', v_antal; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.relation WHERE id = r_afb AND objekt_id = t AND subjekt_id = md1)
+     OR NOT EXISTS (SELECT 1 FROM public.relation WHERE id = r_hu AND subjekt_id = t AND objekt_id = m AND rolle = 'hører_under')
+     OR NOT EXISTS (SELECT 1 FROM public.relation WHERE id = r_f1 AND objekt_id = t)
+     OR NOT EXISTS (SELECT 1 FROM public.relation WHERE id = r_f2 AND objekt_id = t) THEN
+    RAISE EXCEPTION 'GODSER_T4: ejerforhold, billede eller hører_under blev ikke flyttet til til med samme id';
+  END IF;
+  SELECT count(*) INTO v_antal FROM public.relation
+   WHERE (subjekt_type = 'estate' AND subjekt_id = f) OR (objekt_type = 'estate' AND objekt_id = f);
+  IF v_antal <> 1 OR NOT EXISTS (SELECT 1 FROM public.relation WHERE subjekt_type = 'estate' AND subjekt_id = f
+                                    AND objekt_type = 'estate' AND objekt_id = t AND rolle = 'sammenlagt_i') THEN
+    RAISE EXCEPTION 'GODSER_T4: fra har % relationer tilbage, ventede kun sammenlagt_i til til', v_antal;
+  END IF;
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c_f1) IS DISTINCT FROM '__t4_Wittenberg (dublet)__'
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_f2) IS DISTINCT FROM '__t4_Wittenberg (dublet)__'
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_f1b) IS DISTINCT FROM 'bogens ordlyd'
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_t1) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T4: citaterne er forkerte efter sammenlægningen';
+  END IF;
+  IF v_cs IS NULL OR NOT EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id = v_cs
+                                    AND cs.operation = 'red_sammenlaeg_estate' AND cs.subjekt_type = 'estate' AND cs.subjekt_id = t) THEN
+    RAISE EXCEPTION 'GODSER_T4: red_sammenlaeg_estate åbnede ikke sit eget ændringssæt (estate, %)', t;
+  END IF;
+  IF (SELECT count(*) FROM public.change_set WHERE operation = 'red_flyt_estate_relation') <> v_flyt_sets THEN
+    RAISE EXCEPTION 'GODSER_T4: flytningerne åbnede egne ændringssæt i stedet for at bruge sammenlægningens';
+  END IF;
+  IF (SELECT navn FROM public.estate WHERE id = f) <> '__t4_Wittenberg (dublet)__' THEN
+    RAISE EXCEPTION 'GODSER_T4: den sammenlagte række blev ikke liggende med sit navn';
+  END IF;
+
+  -- (b) Samme ejer på begge rækker bliver to ejerforhold (ingen deduplikering; Review Focus 4).
+  SELECT count(*) INTO v_antal FROM public.relation
+   WHERE subjekt_type = 'person' AND subjekt_id = p1 AND objekt_type = 'estate' AND objekt_id = t AND rolle = 'ejer';
+  IF v_antal <> 2 THEN RAISE EXCEPTION 'GODSER_T4: p1 har % ejerforhold til til, ventede 2', v_antal; END IF;
+
+  -- (c) Fortryd giver præcis tilstanden før: relationer tilbage på fra, ingen sammenlagt_i, citat_tekst NULL igen.
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));
+  v_efter := pg_temp.g471_snap(ARRAY[f,t,m]);
+  IF v_efter IS DISTINCT FROM v_foer THEN
+    RAISE EXCEPTION 'GODSER_T4: fortryd af sammenlægningen gav ikke tilstanden før: før % efter %', v_foer, v_efter;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.relation WHERE rolle = 'sammenlagt_i' AND subjekt_type = 'estate' AND subjekt_id = f) THEN
+    RAISE EXCEPTION 'GODSER_T4: sammenlagt_i står tilbage efter fortryd';
+  END IF;
+
+  -- (d) Afvisninger: ind i en sammenlagt række, en sammenlagt række, en række der er mål for en sammenlægning,
+  -- i sig selv, gods der ikke findes; billede af samme medie på begge rækker. Intet ændres.
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_x__', 'gård') RETURNING id INTO x;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_y__', 'gård') RETURNING id INTO y;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',x,'estate',y,'sammenlagt_i');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', f, x),
+    '23514', 'ESTATE_ER_SAMMENLAGT', 'sammenlægning ind i en sammenlagt række');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', x, t),
+    '23514', 'ESTATE_ER_SAMMENLAGT', 'sammenlægning af en sammenlagt række');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', y, t),
+    '23514', 'ESTATE_SAMMENLAGT_KAEDE', 'sammenlægning af en række, der er mål for en sammenlægning');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', f, f),
+    '23514', 'ESTATE_RELATION_SELV', 'sammenlægning i sig selv');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, -987650001)', f),
+    'P0002', 'ESTATE_FINDES_IKKE', 'sammenlægning i et gods, der ikke findes');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(-987650001, %s)', t),
+    'P0002', 'ESTATE_FINDES_IKKE', 'sammenlægning af et gods, der ikke findes');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(NULL, %s)', t),
+    'P0002', 'ESTATE_FINDES_IKKE', 'sammenlægning af NULL');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('media',md1,'estate',t,'afbildet') RETURNING id INTO r_x;
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', f, t),
+    '23505', 'ESTATE_BILLEDE_PAA_BEGGE', 'sammenlægning, hvor samme billede er på begge rækker');
+  DELETE FROM public.relation WHERE id = r_x;
+  IF pg_temp.g471_snap(ARRAY[f,t,m]) IS DISTINCT FROM v_foer THEN
+    RAISE EXCEPTION 'GODSER_T4: en afvist sammenlægning efterlod ændringer';
+  END IF;
+
+  -- (e) Andre koblinger end ejer/afbildet/hører_under afvises, før noget flyttes (ESTATE_HAR_ANDRE_KOBLINGER).
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_t2__', 'gård') RETURNING id INTO t2;
+  FOREACH k IN ARRAY ARRAY['narrative','fact','note','entity_description','text_mention','forpagter','ejer_som_subjekt','haendelse'] LOOP
+    INSERT INTO public.estate(navn, slags) VALUES ('__t4_kobling_' || k || '__', 'gård') RETURNING id INTO x;
+    INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',p2,'estate',x,'ejer') RETURNING id INTO r_x;
+    CASE k
+      WHEN 'narrative' THEN INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('estate',x,'__t4_godsets narrativ__');
+      WHEN 'fact' THEN INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('estate',x,'opført');
+      WHEN 'note' THEN INSERT INTO public.note(target_type,target_id,indhold) VALUES ('estate',x,'__t4_note__');
+      WHEN 'entity_description' THEN
+        INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst) VALUES ('estate',x,'overview','__t4_beskrivelse__');
+      WHEN 'text_mention' THEN
+        INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('person',p2,'__t4_nævner godset__') RETURNING id INTO nar;
+        INSERT INTO public.text_mention(kilde_type,kilde_id,maal_type,maal_id) VALUES ('narrative',nar,'estate',x);
+      WHEN 'forpagter' THEN
+        INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',p2,'estate',x,'forpagter');
+      WHEN 'ejer_som_subjekt' THEN
+        INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',x,'estate',t2,'ejer');
+      WHEN 'haendelse' THEN
+        INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('person',p2,'__t4_h__') RETURNING id INTO nar;
+        INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul) VALUES ('estate',x,nar,'__t4_h__','brændte');
+    END CASE;
+    PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', x, t2),
+      '23514', 'ESTATE_HAR_ANDRE_KOBLINGER', 'sammenlægning af et gods med ' || k);
+    IF (SELECT objekt_id FROM public.relation WHERE id = r_x) <> x
+       OR EXISTS (SELECT 1 FROM public.relation WHERE rolle = 'sammenlagt_i' AND subjekt_type = 'estate' AND subjekt_id = x) THEN
+      RAISE EXCEPTION 'GODSER_T4: en afvist sammenlægning (%) flyttede noget', k;
+    END IF;
+  END LOOP;
+
+  -- (g) Majorat i majorat: gårde under fra kommer under til; fortryd giver dem tilbage. Forkert art afvises af vagten.
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_mf__', 'grevskab') RETURNING id INTO mf;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_mt__', 'baroni') RETURNING id INTO mt;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_g__', 'gård') RETURNING id INTO g;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',g,'estate',mf,'hører_under') RETURNING id INTO r_x;
+  v_foer := pg_temp.g471_snap(ARRAY[mf,mt,g]);
+  SELECT res, cs INTO v_res, v_cs FROM pg_temp.g471_sammenlaeg(mf, mt);
+  IF v_res IS DISTINCT FROM '{"flyttet_ejer": 0, "flyttet_afbildet": 0, "flyttet_hoerer_under": 1}'::jsonb
+     OR NOT EXISTS (SELECT 1 FROM public.relation WHERE id = r_x AND subjekt_id = g AND objekt_id = mt) THEN
+    RAISE EXCEPTION 'GODSER_T4: gården kom ikke under det overlevende majorat (%)', v_res;
+  END IF;
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));
+  IF pg_temp.g471_snap(ARRAY[mf,mt,g]) IS DISTINCT FROM v_foer THEN
+    RAISE EXCEPTION 'GODSER_T4: fortryd af majoratets sammenlægning gav ikke tilstanden før';
+  END IF;
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', mf, t2),
+    '23514', 'ESTATE_HOERER_UNDER_ART', 'sammenlægning af et majorat med gårde ind i en gård');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', mf, g),
+    '23514', 'ESTATE_RELATION_SELV', 'sammenlægning af et majorat ind i en af sine egne gårde');
+  IF pg_temp.g471_snap(ARRAY[mf,mt,g]) IS DISTINCT FROM v_foer THEN
+    RAISE EXCEPTION 'GODSER_T4: en afvist sammenlægning (forkert art) efterlod ændringer';
+  END IF;
+
+  -- (f) Fortryd af en gammel sletning af et ejerforhold, hvis gods siden er lagt sammen, afvises af vagten, frem for
+  -- at genskabe et ejerforhold til en skjult række.
+  INSERT INTO public.estate(navn, slags) VALUES ('__t4_slettet_fra__', 'gård') RETURNING id INTO x;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',p3,'estate',x,'ejer') RETURNING id INTO r_slet;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_slet,'ejer') RETURNING id INTO a;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a,src);
+  v_cs_slet := pg_temp.g471_som('redaktion', format('SELECT public.red_slet_relation(%s)', r_slet));
+  IF v_cs_slet IS NULL OR EXISTS (SELECT 1 FROM public.relation WHERE id = r_slet) THEN
+    RAISE EXCEPTION 'GODSER_T4: red_slet_relation slettede ikke ejerforholdet';
+  END IF;
+  SELECT res, cs INTO v_res, v_cs FROM pg_temp.g471_sammenlaeg(x, t2);
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs_slet),
+    '23514', 'ESTATE_ER_SAMMENLAGT', 'fortryd af en sletning af et ejerforhold til en sammenlagt række');
+  IF EXISTS (SELECT 1 FROM public.relation WHERE id = r_slet)
+     OR EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id = v_cs_slet) THEN
+    RAISE EXCEPTION 'GODSER_T4: den afviste fortrydelse genskabte ejerforholdet % eller blev registreret', r_slet;
+  END IF;
+END
+$t4$;
+
 -- NY AFSNIT TILFØJES HER (før OK-linjen).
 ROLLBACK;
 \echo OK test-godser-fase1

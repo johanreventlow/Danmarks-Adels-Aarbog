@@ -3183,6 +3183,7 @@ DECLARE
     'public.red_saet_estate(bigint,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_sammenlaeg_estate(bigint,bigint)'::regprocedure,
     'public.red_seal_identity_control_run(uuid,text,text)'::regprocedure,
     'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
@@ -13808,15 +13809,16 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $verify_godser_fase1_relation$;
 
--- ===== Godsernes oprydning, fase 1 (#471): red_saet_estate og red_flyt_estate_relation =====
--- Begge er DEFINER med fast search_path. Adgangen (kun authenticated, rollegate redaktion) dækkes af red_*-vagten.
+-- ===== Godsernes oprydning, fase 1 (#471): red_saet_estate, red_flyt_estate_relation og red_sammenlaeg_estate =====
+-- Alle tre er DEFINER med fast search_path. Adgangen (kun authenticated, rollegate redaktion) dækkes af red_*-vagten.
 DO $verify_godser_fase1_rpc$
 DECLARE f regprocedure;
 BEGIN
   FOREACH f IN ARRAY ARRAY[to_regprocedure('public.red_saet_estate(bigint,text,text)'),
-                           to_regprocedure('public.red_flyt_estate_relation(bigint,bigint)')] LOOP
+                           to_regprocedure('public.red_flyt_estate_relation(bigint,bigint)'),
+                           to_regprocedure('public.red_sammenlaeg_estate(bigint,bigint)')] LOOP
     IF f IS NULL THEN
-      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — red_saet_estate(bigint,text,text) eller red_flyt_estate_relation(bigint,bigint) mangler';
+      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — red_saet_estate(bigint,text,text), red_flyt_estate_relation(bigint,bigint) eller red_sammenlaeg_estate(bigint,bigint) mangler';
     END IF;
     IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
        OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=public']
@@ -13824,6 +13826,6 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % er ikke DEFINER med search_path=public, kun kaldbar af authenticated', f;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK: godser-fase1 — red_saet_estate og red_flyt_estate_relation findes som DEFINER-RPC''er for authenticated';
+  RAISE NOTICE 'OK: godser-fase1 — red_saet_estate, red_flyt_estate_relation og red_sammenlaeg_estate findes som DEFINER-RPC''er for authenticated';
 END $verify_godser_fase1_rpc$;
 -- END-VERIFY godser-fase1
