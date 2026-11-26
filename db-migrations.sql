@@ -18857,6 +18857,7 @@ DECLARE
     'public.red_fjern_media(bigint)'::regprocedure,
     'public.red_fjern_samme_som(bigint)'::regprocedure,
     'public.red_flyt_barn(bigint,bigint,bigint,text)'::regprocedure,
+    to_regprocedure('public.red_flyt_estate_relation(bigint,bigint)'),  -- #471 godser-fase1, defineres sidst
     'public.red_fortryd_change_set(bigint,boolean)'::regprocedure,
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
@@ -18926,6 +18927,7 @@ DECLARE
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
     to_regprocedure('public.red_reverse_reimport_publication(uuid,uuid)'),
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+    to_regprocedure('public.red_saet_estate(bigint,text,text)'),  -- #471 godser-fase1, defineres sidst
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
     to_regprocedure('public.red_seal_identity_control_run(uuid,text,text)'),
@@ -50716,13 +50718,31 @@ INSERT INTO vocab (scheme, code, label) VALUES
 ON CONFLICT (scheme, code) DO NOTHING;
 
 -- Alle skriveveje til estate.slags går gennem denne trigger; en ikke-NULL værdi uden for ordlisten afvises med 23514.
--- Klienterne matcher på ESTATE_SLAGS_UKENDT.
+-- Klienterne matcher på ESTATE_SLAGS_UKENDT. En ændring af arten må heller ikke gøre en eksisterende hører_under ugyldig
+-- (trg_estate_relation_vagt ser kun relationen): en gård, der hører under et majorat, forbliver en gård, og et majorat
+-- med gårde under sig forbliver et grevskab, baroni eller stamhus (ESTATE_HOERER_UNDER_ART; samme liste som vagten).
+-- Kun ved UPDATE, der faktisk ændrer arten. Samtidighed: UPDATE'en holder rækkens lås, og vagten låser estate-enderne
+-- FOR SHARE, så en samtidig hører_under venter på den anden og ser dens resultat.
 CREATE OR REPLACE FUNCTION private.validate_estate_slags()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $estate_slags$
 BEGIN
   IF NEW.slags IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM public.vocab v WHERE v.scheme = 'estate_slags' AND v.code = NEW.slags) THEN
     RAISE EXCEPTION 'ESTATE_SLAGS_UKENDT: »%« er ikke en art af gods', NEW.slags USING ERRCODE = '23514';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.slags IS DISTINCT FROM OLD.slags THEN
+    IF NEW.slags IS DISTINCT FROM 'gård'
+       AND EXISTS (SELECT 1 FROM public.relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = NEW.id
+                      AND r.rolle = 'hører_under') THEN
+      RAISE EXCEPTION 'ESTATE_HOERER_UNDER_ART: gods % hører under et majorat og skal forblive en gård (fik %)',
+        NEW.id, coalesce(NEW.slags,'ukendt') USING ERRCODE = '23514';
+    END IF;
+    IF (NEW.slags IS NULL OR NEW.slags NOT IN ('grevskab','baroni','stamhus'))
+       AND EXISTS (SELECT 1 FROM public.relation r WHERE r.objekt_type = 'estate' AND r.objekt_id = NEW.id
+                      AND r.rolle = 'hører_under') THEN
+      RAISE EXCEPTION 'ESTATE_HOERER_UNDER_ART: gårde hører under gods %, så det skal forblive et grevskab, baroni eller stamhus (fik %)',
+        NEW.id, coalesce(NEW.slags,'ukendt') USING ERRCODE = '23514';
+    END IF;
   END IF;
   RETURN NEW;
 END
@@ -50846,5 +50866,101 @@ CREATE OR REPLACE TRIGGER trg_estate_relation_vagt BEFORE INSERT OR UPDATE ON pu
   FOR EACH ROW
   WHEN (NEW.subjekt_type = 'estate' OR NEW.objekt_type = 'estate' OR NEW.rolle IN ('hører_under','sammenlagt_i'))
   EXECUTE FUNCTION private.validate_estate_relation();
+
+-- Omdøb et gods og flyt dets ejerforhold og billeder uden at miste bogens navneform (#471; invariant 1). Bogens fulde
+-- navneform (fx »Christianssæde med Pederstrup«) står i dag kun i estate.navn; før navnet ændres, eller et ejerforhold
+-- flyttes til et andet gods, lægges den som citat_tekst på citationerne til ejerforholdets påstande — kun hvor
+-- citat_tekst er NULL, så en citation med bogens egen ordlyd aldrig overskrives. Citationerne logges i ændringssættet,
+-- så fortryd giver NULL tilbage. Ejerforhold uden citation får intet citat (der er intet at lægge det på).
+-- Låse: fortryd/slet-låsen (delt, som slette-RPC'erne; fortrydelsen låser citation før estate, disse RPC'er estate før
+-- citation), derefter godsets række(r), derefter relation/citation; person/media låses sidst af relationstriggerne (D-8).
+-- Fejl: ESTATE_FINDES_IKKE / RELATION_FINDES_IKKE (P0002), ESTATE_NAVN_TOMT (22023), ESTATE_ER_SAMMENLAGT og
+-- ESTATE_FLYT_ROLLE (23514); arten valideres af trg_estate_slags (ESTATE_SLAGS_UKENDT, ESTATE_HOERER_UNDER_ART).
+-- red_saet_estate sætter BÅDE navn og art: p_slags NULL (eller tom) betyder »art ukendt«, ikke »uændret«.
+CREATE OR REPLACE FUNCTION red_saet_estate(p_estate_id bigint, p_navn text, p_slags text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $saet_estate$
+DECLARE v_navn text := btrim(p_navn); v_slags text := nullif(btrim(p_slags), ''); v_gammelt text; v_gammel_slags text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  IF nullif(v_navn, '') IS NULL THEN
+    RAISE EXCEPTION 'ESTATE_NAVN_TOMT: et gods skal have et navn' USING ERRCODE = '22023';
+  END IF;
+  SELECT e.navn, e.slags INTO v_gammelt, v_gammel_slags FROM estate e WHERE e.id = p_estate_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_estate_id USING ERRCODE = 'P0002';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_estate_id
+                AND r.rolle = 'sammenlagt_i') THEN
+    RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er lagt sammen med et andet gods; ret det i stedet', p_estate_id
+      USING ERRCODE = '23514';
+  END IF;
+  IF v_navn IS NOT DISTINCT FROM v_gammelt AND v_slags IS NOT DISTINCT FROM v_gammel_slags THEN
+    RETURN;  -- intet at ændre: intet ændringssæt
+  END IF;
+  PERFORM begin_change_set('red_saet_estate',
+    format('Rettede gods %s: »%s« (%s) → »%s« (%s)', p_estate_id, v_gammelt, coalesce(v_gammel_slags,'art ukendt'),
+           v_navn, coalesce(v_slags,'art ukendt')), 'estate', p_estate_id);
+  IF v_navn IS DISTINCT FROM v_gammelt AND nullif(btrim(v_gammelt), '') IS NOT NULL THEN
+    UPDATE citation c SET citat_tekst = v_gammelt
+      FROM relation r, assertion a
+     WHERE r.objekt_type = 'estate' AND r.objekt_id = p_estate_id AND r.rolle = 'ejer'
+       AND a.target_type = 'relation' AND a.target_id = r.id
+       AND c.assertion_id = a.id AND c.citat_tekst IS NULL;
+  END IF;
+  UPDATE estate SET navn = v_navn, slags = v_slags WHERE id = p_estate_id;
+END
+$saet_estate$;
+REVOKE ALL ON FUNCTION public.red_saet_estate(bigint,text,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_saet_estate(bigint,text,text) TO authenticated;
+
+-- Flyt et ejerforhold (person → gods) eller et billede (media → gods) til et andet gods. Relationens id ændres ikke, så
+-- påstande, konklusion, citationer og hændelser (haendelse.relation_id) følger med. For et ejerforhold lægges
+-- fra-godsets navn som citat først (se ovenfor). At flytte til en sammenlagt række afvises af trg_estate_relation_vagt
+-- (ESTATE_ER_SAMMENLAGT). Flyt til det gods, relationen allerede peger på, er en no-op uden ændringssæt.
+-- Genbruger et aktivt ændringssæt (red_sammenlaeg_estate kalder den for hver kobling).
+CREATE OR REPLACE FUNCTION red_flyt_estate_relation(p_relation_id bigint, p_til_estate bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $flyt_estate_relation$
+DECLARE v_rolle text; v_type text; v_fra bigint; v_fra_navn text; v_r relation;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  SELECT r.rolle, r.objekt_type, r.objekt_id INTO v_rolle, v_type, v_fra FROM relation r WHERE r.id = p_relation_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RELATION_FINDES_IKKE: relation % findes ikke', p_relation_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_type IS DISTINCT FROM 'estate' OR v_rolle IS NULL OR v_rolle NOT IN ('ejer','afbildet') THEN
+    RAISE EXCEPTION 'ESTATE_FLYT_ROLLE: kun ejerforhold og billeder af et gods kan flyttes (relation % er % → %)',
+      p_relation_id, v_rolle, v_type USING ERRCODE = '23514';
+  END IF;
+  -- Godsernes rækker først (i id-orden), så relationen; relationstriggerne låser person/media til sidst.
+  PERFORM 1 FROM estate e WHERE e.id IN (v_fra, p_til_estate) ORDER BY e.id FOR SHARE;
+  IF p_til_estate IS NULL OR NOT EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate) THEN
+    RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_til_estate USING ERRCODE = 'P0002';
+  END IF;
+  SELECT * INTO v_r FROM relation r WHERE r.id = p_relation_id FOR NO KEY UPDATE;
+  IF NOT FOUND OR v_r.objekt_type IS DISTINCT FROM 'estate' OR v_r.objekt_id IS DISTINCT FROM v_fra
+     OR v_r.rolle IS DISTINCT FROM v_rolle THEN
+    RAISE EXCEPTION 'ESTATE_FLYT_SAMTIDIG: relation % blev ændret undervejs; prøv igen', p_relation_id
+      USING ERRCODE = '40001';
+  END IF;
+  IF v_fra = p_til_estate THEN RETURN; END IF;
+  PERFORM begin_change_set('red_flyt_estate_relation',
+    format('Flyttede %s-relation %s fra gods %s til gods %s', v_rolle, p_relation_id, v_fra, p_til_estate),
+    'estate', p_til_estate);
+  IF v_rolle = 'ejer' THEN
+    SELECT e.navn INTO v_fra_navn FROM estate e WHERE e.id = v_fra;
+    IF nullif(btrim(v_fra_navn), '') IS NOT NULL THEN
+      UPDATE citation c SET citat_tekst = v_fra_navn
+        FROM assertion a
+       WHERE a.target_type = 'relation' AND a.target_id = p_relation_id
+         AND c.assertion_id = a.id AND c.citat_tekst IS NULL;
+    END IF;
+  END IF;
+  UPDATE relation SET objekt_id = p_til_estate WHERE id = p_relation_id;
+END
+$flyt_estate_relation$;
+REVOKE ALL ON FUNCTION public.red_flyt_estate_relation(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_flyt_estate_relation(bigint,bigint) TO authenticated;
 
 -- END godser-fase1

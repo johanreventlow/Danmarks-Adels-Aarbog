@@ -3111,6 +3111,7 @@ DECLARE
     'public.red_fjern_media(bigint)'::regprocedure,
     'public.red_fjern_samme_som(bigint)'::regprocedure,
     'public.red_flyt_barn(bigint,bigint,bigint,text)'::regprocedure,
+    'public.red_flyt_estate_relation(bigint,bigint)'::regprocedure,
     'public.red_fortryd_change_set(bigint,boolean)'::regprocedure,
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
@@ -3179,6 +3180,7 @@ DECLARE
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport_publication(uuid,uuid)'::regprocedure,
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+    'public.red_saet_estate(bigint,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
     'public.red_seal_identity_control_run(uuid,text,text)'::regprocedure,
@@ -13790,10 +13792,38 @@ BEGIN
   IF v_state IS NULL OR strpos(v_msg, 'ESTATE_ER_SAMMENLAGT') <> 1 THEN
     RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — en kobling til en sammenlagt række blev ikke afvist med ESTATE_ER_SAMMENLAGT';
   END IF;
+  -- Arten kan ikke ændres, så en eksisterende hører_under bliver ugyldig (trg_estate_slags).
+  v_state := NULL; v_msg := NULL;
+  BEGIN
+    UPDATE public.estate SET slags = 'gård' WHERE id = v_m;
+  EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF v_state IS NULL OR strpos(v_msg, 'ESTATE_HOERER_UNDER_ART') <> 1 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — et majorat med en gård under sig kunne blive en gård (ESTATE_HOERER_UNDER_ART mangler i trg_estate_slags)';
+  END IF;
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
   IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
     RAISE NOTICE 'OK: godser-fase1 — trg_estate_relation_vagt håndhæver hører_under (gård → majorat) og sammenlagt_i (ingen kæde, ingen kobling til en sammenlagt række); 0 relationer bryder reglerne';
   ELSE RAISE; END IF;
 END $verify_godser_fase1_relation$;
+
+-- ===== Godsernes oprydning, fase 1 (#471): red_saet_estate og red_flyt_estate_relation =====
+-- Begge er DEFINER med fast search_path. Adgangen (kun authenticated, rollegate redaktion) dækkes af red_*-vagten.
+DO $verify_godser_fase1_rpc$
+DECLARE f regprocedure;
+BEGIN
+  FOREACH f IN ARRAY ARRAY[to_regprocedure('public.red_saet_estate(bigint,text,text)'),
+                           to_regprocedure('public.red_flyt_estate_relation(bigint,bigint)')] LOOP
+    IF f IS NULL THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — red_saet_estate(bigint,text,text) eller red_flyt_estate_relation(bigint,bigint) mangler';
+    END IF;
+    IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
+       OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=public']
+       OR has_function_privilege('anon', f, 'EXECUTE') OR NOT has_function_privilege('authenticated', f, 'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % er ikke DEFINER med search_path=public, kun kaldbar af authenticated', f;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: godser-fase1 — red_saet_estate og red_flyt_estate_relation findes som DEFINER-RPC''er for authenticated';
+END $verify_godser_fase1_rpc$;
 -- END-VERIFY godser-fase1

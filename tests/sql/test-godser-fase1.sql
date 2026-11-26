@@ -205,6 +205,248 @@ BEGIN
 END
 $t2$;
 
+-- ---------- 3. Omdøb gods og flyt ejerforhold/billede (red_saet_estate, red_flyt_estate_relation) ----------
+-- Kalderne (anon, authenticated uden profil, medlem, redaktion) fra den fælles fixture.
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+
+-- Kør p_sql som p_kalder (rolle OG uid, som kalder-matrix) i et frisk ændringssæt; returnér sættets id (NULL = intet sæt).
+-- Fejler sætningen, rulles rolle og uid tilbage med undertransaktionen hos kalderen (g471_afvist/g471_afvist_som).
+CREATE FUNCTION pg_temp.g471_som(p_kalder text, p_sql text) RETURNS bigint LANGUAGE plpgsql AS $f$
+DECLARE v_uid text; v_cs text;
+BEGIN
+  v_uid := CASE p_kalder WHEN 'gaest' THEN ''
+                         WHEN 'uden_profil' THEN '11000000-0000-0000-0000-00000000ca01'
+                         WHEN 'medlem' THEN '11000000-0000-0000-0000-00000000ca02'
+                         WHEN 'redaktion' THEN '11000000-0000-0000-0000-00000000ca03' END;
+  PERFORM set_config('app.change_set_id', '', true);
+  PERFORM set_config('request.jwt.claim.sub', v_uid, true);
+  EXECUTE format('SET LOCAL ROLE %I', CASE WHEN p_kalder = 'gaest' THEN 'anon' ELSE 'authenticated' END);
+  EXECUTE p_sql;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  v_cs := nullif(current_setting('app.change_set_id', true), '');
+  PERFORM set_config('app.change_set_id', '', true);
+  RETURN v_cs::bigint;
+END
+$f$;
+
+-- Kræv en bestemt SQLSTATE og (valgfrit) en tekst forrest i fejlen, når p_sql køres som p_kalder.
+CREATE FUNCTION pg_temp.g471_afvist_som(p_kalder text, p_sql text, p_state text, p_kode text, p_hvad text)
+RETURNS void LANGUAGE plpgsql AS $f$
+DECLARE v_state text; v_msg text;
+BEGIN
+  BEGIN
+    PERFORM pg_temp.g471_som(p_kalder, p_sql);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF v_state IS DISTINCT FROM p_state OR (p_kode IS NOT NULL AND strpos(v_msg, p_kode) <> 1) THEN
+    RAISE EXCEPTION 'GODSER_T3: % som % blev ikke afvist med % % (fik %, %)', p_hvad, p_kalder, p_state, p_kode, v_state, v_msg;
+  END IF;
+  IF current_user <> session_user THEN
+    RAISE EXCEPTION 'GODSER_T3: rollen blev ikke nulstillet efter %', p_hvad;
+  END IF;
+END
+$f$;
+
+DO $t3$
+DECLARE
+  e1 bigint; e2 bigint; e3 bigint; es bigint; eg bigint; em bigint; ex bigint;
+  p bigint; md bigint; src bigint; f_lok bigint; nar bigint; hd bigint;
+  r1 bigint; r2 bigint; r_fp bigint; r_afb bigint; r_samme bigint; r_flyt bigint; r_hu bigint;
+  a1 bigint; a2 bigint; a_fp bigint; a_lok bigint; a_flyt bigint;
+  c1 bigint; c1b bigint; c2 bigint; c_fp bigint; c_lok bigint; c_flyt bigint;
+  v_cs bigint; v_antal bigint; v_txt text; v_slags text; k text;
+BEGIN
+  INSERT INTO public.source(slags, titel) VALUES ('bog', '__t3_kilde__') RETURNING id INTO src;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_Christianssæde (med Pederstrup)__', NULL) RETURNING id INTO e1;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_Wittenberg__', 'gård') RETURNING id INTO e2;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_Wittenberg (dublet)__', 'gård') RETURNING id INTO e3;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_sammenlagt__', NULL) RETURNING id INTO es;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_gaard__', 'gård') RETURNING id INTO eg;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t3_majorat__', 'grevskab') RETURNING id INTO em;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',es,'estate',e2,'sammenlagt_i');
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p;
+  INSERT INTO public.media(slags) VALUES ('gods') RETURNING id INTO md;
+
+  -- To ejerforhold på e1: r1 med én citation uden citat og én med bogens egen ordlyd; r2 med én uden citat.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw)
+    VALUES ('person',p,'estate',e1,'ejer','1700-1720') RETURNING id INTO r1;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r1,'ejer') RETURNING id INTO a1;
+  INSERT INTO public.citation(assertion_id,source_id,side) VALUES (a1,src,'12') RETURNING id INTO c1;
+  INSERT INTO public.citation(assertion_id,source_id,side,citat_tekst) VALUES (a1,src,'12','bogens ordlyd') RETURNING id INTO c1b;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',e1,'ejer') RETURNING id INTO r2;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r2,'ejer') RETURNING id INTO a2;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a2,src) RETURNING id INTO c2;
+  -- Lokkemad: en anden rolle på samme gods og en faktum-påstand med samme target_id som et ejerforhold.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',e1,'forpagter') RETURNING id INTO r_fp;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_fp,'forpagter') RETURNING id INTO a_fp;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a_fp,src) RETURNING id INTO c_fp;
+  INSERT INTO public.relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES (987650301,'person',p,'estate',e1,'ejer');
+  INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES (987650301,'person',p,'erhverv') RETURNING id INTO f_lok;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('fact',f_lok,'godsejer') RETURNING id INTO a_lok;
+  INSERT INTO public.citation(assertion_id,source_id) VALUES (a_lok,src) RETURNING id INTO c_lok;
+
+  -- (a) Kun redaktionen: anon har ingen EXECUTE; authenticated uden redaktionsprofil afvises af rollegaten.
+  PERFORM pg_temp.g471_afvist_som('gaest', format('SELECT public.red_saet_estate(%s, %L, NULL)', e1, 'X'),
+    '42501', NULL, 'red_saet_estate');
+  PERFORM pg_temp.g471_afvist_som('gaest', format('SELECT public.red_flyt_estate_relation(%s, %s)', r1, e2),
+    '42501', NULL, 'red_flyt_estate_relation');
+  FOREACH k IN ARRAY ARRAY['uden_profil','medlem'] LOOP
+    PERFORM pg_temp.g471_afvist_som(k, format('SELECT public.red_saet_estate(%s, %L, NULL)', e1, 'X'),
+      'P0001', 'Kun redaktion', 'red_saet_estate');
+    PERFORM pg_temp.g471_afvist_som(k, format('SELECT public.red_flyt_estate_relation(%s, %s)', r1, e2),
+      'P0001', 'Kun redaktion', 'red_flyt_estate_relation');
+  END LOOP;
+  IF (SELECT navn FROM public.estate WHERE id = e1) <> '__t3_Christianssæde (med Pederstrup)__'
+     OR (SELECT objekt_id FROM public.relation WHERE id = r1) <> e1 THEN
+    RAISE EXCEPTION 'GODSER_T3: et afvist kald ændrede data';
+  END IF;
+
+  -- (b) Omdøbning: bogens navneform lægges på ejerforholdenes citationer uden citat; alt andet er urørt.
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Grevskabet Christianssæde__', 'grevskab'));
+  SELECT navn, slags INTO v_txt, v_slags FROM public.estate WHERE id = e1;
+  IF v_txt <> '__t3_Grevskabet Christianssæde__' OR v_slags IS DISTINCT FROM 'grevskab' THEN
+    RAISE EXCEPTION 'GODSER_T3: red_saet_estate gav navn »%«, slags »%«', v_txt, v_slags;
+  END IF;
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c1) IS DISTINCT FROM '__t3_Christianssæde (med Pederstrup)__'
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c2) IS DISTINCT FROM '__t3_Christianssæde (med Pederstrup)__' THEN
+    RAISE EXCEPTION 'GODSER_T3: omdøbningen satte ikke det gamle navn som citat på ejerforholdenes citationer';
+  END IF;
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c1b) IS DISTINCT FROM 'bogens ordlyd' THEN
+    RAISE EXCEPTION 'GODSER_T3: omdøbningen overskrev en citation, der allerede havde et citat';
+  END IF;
+  IF (SELECT citat_tekst FROM public.citation WHERE id = c_fp) IS NOT NULL
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_lok) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T3: omdøbningen rørte en citation, der ikke hører til et ejerforhold på godset';
+  END IF;
+  IF v_cs IS NULL OR NOT EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id = v_cs AND cs.operation = 'red_saet_estate'
+                                    AND cs.subjekt_type = 'estate' AND cs.subjekt_id = e1) THEN
+    RAISE EXCEPTION 'GODSER_T3: red_saet_estate åbnede ikke sit eget ændringssæt (estate, %)', e1;
+  END IF;
+  SELECT count(*) INTO v_antal FROM public.change_event ce WHERE ce.change_set_id = v_cs AND ce.tabel = 'citation';
+  IF v_antal <> 2 THEN RAISE EXCEPTION 'GODSER_T3: forventede 2 citation-hændelser i sættet, fandt %', v_antal; END IF;
+
+  -- (c) Fortryd af omdøbningen giver navn, art og citat_tekst NULL tilbage.
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));
+  IF (SELECT navn FROM public.estate WHERE id = e1) <> '__t3_Christianssæde (med Pederstrup)__'
+     OR (SELECT slags FROM public.estate WHERE id = e1) IS NOT NULL
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c1) IS NOT NULL
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c2) IS NOT NULL
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c1b) IS DISTINCT FROM 'bogens ordlyd' THEN
+    RAISE EXCEPTION 'GODSER_T3: fortryd af omdøbningen gav ikke tilstanden før';
+  END IF;
+
+  -- (d) Kun art: intet citat sættes, når navnet er uændret; uændret navn og art åbner intet sæt.
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Christianssæde (med Pederstrup)__', 'baroni'));
+  IF (SELECT slags FROM public.estate WHERE id = e1) IS DISTINCT FROM 'baroni'
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c1) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T3: ændring af kun arten satte et citat eller ændrede ikke arten';
+  END IF;
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, '__t3_Christianssæde (med Pederstrup)__', 'baroni'));
+  IF v_cs IS NOT NULL THEN RAISE EXCEPTION 'GODSER_T3: et kald uden ændring åbnede ændringssæt %', v_cs; END IF;
+
+  -- (e) Afvisninger: tomt navn, ukendt art, sammenlagt række, gods der ikke findes.
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, NULL)', e1, '  '),
+    '22023', 'ESTATE_NAVN_TOMT', 'red_saet_estate med tomt navn');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', e1, 'Y', 'len'),
+    '23514', 'ESTATE_SLAGS_UKENDT', 'red_saet_estate med ukendt art');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, NULL)', es, 'Y'),
+    '23514', 'ESTATE_ER_SAMMENLAGT', 'red_saet_estate på en sammenlagt række');
+  PERFORM pg_temp.g471_afvist_som('redaktion', 'SELECT public.red_saet_estate(-987650001, ''Y'', NULL)',
+    'P0002', 'ESTATE_FINDES_IKKE', 'red_saet_estate på et gods, der ikke findes');
+
+  -- (f) Arten kan ikke ændres, så en eksisterende hører_under bliver ugyldig (trg_estate_slags; også direkte UPDATE).
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',eg,'estate',em,'hører_under') RETURNING id INTO r_hu;
+  PERFORM pg_temp.g471_afvist(format('UPDATE public.estate SET slags = NULL WHERE id = %s', eg),
+    'ESTATE_HOERER_UNDER_ART', 'gård med hører_under mister sin art');
+  PERFORM pg_temp.g471_afvist(format('UPDATE public.estate SET slags = %L WHERE id = %s', 'stamhus', eg),
+    'ESTATE_HOERER_UNDER_ART', 'gård med hører_under bliver et stamhus');
+  PERFORM pg_temp.g471_afvist(format('UPDATE public.estate SET slags = %L WHERE id = %s', 'gård', em),
+    'ESTATE_HOERER_UNDER_ART', 'majorat med gårde under sig bliver en gård');
+  PERFORM pg_temp.g471_afvist(format('UPDATE public.estate SET slags = NULL WHERE id = %s', em),
+    'ESTATE_HOERER_UNDER_ART', 'majorat med gårde under sig mister sin art');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, NULL)', eg, '__t3_gaard__'),
+    '23514', 'ESTATE_HOERER_UNDER_ART', 'red_saet_estate fjerner arten fra en gård under et majorat');
+  -- Lovligt: et majorat skifter mellem majoratsformer, en gård omdøbes, og en no-op-UPDATE af slags.
+  UPDATE public.estate SET slags = 'baroni' WHERE id = em;
+  UPDATE public.estate SET slags = slags WHERE id = eg;
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_saet_estate(%s, %L, %L)', eg, '__t3_gaard omdøbt__', 'gård'));
+  -- Uden hører_under er arten fri igen.
+  DELETE FROM public.relation WHERE id = r_hu;
+  UPDATE public.estate SET slags = NULL WHERE id = eg;
+
+  -- (g) Flyt et ejerforhold: samme relation-id, hændelsens relation_id og citationen følger med; citat = fra-godsets navn.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',e3,'ejer') RETURNING id INTO r_flyt;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',r_flyt,'ejer') RETURNING id INTO a_flyt;
+  INSERT INTO public.citation(assertion_id,source_id,side) VALUES (a_flyt,src,'7') RETURNING id INTO c_flyt;
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('person',p,'__t3_narrativ__') RETURNING id INTO nar;
+  INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,relation_id)
+    VALUES ('person',p,nar,'__t3_h__','købte godset',r_flyt) RETURNING id INTO hd;
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_flyt, e2));
+  IF NOT EXISTS (SELECT 1 FROM public.relation r WHERE r.id = r_flyt AND r.objekt_type = 'estate' AND r.objekt_id = e2
+                    AND r.subjekt_type = 'person' AND r.subjekt_id = p AND r.rolle = 'ejer') THEN
+    RAISE EXCEPTION 'GODSER_T3: ejerforholdet % blev ikke flyttet til gods % med samme id', r_flyt, e2;
+  END IF;
+  IF (SELECT relation_id FROM public.haendelse WHERE id = hd) IS DISTINCT FROM r_flyt THEN
+    RAISE EXCEPTION 'GODSER_T3: hændelsens relation_id fulgte ikke med';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.citation c JOIN public.assertion a ON a.id = c.assertion_id
+                  WHERE c.id = c_flyt AND a.id = a_flyt AND a.target_type = 'relation' AND a.target_id = r_flyt
+                    AND c.source_id = src AND c.side = '7' AND c.citat_tekst = '__t3_Wittenberg (dublet)__') THEN
+    RAISE EXCEPTION 'GODSER_T3: citationen fulgte ikke med, eller fra-godsets navn blev ikke sat som citat';
+  END IF;
+  IF v_cs IS NULL OR NOT EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id = v_cs
+                                    AND cs.operation = 'red_flyt_estate_relation') THEN
+    RAISE EXCEPTION 'GODSER_T3: red_flyt_estate_relation åbnede ikke sit eget ændringssæt';
+  END IF;
+  -- Fortryd: ejerforholdet tilbage på fra-godset og citat_tekst NULL igen.
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_fortryd_change_set(%s)', v_cs));
+  IF (SELECT objekt_id FROM public.relation WHERE id = r_flyt) <> e3
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_flyt) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T3: fortryd af flytningen gav ikke tilstanden før';
+  END IF;
+  -- Flyt til samme gods er en no-op uden ændringssæt.
+  v_cs := pg_temp.g471_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_flyt, e3));
+  IF v_cs IS NOT NULL THEN RAISE EXCEPTION 'GODSER_T3: flyt til samme gods åbnede ændringssæt %', v_cs; END IF;
+
+  -- (h) Flyt et billede (afbildet): virker, intet citat at sætte.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('media',md,'estate',e3,'afbildet') RETURNING id INTO r_afb;
+  PERFORM pg_temp.g471_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_afb, e2));
+  IF NOT EXISTS (SELECT 1 FROM public.relation r WHERE r.id = r_afb AND r.objekt_id = e2 AND r.subjekt_type = 'media'
+                    AND r.subjekt_id = md AND r.rolle = 'afbildet') THEN
+    RAISE EXCEPTION 'GODSER_T3: billedet % blev ikke flyttet til gods %', r_afb, e2;
+  END IF;
+
+  -- (i) Afvisninger: anden rolle, ikke-estate-objekt, relation/gods der ikke findes, flyt til en sammenlagt række.
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO ex;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',ex,'person',p,'samme_som') RETURNING id INTO r_samme;
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_samme, e2),
+    '23514', 'ESTATE_FLYT_ROLLE', 'flyt af samme_som');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_fp, e2),
+    '23514', 'ESTATE_FLYT_ROLLE', 'flyt af forpagter');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(-987650001, %s)', e2),
+    'P0002', 'RELATION_FINDES_IKKE', 'flyt af en relation, der ikke findes');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, -987650001)', r_flyt),
+    'P0002', 'ESTATE_FINDES_IKKE', 'flyt til et gods, der ikke findes');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_flyt, es),
+    '23514', 'ESTATE_ER_SAMMENLAGT', 'flyt til en sammenlagt række');
+  IF (SELECT objekt_id FROM public.relation WHERE id = r_flyt) <> e3
+     OR (SELECT citat_tekst FROM public.citation WHERE id = c_flyt) IS NOT NULL THEN
+    RAISE EXCEPTION 'GODSER_T3: en afvist flytning efterlod ændringer';
+  END IF;
+END
+$t3$;
+
 -- NY AFSNIT TILFØJES HER (før OK-linjen).
 ROLLBACK;
 \echo OK test-godser-fase1
