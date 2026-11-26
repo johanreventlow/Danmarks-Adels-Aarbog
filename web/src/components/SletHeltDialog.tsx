@@ -17,8 +17,9 @@ const purgeLabels: Record<string, string> = {
   bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
   // Review 37 P3/P10 (ceremoni 2): kontrollistens tekstfund.
   fritekst: 'Teksten nævner profilens navn',
-  // Ceremoni 2b: profilens eget id under en person-nøgle (fx en identitetskandidat) — en ægte henvisning, vises åbent.
-  id_henvisning: 'En kildedata-række henviser til profilen med dens id (fx en identitetskandidat) — tjek den',
+  // Ceremoni 2b: profilens eget id under en person-nøgle (fx en identitetskandidat) — vises åbent. R37C2-2: rækken
+  // bliver stående (kun id og score, ingen persondata; decisions 2026-11-26), så teksten oplyser, den beder ikke om en rettelse.
+  id_henvisning: 'En intern kildedata-række nævner profilens id (fx en identitetskandidat). Den rummer ingen persondata og bliver stående',
   kun_id: 'Teksten rummer profilens eller en families id som tal — ofte et årstal, sidetal eller en anden talværdi i kildedata',
   bevaret_summary: 'Et bevaret ændringssæts beskrivelse kan nævne profilen',
 };
