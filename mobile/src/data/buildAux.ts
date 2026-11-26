@@ -32,6 +32,9 @@ type BuildAuxInput = {
   citationKilder?: CitationProvenanceRow[];
 };
 
+// Antal forskellige ejere (kanoniske person-id'er): en ejer med to perioder tæller én gang, som web's antalEjere.
+const antalEjere = (ejere: readonly { personId: string }[]): number => new Set(ejere.map((o) => o.personId)).size;
+
 export function buildAux(
   {
     extIds,
@@ -167,7 +170,7 @@ export function buildAux(
       const navn = e.navn || 'Gods #' + eid;
       estateById[eid] = { id: eid, navn, slags: e.slags || '' };
       ownersByEstate[eid].sort((a, b) => a._y - b._y);
-      return { id: eid, navn, ownerCount: ownersByEstate[eid].length };
+      return { id: eid, navn, ownerCount: antalEjere(ownersByEstate[eid]) };
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
 
@@ -252,7 +255,7 @@ export function buildAux(
   // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).
   const godsListe = (estates || []).map((e) => ({
     id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '',
-    ownerCount: (ownersByEstate[String(e.id)] || []).length,
+    ownerCount: antalEjere(ownersByEstate[String(e.id)] || []),
   })).sort((a, b) => compareDanish(a.navn, b.navn));
   const vaabenListe = (arms || []).map((a) => ({
     id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',

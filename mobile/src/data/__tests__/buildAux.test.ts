@@ -283,3 +283,15 @@ describe('buildAux — 5c-2: nr.-etiket med bogstavsuffiks', () => {
     expect(aux.sourcesBy['30']?.[0]?.ref).toBe('Linje II, nr. 15a');
   });
 });
+
+test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder = 1)', () => {
+  const aux = buildAux({ ...base,
+    estates: [{ id: 1, navn: 'Gods', slags: null }] as never,
+    relations: [
+      { subjekt_type: 'person', subjekt_id: 9, objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: '1600-1620' },
+      { subjekt_type: 'person', subjekt_id: 9, objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: '1640-1660' },
+    ] as never,
+  });
+  expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
+  expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
+});
