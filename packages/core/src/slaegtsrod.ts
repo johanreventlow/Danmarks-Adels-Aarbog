@@ -41,3 +41,13 @@ export function findSlaegtsrod(rows: LineageArv[]): number | string | null {
   if (!kandidater.length) return null;
   return kandidater.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))[0].id;
 }
+
+/** Slægtsrodens navn (»Reventlow«) ud fra rå lineage-rækker; rækker uden id ignoreres. Null uden rod. */
+export function slaegtsrodensNavn(
+  rows: readonly { id?: number | string | null; slaegtsnavn?: string | null; parent_lineage_id?: number | string | null }[],
+): string | null {
+  const arv: LineageArv[] = rows.filter((r) => r.id != null)
+    .map((r) => ({ id: r.id as number | string, slaegtsnavn: r.slaegtsnavn ?? null, parent_lineage_id: r.parent_lineage_id ?? null }));
+  const rod = findSlaegtsrod(arv);
+  return rod == null ? null : effektivtSlaegtsnavn(arv, rod);
+}

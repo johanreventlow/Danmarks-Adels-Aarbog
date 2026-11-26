@@ -8,7 +8,7 @@ import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
-  type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
+  byggLinjeAdelsnavne, slaegtsrodensNavn, type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow, type LinjeAdelsnavne,
   type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage,
 } from '@daa/core';
 import {
@@ -120,6 +120,8 @@ export function mapAppPersons(
       foedtTekst: p.visning_foedt ?? null,
       doedTekst: p.visning_doed ?? null,
       title: p.visning_titel || '',
+      // Navnet uden slægtsnavn, til bogens formelle navneform (som web's model.ts).
+      fornavne: p.visning_navn ?? null,
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
       // Levende (RLS viser dem kun for redaktionen) — som web; »Kun i DAA 1939« gives aldrig en levende (batch 6).
@@ -456,7 +458,7 @@ export async function loadFromSupabase(opts?: {
     { extIds, sources, lineageRows: lineage, schemeRows: { schemes, entries: schemeEntries, mappings: schemeMappings } },
     collapsed.canonicalIdById,
   );
-  const citationKilder = await fetchNavnProveniens(sb);
+  const [citationKilder, adelsnavne] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb)]);
   const aux = buildAux(
     { bogKilder: udgaveLag.sourcesBy, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, arms, citationKilder },
     collapsed.canonicalIdById,
@@ -528,7 +530,8 @@ export async function loadFromSupabase(opts?: {
     relBId: relB.id,
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
-    udgaveLag,
+    // Linjernes adelsnavn + slægtsrodens navn til bogens formelle navneform (plan 2026-11-26), lagt på modellen som web.
+    udgaveLag: { ...udgaveLag, adelsnavne, slaegtsnavn: slaegtsrodensNavn(lineage) },
     geo,
     loadGeo,
     loadBios,
@@ -563,6 +566,27 @@ type ParentsUnknownRows = {
 // rammer gæsternes 3 s-loft), med begrænset parallelitet; et bud på web's feed-bidder (forside/kilder.ts).
 export const PROVENIENS_IN_CHUNK = 200;
 export const PROVENIENS_PARALLEL = 4;
+
+// Linjernes adelsnavn (plan 2026-11-26-linjernes-adelsnavn): fact på lineage → afklaret konklusion → valgt påstand,
+// stykket sammen af core (byggLinjeAdelsnavne; spejl af web/src/data/adelsnavn.ts). Tolerant: fejl → ingen regler.
+export async function fetchLinjeAdelsnavne(sb: NonNullable<typeof supabase>): Promise<LinjeAdelsnavne> {
+  try {
+    const facts = await getAll<{ id: number; subjekt_id: number }>(() =>
+      sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'lineage').eq('faktatype', 'adelsnavn').order('id'));
+    if (!facts.length) return {};
+    const conclusions = await getAll<{ target_id: number; valgt_assertion_id: number | null }>(() =>
+      sb.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+        .in('target_id', facts.map((f) => f.id)).order('id'));
+    const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number => v != null);
+    if (!assertionIds.length) return {};
+    const assertions = await getAll<{ id: number; vaerdi_tekst: string | null }>(() =>
+      sb.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id'));
+    return byggLinjeAdelsnavne(facts, conclusions, assertions);
+  } catch (e) {
+    console.warn('[loadFromSupabase] linjernes adelsnavn utilgængelige — ingen formel navneform:', e);
+    return {};
+  }
+}
 
 export async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
   try {

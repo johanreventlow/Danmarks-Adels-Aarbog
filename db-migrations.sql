@@ -50640,3 +50640,11 @@ BEGIN
    ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
 END $$;
 -- END review37-c3
+
+-- ===== adelsnavn-faktatype =====
+-- Plan docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md. Kun vocab-data; idempotent. Linjens navn efter titlen
+-- (»af Reventlow«) som faktum på lineage; læserfladen sammensætter bogens formelle navneform af det.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','adelsnavn','Adelsnavn — linjens navn efter titlen, som bogen skriver det (fx »af Reventlow«)')
+ON CONFLICT (scheme, code) DO NOTHING;
+-- END adelsnavn-faktatype

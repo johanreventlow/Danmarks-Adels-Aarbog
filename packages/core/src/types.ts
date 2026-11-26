@@ -6,6 +6,7 @@
 // Person-id er bigint i basen → konverteres ALTID til streng internt (README §8).
 import type { GenCoord, ParentsUnknown } from './generations';
 import type { Udgave } from './editionFacts';
+import type { LinjeAdelsnavne } from './adelsnavn';
 
 export type RawExtId = {
   person_id: number | string;
@@ -29,6 +30,8 @@ export type RawLineage = {
   // Forgrenings-id'er (Task B2 Step 1) — pulled forward for B1's rene helpers.
   id?: string | number;
   parent_lineage_id?: string | number | null;
+  // Valgfri: slægtsnavnet på slægtsroden (arves via parent_lineage_id; se slaegtsrod.ts).
+  slaegtsnavn?: string | null;
 };
 export type SlaegtRef = { id: string; navn: string; slug: string };
 export type LineageRef = {
@@ -120,6 +123,8 @@ export type AppPerson = {
   // Valgfri: årsspænd person nævnes i uden livsdatoer (DB visning_floruit): »1671« / »1349–1391«.
   floruit?: string | null;
   title: string;
+  // Valgfri: personens navn uden slægtsnavn (DB visning_navn), til bogens formelle navneform (adelsnavn.ts).
+  fornavne?: string | null;
   bio: string;
   privat: boolean;
   // Valgfri: person.levende (RLS skjuler levende for gæster; kun redaktionen får dem). Kun web sætter den.
@@ -186,6 +191,12 @@ export type Model = {
   // Lineage (grene I–V) — valgfrit: udfyldes af loadModel når person_external_id/lineage
   // er tilgængelige; undefined = graceful degradation (ingen linje-chips/badge).
   lineage?: Lineage;
+  // Linjernes adelsnavn (lineage-id → »af Reventlow«) til bogens formelle navneform. Valgfrit: tomt/udefineret =
+  // ingen formel form (data ikke hentet eller ikke i basen endnu).
+  adelsnavne?: LinjeAdelsnavne;
+  // Slægtsrodens navn (»Reventlow«). Valgfrit: mobilen sætter det (web bruger SlaegtRef.navn); bruges til at fjerne et
+  // slægtsnavn, der allerede står i fornavnene, fra bogens formelle navneform.
+  slaegtsnavn?: string | null;
   // "Kilde i Aarbogen"-referencer pr. person (§ + trykt værk + "Linje X, nr. N"). Valgfrit.
   sourcesBy?: Record<string, SourceRef[]>;
   // samme_som-collapse: ethvert medlems-id → kanonisk id. Bor på modellen (én kilde), så

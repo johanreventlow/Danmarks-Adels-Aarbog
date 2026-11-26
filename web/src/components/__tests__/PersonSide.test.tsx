@@ -99,6 +99,32 @@ const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
 });
 
 describe('PersonSide', () => {
+  it('»I Aarbogen«: bogens formelle navneform for en efterkommer; ikke for stifteren eller uden regler', () => {
+    const kV = 'slaegt:1:lineage:5:scheme:canonical';
+    const m = {
+      ...model,
+      byId: {
+        ...model.byId,
+        '392': { ...model.byId['392'], title: 'Greve', fornavne: 'Conrad' },
+        '501': { ...model.byId['501'], title: 'Greve', fornavne: 'Christian' },
+      },
+      lineage: { byPerson: { '392': [kV], '501': [kV] }, list: [{ linje: kV, count: 2, headId: '392', navn: 'V' }], navn: {} },
+      adelsnavne: { '5': 'af Reventlow' },
+    } as unknown as Model;
+    const r1 = render(<PersonSide {...props({ model: m, focusId: '501' })} />);
+    expect(screen.getByText('I Aarbogen')).toBeTruthy();
+    expect(screen.getByText('Christian greve af Reventlow')).toBeTruthy();
+    r1.unmount();
+    // Conrad er linjens stifter: hans navn (»de Reventlow«) kommer fra hans eget patent — ingen regelform.
+    const r2 = render(<PersonSide {...props({ model: m })} />);
+    expect(screen.queryByText('I Aarbogen')).toBeNull();
+    r2.unmount();
+    // Uden regler (data ikke hentet/ikke i prod endnu): siden er som før.
+    render(<PersonSide {...props({ model: { ...m, adelsnavne: undefined } as unknown as Model, focusId: '501' })} />);
+    expect(screen.queryByText('I Aarbogen')).toBeNull();
+    expect(screen.queryByText(/greve af Reventlow/)).toBeNull();
+  });
+
   it('floruit vises som Nævnes; uden år ingen årslinje', () => {
     const m = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], years: 'Nævnes 1349–1391' } } } as unknown as Model;
     const aarP = (c: HTMLElement) => Array.from(c.querySelectorAll('p')).filter((p) => p.style.fontFamily.includes('monospace') && p.style.fontSize === '14px');

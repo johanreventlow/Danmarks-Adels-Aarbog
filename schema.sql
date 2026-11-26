@@ -6544,6 +6544,13 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','fødenavn','Fødenavn — slægtsnavn ved fødslen (ingifte); titel er et eget titel-faktum')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- Adelsnavn (plan docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md): et faktum på lineage — linjens navn efter
+-- titlen, som bogen skriver det (IV »de Reventlou«, V »af Reventlow«). Læserfladen sammensætter bogens formelle
+-- navneform (»Johan Martin greve af Reventlow«) af fornavne + adelstitel + dette; intet skrives i navn eller cache.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','adelsnavn','Adelsnavn — linjens navn efter titlen, som bogen skriver det (fx »af Reventlow«)')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- Medie-metadata (spec docs/superpowers/specs/2026-08-06-medie-metadata-design.md §1).
 -- Faktatyper på media-entiteten — ingen kolonner (invariant 2+3). Skrives via red_upsert_fakta.
 INSERT INTO vocab (scheme, code, label) VALUES
