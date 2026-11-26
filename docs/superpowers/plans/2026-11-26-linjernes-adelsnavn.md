@@ -49,9 +49,10 @@ React (web, vitest), React Native/Expo (mobil, jest).
    Reventlow« gælder sønner og descendenter (s. 202). Detlef (IV) mister dermed også sin (korrekte) form indtil `navneform`.
 2. **Ingen variantklasse Reventlow/Reventlou**: søgefladens eksisterende »Mente du …?«/»Andre stavemåder« dækker
    stavemåden, og `soeg.test.ts` låser bevidst, at foldningen holder dem adskilt.
-3. **Mobilen** slår linjen op via `(source_id, linjekode)` → lineage-id i core (`adelsnavnFraKoordinater`), fordi
-   mobilens `linjeByPerson` nøgler på rå koder på tværs af udgaver (1939's IV/V er byttet om). Regelsammenstykningen
-   er delt i core (`byggLinjeAdelsnavne`). Mobilens personside har ingen komponenttest; dækningen er core + `buildAux`.
+3. **Mobilen** bruger efter fletning med #494 (mobilens 6e-linjer) samme kanoniske linjemodel som web (`model.lineage`
+   via `udgaveLag`) og dermed `personensAdelsnavn`; den midlertidige koordinatvej (`adelsnavnFraKoordinater`) er
+   fjernet. `adelsnavne` og slægtsrodens navn (`slaegtsrodensNavn`) lægges på modellen via `udgaveLag`. Mobilens
+   personside har ingen komponenttest; dækningen er core + web's PersonSide-test.
 4. V-reglens kilde er bevillingen 1692 (s. 202), ikke overskriftseksemplet på s. 206.
 5. **Slutreview (Opus) fund 1, stifter kun fra nyeste udgave (web):** målt i prod 26/11 via
    `public_person_source_coordinates()`: 1939 »IV«/»V« har 155/83 personer; den eneste med slægtled 1 (1354 »Ditlev
