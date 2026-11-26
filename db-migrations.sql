@@ -50656,6 +50656,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
     RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  -- Review-fund: en uændret værdi (fx fra en forældet visning) afvises, så der ikke opstår et tomt ændringssæt, hvis
+  -- fortrydelse intet gør, mens redaktøren tror, personen skjules igen.
+  IF (SELECT levende FROM person WHERE id = p_person_id) IS NOT DISTINCT FROM p_levende THEN
+    RAISE EXCEPTION 'LEVENDE_UAENDRET' USING DETAIL = format('Person %s er allerede markeret som %s.', p_person_id,
+      CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END);
+  END IF;
   PERFORM begin_change_set('red_set_levende',
     format('Satte person %s som %s', p_person_id, CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END), 'person', p_person_id);
   UPDATE person SET levende = p_levende WHERE id = p_person_id;
@@ -50663,3 +50669,25 @@ END $$;
 REVOKE ALL ON FUNCTION public.red_set_levende(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_set_levende(bigint,boolean) TO authenticated;
 -- END review37-r37p11-2
+
+-- BEGIN review37-p8
+-- Review 37 P8 (#397): kvitteringen for en slettet fil kræver objektbevis. red_person_purge_udbakke_kvitter afviser med
+-- PURGE_FIL_FINDES_STADIG, så længe objektet står i storage.objects, og rækken i udbakken bliver. Ejeren (postgres) ser
+-- alle buckets uden om RLS (målt i prod 26/11). Samme signatur og ACL; ingen data ændres. Deploy-området for ceremoni 4
+-- er blokkene review37-r37p11-2 og review37-p8 i ÉN transaktion. Kroppen er kopieret fra schema.sql (endelig definition).
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke_kvitter(p_bucket text,p_sti text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox_ack$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 P8: kvitteringen kræver objektbevis. Storage-objektet skal være væk (storage.objects er Storages egen
+  -- metadata), ellers bliver rækken i udbakken. Ejeren (postgres) ser alle buckets uden om RLS (målt i prod 26/11:
+  -- SELECT + bypassrls, 633/633 objekter), så beviset gælder også andre buckets end media. Ingen spring-over, hvis
+  -- storage mangler: så fejler kvitteringen.
+  IF EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id=p_bucket AND o.name=p_sti) THEN
+    RAISE EXCEPTION 'PURGE_FIL_FINDES_STADIG' USING DETAIL=format('%s/%s ligger stadig i lageret.',p_bucket,p_sti),
+      HINT='Slet filen i lageret først; kvitteringen fjerner kun rækken i udbakken.';
+  END IF;
+  DELETE FROM private.person_purge_udbakke u WHERE u.bucket=p_bucket AND u.sti=p_sti;
+END
+$purge_outbox_ack$;
+-- END review37-p8

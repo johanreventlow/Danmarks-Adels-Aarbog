@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Review 37 ceremoni 4 (#397 R37P11-2: red_set_levende). Prods deploy-form: blokkene fra `-- BEGIN review37-r37p11-2`
-# til den sidste blok i db-migrations.sql alene, i ÉN psql-transaktion (-1). Blokken skaber én ny funktion og giver
-# authenticated EXECUTE på den (REVOKE + GRANT i blokken; db-rls.sql's allow-liste nævner den også).
+# Review 37 ceremoni 4 (#397 R37P11-2: red_set_levende; P8: kvitteringen kræver objektbevis). Prods deploy-form:
+# blokkene `-- BEGIN review37-r37p11-2` … `-- END review37-p8` sidst i db-migrations.sql alene, i ÉN psql-transaktion
+# (-1). r37p11-2 skaber én ny funktion og giver authenticated EXECUTE på den (REVOKE + GRANT i blokken; db-rls.sql's
+# allow-liste nævner den også); p8 erstatter kroppen af red_person_purge_udbakke_kvitter (samme signatur og ACL).
 # 1) Frisk reference (bootstrap + dblink + schema.sql + db-rls.sql): hele kataloget (tests/sql/inspect-catalog-parity.sql).
 # 2) Prod-formet base (2. arg; CI pinner main efter ceremoni 3 = prods SQL): basens skema + migrationer to gange + rls.
-#    Funktionen findes ikke på basen (tænder: tjekket nedenfor er RØDT på basen).
+#    Ingen af ændringerne findes på basen (tænder: tjekket nedenfor er RØDT på basen).
 # 3) Deploy-transaktionen: kataloget efter = frisk, funktionsretterne = frisk og præcis én ny ret
 #    (red_set_levende:authenticated), data uændret; blokken to gange ændrer intet, og hele db-rls.sql oveni ændrer
 #    hverken funktionsretter, politikker eller ACL.
-# 4) Fuld db-verify på en anden, ens opgraderet base (verify-enheden r37p11-2 tester adfærden).
+# 4) Fuld db-verify på en anden, ens opgraderet base (verify-enheden r37p11-2 tester adfærden; P8 testes i
+#    tests/sql/test-person-purge.sh, gruppen udbakke: p8_kvitter_objektbevis).
 # Kun lokalt/CI. Ved succes droppes de tre baser, scriptet selv oprettede (<db>_f, _p, _v); ved fejl står de tilbage.
 set -euo pipefail
 name=${1:?database}; base=${2:?base-commit}
 dbf="${name}_f"; dbp="${name}_p"; dbv="${name}_v"
-FRA='-- BEGIN review37-r37p11-2'; TIL='-- END review37-r37p11-2'; N_FN=1
+FRA='-- BEGIN review37-r37p11-2'; TIL='-- END review37-p8'; N_FN=2
 NY_RET='red_set_levende(bigint,boolean):authenticated'  # regprocedure::text uden public. (search_path)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 for f in schema.sql db-rls.sql db-migrations.sql; do git show "$base:$f" > "$tmp/base-$f"; done
@@ -48,8 +50,10 @@ data() { a "$1" "DO \$d\$ DECLARE r record; n bigint; BEGIN
   FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c WHERE c.relnamespace IN ('public'::regnamespace,'private'::regnamespace) AND c.relkind='r' LOOP
     EXECUTE format('SELECT count(*) FROM %s', r.rel) INTO n; INSERT INTO _r37c4_rt VALUES (r.rel::text, n);
   END LOOP; END \$d\$; SELECT md5(string_agg(t||'='||n, ',' ORDER BY t)) FROM _r37c4_rt"; }
-# Tænder: »gammel« på basen (funktionen findes ikke), »ny« efter blokken.
-kroppe() { a "$1" "SELECT CASE WHEN to_regprocedure('public.red_set_levende(bigint,boolean)') IS NOT NULL THEN 'ny' ELSE 'gammel' END"; }
+# Tænder: »gammel« på basen (ingen af ændringerne), »ny« efter blokkene (begge); alt andet er »blandet«.
+kroppe() { a "$1" "SELECT CASE (to_regprocedure('public.red_set_levende(bigint,boolean)') IS NOT NULL)::int
+  + (position('PURGE_FIL_FINDES_STADIG' IN pg_get_functiondef('public.red_person_purge_udbakke_kvitter(text,text)'::regprocedure))>0)::int
+  WHEN 2 THEN 'ny' WHEN 0 THEN 'gammel' ELSE 'blandet' END"; }
 build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.sql
   q "$1" -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'; }
 
@@ -57,7 +61,7 @@ build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.
 build_start "$dbf"; q "$dbf" -f schema.sql; q "$dbf" -f db-rls.sql
 kat "$dbf" "$tmp/kat-fresh.txt"
 facl_fresh=$(facl "$dbf")
-[ "$(kroppe "$dbf")" = "ny" ] || fail "schema.sql har ikke ceremoni 4's funktion: $(kroppe "$dbf")"
+[ "$(kroppe "$dbf")" = "ny" ] || fail "schema.sql har ikke ceremoni 4's ændringer: $(kroppe "$dbf")"
 grep -qwF "$NY_RET" <<<"$(tr ' ' '\n' <<<"$facl_fresh")" || fail "frisk base giver ikke $NY_RET"
 ! tr ' ' '\n' <<<"$facl_fresh" | grep -q '^red_set_levende(bigint,boolean):\(anon\|service_role\)$' \
   || fail "frisk base giver red_set_levende til anon eller service_role"
@@ -74,7 +78,7 @@ data_foer=$(data "$dbp")
 
 # 3) Deploy-transaktionen, derefter det hele igen.
 out=$(deploy "$dbp") || { echo "$out" >&2; fail "deploy-transaktionen fejlede"; }
-[ "$(kroppe "$dbp")" = "ny" ] || fail "blokken gav ikke den nye funktion: $(kroppe "$dbp")"
+[ "$(kroppe "$dbp")" = "ny" ] || fail "blokkene gav ikke de nye kroppe: $(kroppe "$dbp")"
 [ "$(data "$dbp")" = "$data_foer" ] || fail "rækketal ændret af blokken"
 kat "$dbp" "$tmp/kat-efter.txt"
 bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" >/dev/null \

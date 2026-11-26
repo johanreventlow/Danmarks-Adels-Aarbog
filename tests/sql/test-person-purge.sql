@@ -3472,12 +3472,29 @@ BEGIN
   PERFORM pg_temp.km_antal('redaktion','SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''en'')');
   PERFORM pg_temp.udbakke_assert((SELECT count(*) FROM private.person_purge_udbakke)=(SELECT count(*)-1 FROM udbakke_foer),
     'udbakke_kvitter_idempotent');
+  -- Review 37 P8: kvitteringen kræver objektbevis. Ligger objektet stadig i lageret (også i en anden bucket end media),
+  -- afvises den med PURGE_FIL_FINDES_STADIG, og rækken bliver; først når objektet er væk, fjernes rækken.
+  INSERT INTO storage.buckets(id,name) VALUES ('purge-task12-a','purge-task12-a') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO storage.objects(bucket_id,name) VALUES ('purge-task12-a','to');
+  v_error := NULL;
+  BEGIN
+    PERFORM pg_temp.km_antal('redaktion','SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''to'')');
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
+  END;
+  PERFORM pg_temp.udbakke_assert(v_error='PURGE_FIL_FINDES_STADIG','p8_kvitter_afviser_eksisterende_objekt');
+  PERFORM pg_temp.udbakke_assert(EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE bucket='purge-task12-a' AND sti='to'),
+    'p8_raekken_bliver');
+  DELETE FROM storage.objects WHERE bucket_id='purge-task12-a' AND name='to';
+  PERFORM pg_temp.km_antal('redaktion','SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''to'')');
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE bucket='purge-task12-a' AND sti='to'),
+    'p8_kvitter_efter_sletning');
 END $t$;
 ROLLBACK;
 \echo OK udbakke_rollegate
 \echo OK udbakke_acl
 \echo OK udbakke_kvitter_praecis_en
 \echo OK udbakke_kvitter_idempotent
+\echo OK p8_kvitter_objektbevis
 
 -- Indsæt køposter EFTER de levende referencer: filteret skal også beskytte gamle/strandede køposter.
 BEGIN;

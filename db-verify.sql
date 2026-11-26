@@ -10133,6 +10133,12 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   IF v_msg IS DISTINCT FROM 'LEVENDE_UGYLDIG' OR v_state IS DISTINCT FROM '22023' THEN
     RAISE EXCEPTION 'FEJL: R37P11-2 — NULL gav «%» (%)', coalesce(v_msg,'(succes)'), v_state; END IF;
+  -- Uændret værdi (fx fra en forældet visning): afvises, så der ikke opstår et tomt, virkningsløst ændringssæt.
+  v_msg := NULL;
+  BEGIN PERFORM red_set_levende(-937621,true); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_msg IS DISTINCT FROM 'LEVENDE_UAENDRET' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — uændret værdi gav «%»', coalesce(v_msg,'(succes)'); END IF;
   IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
     RAISE EXCEPTION 'FEJL: R37P11-2 — en afvist ændring efterlod et ændringssæt'; END IF;
 
