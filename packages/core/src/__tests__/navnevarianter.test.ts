@@ -118,3 +118,10 @@ describe('foldToken — middelalderlige navnepar fra 1939 ↔ 2018-20-afstemning
     expect(foldToken('ivar')).not.toBe(foldToken('iven'));
   });
 });
+
+describe('foldToken — linjernes adelsnavn (2026-11-26)', () => {
+  test('Reventlou (IV »de Reventlou«) foldes som Reventlow', () => {
+    expect(foldToken('Reventlou')).toBe(foldToken('Reventlow'));
+    expect(foldToken('reventlou')).toBe(foldToken('Reventlov'));
+  });
+});

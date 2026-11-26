@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../supabase';
-import { getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
+import { erAdelsTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -82,13 +82,9 @@ type RawNavneDele = { id: number | string; visning_navn: string | null; visning_
 // Bataillons reserve"; cachen valgte den sidste, hvilket ville have givet "Einar Karl Ludwig
 // premierløjtnant i vesttyske pionier bataillons reserve Reventlow" i hovedrække-formatet).
 // Derfor slås alle afklarede titel-fakta op direkte og filtreres til en lukket adels-titel-liste.
-export const ADELS_TITLER = new Set([
-  'greve', 'grevinde', 'komtesse', 'comtesse', 'lensgreve', 'lensgrevinde',
-  'baron', 'baronesse', 'friherre', 'friherreinde', 'rigsgreve', 'rigsgrevinde',
-]);
-// Eksporteret til test — den præcise mekanisme der udelukker fx "Premierløjtnant i vesttyske
-// Pionier Bataillons reserve" (fundet i prod for person 469) fra at blive brugt som adelstitel.
-export const erAdelsTitel = (s: string): boolean => ADELS_TITLER.has(s.trim().toLowerCase());
+// Listen bor i @daa/core (adelsTitler.ts) — delt med bogens formelle navneform; re-eksporteret her, så
+// eksisterende imports (og SQL-paritetstesten) er uændrede.
+export { ADELS_TITLER, erAdelsTitel } from '@daa/core';
 
 type RawTitelFact = { subjekt_id: number | string; vaerdi_tekst: string };
 
