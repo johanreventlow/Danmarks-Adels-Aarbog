@@ -15,6 +15,16 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **Web:** knappen »Levende« under »Privat«. Afdød → levende (skjuler) sendes straks; levende → afdød viser først en
   advarsel om, at personen bliver synlig for gæster (eller forbliver skjult, hvis den er privat), og kræver »Ja«.
 - **Fravalgt:** kun skjul-retningen (et dødsfald kunne ikke registreres i appen) og at vente til efter POC.
+- **Uændret værdi afvises** (`LEVENDE_UAENDRET`), og web opdaterer knapperne »Levende« og »Privat« efter en direkte
+  ændring (Opus-review 26/11: personlisten hentes kun én gang, så knappen viste den gamle tilstand; et nyt klik gav et
+  tomt ændringssæt, hvis fortrydelse intet gjorde, mens personen forblev offentlig).
+- **Følger, accepteret:** en person sat til afdød kan slettes med den fortrydelige sletning (reglen følger den aktuelle
+  status). Biografier følger deres egen publicering (`levende` indgår i publiceringstilstanden), så advarslen siger
+  »kan blive synlige«.
+- **Kendte rester (lave, arvet fra `red_set_privat`):** `red_fortryd_change_set` tager kun samme_som-låsen ved
+  identitetsrelationer, så fortryd af en levende-/privat-ændring kan i sjældne tilfælde give 40P01 mod en samtidig
+  ændring af en samme_som-partner (Postgres afbryder den ene; intet tab). `change_set.subjekt_synlighed` fryses før
+  ændringen; ingen klient læser den i dag.
 - **Ikke med:** mobilens redaktion (dev-only) får knappen med mobil-pariteten.
 
 ## BESLUTTET: en slettet persons id må blive stående i maskinens identitetskandidater (#397 R37C2-2, 2026-11-26)
