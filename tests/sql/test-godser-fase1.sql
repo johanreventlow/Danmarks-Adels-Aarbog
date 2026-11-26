@@ -63,7 +63,7 @@ DO $t2$
 DECLARE
   g1 bigint; g2 bigint; g3 bigint; m1 bigint; m2 bigint; n1 bigint;
   a bigint; b bigint; c bigint; d bigint; e bigint; f bigint; z bigint;
-  p bigint; md bigint; v_hu bigint; v_sam bigint; v_rel bigint; v_ejer bigint; v_antal bigint;
+  p bigint; md bigint; v_hu bigint; v_sam bigint; v_rel bigint; v_ejer bigint; v_antal bigint; v_gemt jsonb;
 BEGIN
   INSERT INTO public.estate(navn, slags) VALUES ('__t2_g1__','gård') RETURNING id INTO g1;
   INSERT INTO public.estate(navn, slags) VALUES ('__t2_g2__','gård') RETURNING id INTO g2;
@@ -177,6 +177,21 @@ BEGIN
   SET LOCAL session_replication_role = origin;
   UPDATE public.relation SET objekt_id = z WHERE id = v_rel;
   DELETE FROM public.relation WHERE id = v_ejer;
+
+  -- (j2) Fortrydelsens genindsættelse (_version_upsert_row, INSERT … ON CONFLICT-grenen) af et slettet ejerforhold til en
+  -- række, der siden er lagt sammen, afvises (Task 4 (f)).
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',d,'ejer') RETURNING id INTO v_rel;
+  SELECT to_jsonb(r) INTO v_gemt FROM public.relation r WHERE r.id = v_rel;
+  DELETE FROM public.relation WHERE id = v_rel;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',d,'estate',c,'sammenlagt_i');
+  PERFORM pg_temp.g471_afvist(format($s$SELECT public._version_upsert_row('relation', %L::jsonb)$s$, v_gemt::text),
+    'ESTATE_ER_SAMMENLAGT', 'fortrydelsens genindsættelse af et ejerforhold til en sammenlagt række');
+  IF EXISTS (SELECT 1 FROM public.relation r WHERE r.id = v_rel) THEN
+    RAISE EXCEPTION 'GODSER_T2: det afviste ejerforhold % blev genindsat', v_rel;
+  END IF;
+  DELETE FROM public.relation WHERE subjekt_type = 'estate' AND subjekt_id = d AND rolle = 'sammenlagt_i';
 
   -- (k) Når sammenlagt_i fjernes (fortryd), kan rækken kobles igen.
   DELETE FROM public.relation WHERE id = v_sam;
