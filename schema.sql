@@ -6960,6 +6960,136 @@ $sammenlaeg_estate$;
 REVOKE ALL ON FUNCTION public.red_sammenlaeg_estate(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_sammenlaeg_estate(bigint,bigint) TO authenticated;
 
+-- Et ejerforhold til hver gård i en godsmasse (#471, decisions 2026-11-26): bogens »X med Y, Z« giver ét ejerforhold
+-- pr. gård. red_kopier_ejerforhold kopierer kildens ejerforhold (person → gods) til p_til_estate som en ny relation
+-- med samme ejer, periode og øvrige felter, med samme evidensmønster som importens ejerforhold: én uforanderlig påstand
+-- ('ejer', kildepåstandens datering), én afklaret konklusion med den valgt og én citation med kildecitationens
+-- source_id, kvalitet og side og p_citat (bogens fulde formulering) som citat_tekst. Kilden skal have præcis én
+-- citation (på tværs af sine påstande); ellers EJERFORHOLD_KILDE_UKLAR i stedet for at gætte. Idempotent på (ejer, til,
+-- rolle, periode_raw; NULL = NULL): findes et sådant ejerforhold allerede (også et importeret, eller kilden selv, når
+-- til er kildens eget gods), returneres dets id uden ændringssæt.
+-- Låse: fortryd/slet-låsen (delt), begge godser i id-orden (FOR SHARE), så kilderelationen; relationstriggerne låser
+-- personen til sidst. Fejl: RELATION_FINDES_IKKE / ESTATE_FINDES_IKKE (P0002), ESTATE_CITAT_TOMT (22023),
+-- EJERFORHOLD_KILDE_ROLLE og EJERFORHOLD_KILDE_UKLAR (23514), ESTATE_FLYT_SAMTIDIG (40001); kopi til en sammenlagt
+-- række afvises af trg_estate_relation_vagt (ESTATE_ER_SAMMENLAGT).
+CREATE OR REPLACE FUNCTION red_kopier_ejerforhold(p_relation_id bigint, p_til_estate bigint, p_citat text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $kopier_ejerforhold$
+DECLARE v_citat text := nullif(btrim(p_citat), ''); v_fra bigint; v_r relation; v_id bigint; v_n int;
+        v_a assertion; v_c citation; v_ny bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  IF v_citat IS NULL THEN
+    RAISE EXCEPTION 'ESTATE_CITAT_TOMT: et kopieret ejerforhold skal have bogens formulering som citat' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_r FROM relation r WHERE r.id = p_relation_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RELATION_FINDES_IKKE: relation % findes ikke', p_relation_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_r.rolle IS DISTINCT FROM 'ejer' OR v_r.objekt_type IS DISTINCT FROM 'estate' OR v_r.subjekt_type IS DISTINCT FROM 'person' THEN
+    RAISE EXCEPTION 'EJERFORHOLD_KILDE_ROLLE: kun et ejerforhold person → gods kan kopieres (relation % er % → %, rolle %)',
+      p_relation_id, v_r.subjekt_type, v_r.objekt_type, v_r.rolle USING ERRCODE = '23514';
+  END IF;
+  v_fra := v_r.objekt_id;
+  -- Godsernes rækker først (i id-orden), så kilderelationen, som læses igen efter låsen.
+  PERFORM 1 FROM estate e WHERE e.id IN (v_fra, p_til_estate) ORDER BY e.id FOR SHARE;
+  SELECT * INTO v_r FROM relation r WHERE r.id = p_relation_id FOR SHARE;
+  IF NOT FOUND OR v_r.objekt_type IS DISTINCT FROM 'estate' OR v_r.objekt_id IS DISTINCT FROM v_fra
+     OR v_r.rolle IS DISTINCT FROM 'ejer' OR v_r.subjekt_type IS DISTINCT FROM 'person' THEN
+    RAISE EXCEPTION 'ESTATE_FLYT_SAMTIDIG: relation % blev ændret undervejs; prøv igen', p_relation_id USING ERRCODE = '40001';
+  END IF;
+  IF p_til_estate IS NULL OR NOT EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate) THEN
+    RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_til_estate USING ERRCODE = 'P0002';
+  END IF;
+  SELECT r.id INTO v_id FROM relation r
+   WHERE r.subjekt_type = v_r.subjekt_type AND r.subjekt_id = v_r.subjekt_id
+     AND r.objekt_type = 'estate' AND r.objekt_id = p_til_estate AND r.rolle = 'ejer'
+     AND r.periode_raw IS NOT DISTINCT FROM v_r.periode_raw
+   ORDER BY r.id LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
+  SELECT count(*) INTO v_n FROM citation c JOIN assertion a ON a.id = c.assertion_id
+   WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'EJERFORHOLD_KILDE_UKLAR: ejerforhold % har % citationer; kun et ejerforhold med præcis én kan kopieres',
+      p_relation_id, v_n USING ERRCODE = '23514';
+  END IF;
+  SELECT a.* INTO v_a FROM citation c JOIN assertion a ON a.id = c.assertion_id
+   WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;
+  SELECT c.* INTO v_c FROM citation c WHERE c.assertion_id = v_a.id;
+
+  PERFORM begin_change_set('red_kopier_ejerforhold',
+    format('Kopierede ejerforhold %s fra gods %s til gods %s', p_relation_id, v_fra, p_til_estate), 'estate', p_til_estate);
+  INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, erhvervelsesmaade,
+                       start_min, start_max, end_min, end_max, period_type, periode_raw, konfidens, kvalifikator)
+    VALUES (v_r.subjekt_type, v_r.subjekt_id, 'estate', p_til_estate, 'ejer', v_r.erhvervelsesmaade,
+            v_r.start_min, v_r.start_max, v_r.end_min, v_r.end_max, v_r.period_type, v_r.periode_raw, v_r.konfidens,
+            v_r.kvalifikator)
+    RETURNING id INTO v_ny;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst, date_min, date_max, date_qualifier, date_certainty,
+                        date_raw, calendar, uforanderlig)
+    VALUES ('relation', v_ny, 'ejer', v_a.date_min, v_a.date_max, v_a.date_qualifier, v_a.date_certainty,
+            v_a.date_raw, v_a.calendar, true)
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ('relation', v_ny, v_ass, 'afklaret', 'Redaktør (godsoprydning)', current_date);
+  INSERT INTO citation(assertion_id, source_id, side, citat_tekst, kvalitet)
+    VALUES (v_ass, v_c.source_id, v_c.side, v_citat, v_c.kvalitet);
+  RETURN v_ny;
+END
+$kopier_ejerforhold$;
+REVOKE ALL ON FUNCTION public.red_kopier_ejerforhold(bigint,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_kopier_ejerforhold(bigint,bigint,text) TO authenticated;
+
+-- »Hører under« med kilde (#471): relationen gård → majorat (rolle 'hører_under', periode_raw), med én uforanderlig
+-- påstand ('hører_under', perioden som date_raw), én afklaret konklusion med den valgt og én primær citation med
+-- p_source_id og p_citat. Registreres kun, hvor bogen selv siger det, så kilde og citat er påkrævet. Perioden
+-- trimmes, og tom tekst er NULL. Idempotent på (gård, majorat, periode_raw; NULL = NULL): returnerer eksisterende id
+-- uden ændringssæt. Arten (gård → grevskab/baroni/stamhus), en relation til sig selv og en sammenlagt række afvises af
+-- trg_estate_relation_vagt (ESTATE_HOERER_UNDER_ART, ESTATE_RELATION_SELV, ESTATE_ER_SAMMENLAGT).
+-- Låse: fortryd/slet-låsen (delt), så begge godser i id-orden (FOR SHARE). Fejl: ESTATE_FINDES_IKKE og
+-- KILDE_FINDES_IKKE (P0002), ESTATE_CITAT_TOMT (22023).
+CREATE OR REPLACE FUNCTION red_hoerer_under(p_gaard bigint, p_majorat bigint, p_periode_raw text, p_source_id bigint, p_citat text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $hoerer_under$
+DECLARE v_periode text := nullif(btrim(p_periode_raw), ''); v_citat text := nullif(btrim(p_citat), '');
+        v_fundet int; v_id bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  IF v_citat IS NULL THEN
+    RAISE EXCEPTION 'ESTATE_CITAT_TOMT: »hører under« skal have bogens formulering som citat' USING ERRCODE = '22023';
+  END IF;
+  PERFORM 1 FROM estate e WHERE e.id IN (p_gaard, p_majorat) ORDER BY e.id FOR SHARE;
+  SELECT count(*) INTO v_fundet FROM estate e WHERE e.id IN (p_gaard, p_majorat);
+  IF p_gaard IS NULL OR p_majorat IS NULL OR v_fundet <> (CASE WHEN p_gaard = p_majorat THEN 1 ELSE 2 END) THEN
+    RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % eller gods % findes ikke', p_gaard, p_majorat USING ERRCODE = 'P0002';
+  END IF;
+  SELECT r.id INTO v_id FROM relation r
+   WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_gaard AND r.objekt_type = 'estate' AND r.objekt_id = p_majorat
+     AND r.rolle = 'hører_under' AND r.periode_raw IS NOT DISTINCT FROM v_periode
+   ORDER BY r.id LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;  -- findes allerede: intet ændringssæt
+  IF p_source_id IS NULL OR NOT EXISTS (SELECT 1 FROM source s WHERE s.id = p_source_id) THEN
+    RAISE EXCEPTION 'KILDE_FINDES_IKKE: kilde % findes ikke', p_source_id USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM begin_change_set('red_hoerer_under',
+    format('Gods %s hører under gods %s (%s)', p_gaard, p_majorat, coalesce(v_periode, 'uden periode')), 'estate', p_gaard);
+  INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+    VALUES ('estate', p_gaard, 'estate', p_majorat, 'hører_under', v_periode)
+    RETURNING id INTO v_id;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst, date_raw, uforanderlig)
+    VALUES ('relation', v_id, 'hører_under', v_periode, true)
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ('relation', v_id, v_ass, 'afklaret', 'Redaktør (godsoprydning)', current_date);
+  INSERT INTO citation(assertion_id, source_id, citat_tekst, kvalitet)
+    VALUES (v_ass, p_source_id, v_citat, 'primær');
+  RETURN v_id;
+END
+$hoerer_under$;
+REVOKE ALL ON FUNCTION public.red_hoerer_under(bigint,bigint,text,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_hoerer_under(bigint,bigint,text,bigint,text) TO authenticated;
+
 -- ---------- SYNLIGHED PR. SAMME_SOM-GRUPPE (#415) ----------
 -- Et menneske kan stå som flere person-rækker (én pr. udgave), bundet af samme_som. Er mennesket levende eller privat
 -- ifølge NOGEN af rækkerne, skal alle rækkerne skjules — ellers kan en ældre udgaves alias vise en nulevendes navn og

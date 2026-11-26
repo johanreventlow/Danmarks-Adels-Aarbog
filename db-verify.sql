@@ -3115,6 +3115,7 @@ DECLARE
     'public.red_fortryd_change_set(bigint,boolean)'::regprocedure,
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
+    'public.red_hoerer_under(bigint,bigint,text,bigint,text)'::regprocedure,
     'public.red_identity_candidate_input(bigint,jsonb)'::regprocedure,
     'public.red_identity_control_sample(uuid)'::regprocedure,
     'public.red_register_identity_control_run(uuid,text)'::regprocedure,
@@ -3132,6 +3133,7 @@ DECLARE
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_kopier_ejerforhold(bigint,bigint,text)'::regprocedure,
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
     'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
     'public.red_match_personer()'::regprocedure,
@@ -13809,16 +13811,19 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $verify_godser_fase1_relation$;
 
--- ===== Godsernes oprydning, fase 1 (#471): red_saet_estate, red_flyt_estate_relation og red_sammenlaeg_estate =====
--- Alle tre er DEFINER med fast search_path. Adgangen (kun authenticated, rollegate redaktion) dækkes af red_*-vagten.
+-- ===== Godsernes oprydning, fase 1 (#471): red_saet_estate, red_flyt_estate_relation, red_sammenlaeg_estate,
+-- red_kopier_ejerforhold og red_hoerer_under =====
+-- Alle fem er DEFINER med fast search_path. Adgangen (kun authenticated, rollegate redaktion) dækkes af red_*-vagten.
 DO $verify_godser_fase1_rpc$
 DECLARE f regprocedure;
 BEGIN
   FOREACH f IN ARRAY ARRAY[to_regprocedure('public.red_saet_estate(bigint,text,text)'),
                            to_regprocedure('public.red_flyt_estate_relation(bigint,bigint)'),
-                           to_regprocedure('public.red_sammenlaeg_estate(bigint,bigint)')] LOOP
+                           to_regprocedure('public.red_sammenlaeg_estate(bigint,bigint)'),
+                           to_regprocedure('public.red_kopier_ejerforhold(bigint,bigint,text)'),
+                           to_regprocedure('public.red_hoerer_under(bigint,bigint,text,bigint,text)')] LOOP
     IF f IS NULL THEN
-      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — red_saet_estate(bigint,text,text), red_flyt_estate_relation(bigint,bigint) eller red_sammenlaeg_estate(bigint,bigint) mangler';
+      RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — red_saet_estate(bigint,text,text), red_flyt_estate_relation(bigint,bigint), red_sammenlaeg_estate(bigint,bigint), red_kopier_ejerforhold(bigint,bigint,text) eller red_hoerer_under(bigint,bigint,text,bigint,text) mangler';
     END IF;
     IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
        OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=public']
@@ -13826,6 +13831,6 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % er ikke DEFINER med search_path=public, kun kaldbar af authenticated', f;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK: godser-fase1 — red_saet_estate, red_flyt_estate_relation og red_sammenlaeg_estate findes som DEFINER-RPC''er for authenticated';
+  RAISE NOTICE 'OK: godser-fase1 — red_saet_estate, red_flyt_estate_relation, red_sammenlaeg_estate, red_kopier_ejerforhold og red_hoerer_under findes som DEFINER-RPC''er for authenticated';
 END $verify_godser_fase1_rpc$;
 -- END-VERIFY godser-fase1
