@@ -804,6 +804,7 @@ BEGIN
     'public.red_set_koen(bigint,text)',
     'public.red_set_konklusion(bigint)',
     'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)',
+    'public.red_set_levende(bigint,boolean)',
     'public.red_set_privat(bigint,boolean)',
     'public.red_set_story_kilder(bigint,jsonb)',
     'public.red_set_story_status(bigint,text)',

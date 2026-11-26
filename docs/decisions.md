@@ -2,6 +2,31 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: redaktøren kan rette »levende« begge veje; afdød-retningen kræver bekræftelse (#397 R37P11-2, 2026-11-26)
+
+**Projektejeren valgte** (26/11) »begge veje, med advarsel«. Før kunne `levende` kun vælges i »Opret person«
+(`red_opret_person` opretter skjult, `privat=true`); bagefter skrev kun indlæserne feltet. Målt på prod-kopien 24/11:
+73 levende, 1.729 afdøde.
+
+- **Ny `red_set_levende(bigint,boolean)`** med samme protokol som `red_set_privat`: rollegate, ukendt id afvises før
+  ændringssættet, samme_som-låsen før personrækken (gruppens synlighed afhænger af medlemmernes `levende`, #415), eget
+  ændringssæt, fortrydelig. NULL afvises (`22023 LEVENDE_UGYLDIG`). Kun `authenticated` får EXECUTE (redaktionens
+  allow-liste); anon aldrig.
+- **Web:** knappen »Levende« under »Privat«. Afdød → levende (skjuler) sendes straks; levende → afdød viser først en
+  advarsel om, at personen bliver synlig for gæster (eller forbliver skjult, hvis den er privat), og kræver »Ja«.
+- **Fravalgt:** kun skjul-retningen (et dødsfald kunne ikke registreres i appen) og at vente til efter POC.
+- **Uændret værdi afvises** (`LEVENDE_UAENDRET`), og web opdaterer knapperne »Levende« og »Privat« efter en direkte
+  ændring (Opus-review 26/11: personlisten hentes kun én gang, så knappen viste den gamle tilstand; et nyt klik gav et
+  tomt ændringssæt, hvis fortrydelse intet gjorde, mens personen forblev offentlig).
+- **Følger, accepteret:** en person sat til afdød kan slettes med den fortrydelige sletning (reglen følger den aktuelle
+  status). Biografier følger deres egen publicering (`levende` indgår i publiceringstilstanden), så advarslen siger
+  »kan blive synlige«.
+- **Kendte rester (lave, arvet fra `red_set_privat`):** `red_fortryd_change_set` tager kun samme_som-låsen ved
+  identitetsrelationer, så fortryd af en levende-/privat-ændring kan i sjældne tilfælde give 40P01 mod en samtidig
+  ændring af en samme_som-partner (Postgres afbryder den ene; intet tab). `change_set.subjekt_synlighed` fryses før
+  ændringen; ingen klient læser den i dag.
+- **Ikke med:** mobilens redaktion (dev-only) får knappen med mobil-pariteten.
+
 ## BESLUTTET: linjens adelsnavn giver bogens formelle navneform (2026-11-26)
 
 **Projektejeren valgte** (25-26/11, plan `docs/superpowers/plans/2026-11-26-linjernes-adelsnavn.md`): personsiden viser

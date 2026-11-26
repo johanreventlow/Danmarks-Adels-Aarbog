@@ -18937,6 +18937,8 @@ DECLARE
     'public.red_set_konklusion(bigint)'::regprocedure,
     'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)'::regprocedure,
     'public.red_set_privat(bigint,boolean)'::regprocedure,
+    -- Review 37 R37P11-2: oprettes i blokken review37-r37p11-2 sidst i filen; findes kun her, når schema.sql er kørt først.
+    to_regprocedure('public.red_set_levende(bigint,boolean)'),
     'public.red_set_story_kilder(bigint,jsonb)'::regprocedure,
     'public.red_set_story_status(bigint,text)'::regprocedure,
     'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
@@ -50648,3 +50650,54 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','adelsnavn','Adelsnavn — linjens navn efter titlen, som bogen skriver det (fx »af Reventlow«)')
 ON CONFLICT (scheme, code) DO NOTHING;
 -- END adelsnavn-faktatype
+
+-- BEGIN review37-r37p11-2
+-- Review 37 R37P11-2 (#397, projektejeren 26/11: »begge veje, med advarsel«): redaktørens vej til at rette
+-- person.levende efter oprettelsen. Ny funktion med samme protokol som red_set_privat (rollegate, ukendt id før
+-- ændringssættet, samme_som-låsen, fortrydelig). Kun authenticated får EXECUTE (redaktionens allow-liste i db-rls.sql);
+-- anon aldrig. Kroppen er kopieret fra schema.sql og er den endelige definition. Ingen data ændres.
+CREATE OR REPLACE FUNCTION public.red_set_levende(p_person_id bigint, p_levende boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_levende IS NULL THEN
+    RAISE EXCEPTION 'LEVENDE_UGYLDIG' USING ERRCODE='22023', DETAIL='levende skal være sand eller falsk.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  -- Review-fund: en uændret værdi (fx fra en forældet visning) afvises, så der ikke opstår et tomt ændringssæt, hvis
+  -- fortrydelse intet gør, mens redaktøren tror, personen skjules igen.
+  IF (SELECT levende FROM person WHERE id = p_person_id) IS NOT DISTINCT FROM p_levende THEN
+    RAISE EXCEPTION 'LEVENDE_UAENDRET' USING DETAIL = format('Person %s er allerede markeret som %s.', p_person_id,
+      CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END);
+  END IF;
+  PERFORM begin_change_set('red_set_levende',
+    format('Satte person %s som %s', p_person_id, CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END), 'person', p_person_id);
+  UPDATE person SET levende = p_levende WHERE id = p_person_id;
+END $$;
+REVOKE ALL ON FUNCTION public.red_set_levende(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_set_levende(bigint,boolean) TO authenticated;
+-- END review37-r37p11-2
+
+-- BEGIN review37-p8
+-- Review 37 P8 (#397): kvitteringen for en slettet fil kræver objektbevis. red_person_purge_udbakke_kvitter afviser med
+-- PURGE_FIL_FINDES_STADIG, så længe objektet står i storage.objects, og rækken i udbakken bliver. Ejeren (postgres) ser
+-- alle buckets uden om RLS (målt i prod 26/11). Samme signatur og ACL; ingen data ændres. Deploy-området for ceremoni 4
+-- er blokkene review37-r37p11-2 og review37-p8 i ÉN transaktion. Kroppen er kopieret fra schema.sql (endelig definition).
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke_kvitter(p_bucket text,p_sti text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox_ack$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 P8: kvitteringen kræver objektbevis. Storage-objektet skal være væk (storage.objects er Storages egen
+  -- metadata), ellers bliver rækken i udbakken. Ejeren (postgres) ser alle buckets uden om RLS (målt i prod 26/11:
+  -- SELECT + bypassrls, 633/633 objekter), så beviset gælder også andre buckets end media. Ingen spring-over, hvis
+  -- storage mangler: så fejler kvitteringen.
+  IF EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id=p_bucket AND o.name=p_sti) THEN
+    RAISE EXCEPTION 'PURGE_FIL_FINDES_STADIG' USING DETAIL=format('%s/%s ligger stadig i lageret.',p_bucket,p_sti),
+      HINT='Slet filen i lageret først; kvitteringen fjerner kun rækken i udbakken.';
+  END IF;
+  DELETE FROM private.person_purge_udbakke u WHERE u.bucket=p_bucket AND u.sti=p_sti;
+END
+$purge_outbox_ack$;
+-- END review37-p8

@@ -308,6 +308,22 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('FORTRYD_AF_FORTRYDELSE')).toBe('En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.');
   });
 
+  // Review 37 R37P11-2: redaktøren kan rette levende; værdien skal være eksplicit, ellers sendes intet (heller ikke forslag).
+  it('setLevende bygger red_set_levende begge veje', () => {
+    expect(buildRpcCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: { levende: false } }))
+      .toEqual({ fn: 'red_set_levende', args: { p_person_id: 42, p_levende: false } });
+    expect(buildRpcCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: { levende: true } }))
+      .toEqual({ fn: 'red_set_levende', args: { p_person_id: 42, p_levende: true } });
+  });
+  it('setLevende uden boolsk værdi giver intet kald og intet forslag', () => {
+    expect(buildRpcCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: {} })).toBeNull();
+    expect(buildRpcCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: { levende: 'false' } })).toBeNull();
+    expect(() => planCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: {} }, 'redaktion'))
+      .toThrow('Ufuldstændig ændring');
+    expect(oversaetFejl('LEVENDE_UGYLDIG')).toBe('Vælg om personen er levende eller afdød.');
+    expect(oversaetFejl('LEVENDE_UAENDRET')).toMatch(/^Personen har allerede den markering/);
+  });
+
   it('omvendt datointerval (DATO_INTERVAL_OMVENDT) oversættes (review 37 D5)', () => {
     expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
   });

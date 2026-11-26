@@ -3189,6 +3189,7 @@ DECLARE
     'public.red_set_koen(bigint,text)'::regprocedure,
     'public.red_set_konklusion(bigint)'::regprocedure,
     'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)'::regprocedure,
+    'public.red_set_levende(bigint,boolean)'::regprocedure,
     'public.red_set_privat(bigint,boolean)'::regprocedure,
     'public.red_set_story_kilder(bigint,jsonb)'::regprocedure,
     'public.red_set_story_status(bigint,text)'::regprocedure,
@@ -10081,6 +10082,79 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37d11
+
+-- BEGIN-VERIFY r37p11-2
+-- ===== Review 37 R37P11-2: redaktøren kan rette levende (red_set_levende), fortrydeligt =====
+-- Levende → afdød gør en ellers offentlig person synlig for gæster (person_offentlig), afdød → levende skjuler den igen.
+-- Hver ændring er sit eget ændringssæt (operation red_set_levende), og en fortrydelse genskaber værdien. Ukendt id og
+-- NULL afvises uden ændringssæt; uden redaktørrolle »Kun redaktion«, også for et ukendt id.
+DO $$
+DECLARE
+  v_msg text; v_state text; v_n_cs bigint; v_cs bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES (-937621,true,false,false);
+  IF public.person_offentlig(-937621) THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — en levende person er offentlig før ændringen'; END IF;
+
+  -- Levende → afdød: synlig for gæster, eget ændringssæt.
+  PERFORM red_set_levende(-937621,false);
+  v_cs := current_setting('app.change_set_id')::bigint; PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT levende FROM person WHERE id=-937621) IS DISTINCT FROM false OR NOT public.person_offentlig(-937621) THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — afdød-retningen gjorde ikke personen offentlig'; END IF;
+  IF (SELECT operation FROM change_set WHERE id=v_cs) IS DISTINCT FROM 'red_set_levende' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — ændringen fik ikke sit eget ændringssæt'; END IF;
+
+  -- Fortryd genskaber levende=true og skjuler personen igen.
+  PERFORM red_fortryd_change_set(v_cs); PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT levende FROM person WHERE id=-937621) IS DISTINCT FROM true OR public.person_offentlig(-937621) THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — fortrydelsen genskabte ikke levende=true'; END IF;
+
+  -- Afdød → levende via RPC'en skjuler også.
+  UPDATE person SET levende=false WHERE id=-937621;
+  PERFORM red_set_levende(-937621,true); PERFORM set_config('app.change_set_id','',true);
+  IF public.person_offentlig(-937621) THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — levende-retningen skjulte ikke personen'; END IF;
+
+  -- Ukendt id og NULL: fejl uden ændringssæt.
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  v_msg := NULL;
+  BEGIN PERFORM red_set_levende(-937699,false); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_msg IS DISTINCT FROM 'Person -937699 findes ikke' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — ukendt id gav «%»', coalesce(v_msg,'(succes)'); END IF;
+  v_msg := NULL; v_state := NULL;
+  BEGIN PERFORM red_set_levende(-937621,NULL); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; v_state := SQLSTATE; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_msg IS DISTINCT FROM 'LEVENDE_UGYLDIG' OR v_state IS DISTINCT FROM '22023' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — NULL gav «%» (%)', coalesce(v_msg,'(succes)'), v_state; END IF;
+  -- Uændret værdi (fx fra en forældet visning): afvises, så der ikke opstår et tomt, virkningsløst ændringssæt.
+  v_msg := NULL;
+  BEGIN PERFORM red_set_levende(-937621,true); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_msg IS DISTINCT FROM 'LEVENDE_UAENDRET' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — uændret værdi gav «%»', coalesce(v_msg,'(succes)'); END IF;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — en afvist ændring efterlod et ændringssæt'; END IF;
+
+  -- Uden redaktørrolle.
+  UPDATE profiles SET rolle='medlem' WHERE id='00000000-0000-0000-0000-000000000001';
+  v_msg := NULL;
+  BEGIN PERFORM red_set_levende(-937699,false); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+    RAISE EXCEPTION 'FEJL: R37P11-2 — uden redaktørrolle gav «%»', coalesce(v_msg,'(succes)'); END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 R37P11-2 — redaktøren kan rette levende, fortrydeligt';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37p11-2
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

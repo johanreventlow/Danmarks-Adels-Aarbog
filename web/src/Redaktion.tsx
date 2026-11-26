@@ -24,6 +24,7 @@ import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
 import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from './data/ocrPaastand';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
+import { LevendeKnap } from './components/LevendeKnap';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
 import {
@@ -798,6 +799,13 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
       });
+      // Review 37 R37P11-2 (review-fund): personlisten hentes kun én gang, så privat/levende opdateres her efter en
+      // direkte ændring. Ellers viser knapperne den gamle tilstand og tilbyder samme retning igen.
+      if (!dryRun && res.direkte && (change.art === 'setPrivat' || change.art === 'setLevende')) {
+        const felt = change.art === 'setPrivat' ? 'privat' : 'levende';
+        const ny = change.payload?.[felt];
+        if (typeof ny === 'boolean') setPersons((ps) => ps.map((p) => (p.id === change.subjektId ? { ...p, [felt]: ny } : p)));
+      }
       // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
       // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
       const mediaChanged = MEDIA_ARTER.has(change.art);
@@ -1317,6 +1325,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               <span style={{ width: 26, height: 15, borderRadius: 8, background: p.privat ? T.bordeaux : '#cfc6b5', position: 'relative' }}><span style={{ position: 'absolute', top: 1.5, left: p.privat ? 12.5 : 1.5, width: 11, height: 11, borderRadius: '50%', background: '#fff' }} /></span>
               <span style={{ fontSize: 13, fontWeight: 600, color: p.privat ? T.bordeaux : T.inkMuted }}>Privat</span>
             </div>
+            {/* Review 37 R37P11-2: levende kan rettes efter oprettelsen; afdød-retningen kræver bekræftelse. */}
+            <LevendeKnap personId={p.id} levende={p.levende} privat={p.privat} run={run} />
             {/* Review 37 P11: én knap; dialogen afgør, om sletningen kan fortrydes, eller om personen skal slettes helt. */}
             <button type="button" onClick={() => setSletPerson({ id: p.id, navn: p.navn })} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.surfaceRaised, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer', fontFamily: 'inherit' }}>
               <span aria-hidden="true" style={{ fontSize: 13, color: T.danger }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>Slet person…</span>
