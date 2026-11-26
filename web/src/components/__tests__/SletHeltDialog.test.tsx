@@ -79,7 +79,7 @@ it('en id-henvisning (personens id under en person-nøgle) vises åbent med fork
   setup(preview({ til_kontrol: [
     { sted: 'S58', tabel: 'private.source_persona_identity_candidate', pk: { id: 'uuid-1' }, grund: 'id_henvisning' },
     { sted: 'S58', tabel: 'note', pk: { id: 7 }, grund: 'kun_id' }] }));
-  const tekst = await screen.findByText(/En kildedata-række henviser til profilen med dens id/);
+  const tekst = await screen.findByText(/En intern kildedata-række nævner profilens id/);
   expect(tekst.closest('details')).toBeNull();
   const gruppe = screen.getByText(/^Kun et id-tal \(1\)/).closest('details')!;
   expect(gruppe.textContent).not.toMatch(/source_persona_identity_candidate/);

@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: en slettet persons id må blive stående i maskinens identitetskandidater (#397 R37C2-2, 2026-11-26)
+
+**Projektejeren valgte** (26/11, efter læse-kun-måling på prod-kopien 24/11) at »Slet helt« ikke fjerner eller
+omskriver andre rækkers henvisning til den slettede persons id i `private.source_persona_identity_candidate.basis`
+(`member_scores[].person_id`, `cluster_members`). Rækker, hvor personen selv er `candidate_person_id`, slettes stadig.
+
+- **Ingen persondata.** `basis` rummer kun person-id'er, scorer, ja/nej-felter og faste etiketter: alle 24.031
+  strengværdier matcher `^[a-z_]+$` (`name`, `birth`, `mention` …), og generatoren
+  (`packages/identity-candidates/src/rank.ts`) kan ikke skrive andet. Når personrækken er væk, peger id'et på ingenting.
+- **Allerede afprøvet.** 3.815 af 5.426 kandidatrækker nævner en anden person end deres egen (760 personer, median 2
+  rækker, højst 28); 2 af de nævnte personer er allerede slettet (18/11), uden følger.
+- **Fravalgt:** at slette de berørte rækker (ændrer andre personers kandidatsæt og publiceringskontrollens udfald i
+  `private.publication_control_outcome`) og at nulstille id'et (bryder tabellens uforanderlighed og kørslens
+  `candidates_sha256`).
+- **Følge:** kontrollisten i »Slet helt« viser grunden `id_henvisning` som oplysning (»bliver stående, ingen
+  persondata«), ikke som noget redaktøren skal rette.
+
 ## BESLUTTET: personsidens fakta tjekker hver binding én gang; id-loftet gælder kun kald gennem REST-API'et (#397 ceremoni 3, 2026-11-25)
 
 **Projektejeren valgte** (25/11, efter læse-kun-måling i prod: værste personside ~0,6 s af anon-loftets 3 s) at rette
