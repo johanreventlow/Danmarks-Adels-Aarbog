@@ -44,7 +44,7 @@ vi.mock('../data/model', () => ({ loadModel: mocks.loadModel }));
 // Kun fetchPersonDetail er den rigtige; de øvrige læserhentninger er uden betydning her.
 vi.mock('../data/public', async (importOriginal) => ({
   ...await importOriginal<typeof import('../data/public')>(),
-  fetchEstates: async () => [],
+  fetchEstates: async () => ({ estates: [], sammenlagt: new Map(), hoererUnder: [] }),
   fetchArms: async () => [],
   fetchAbout: async () => [],
   fetchEstateInfo: async () => ({ narrativ: '', sted: '', media: [] }),

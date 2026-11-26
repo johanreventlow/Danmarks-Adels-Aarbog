@@ -89,7 +89,7 @@ beforeEach(() => {
   locCache.v = null;
   mocks.currentSession.mockResolvedValue(null);
   mocks.fetchPersonDetail.mockResolvedValue(DETALJE);
-  mocks.fetchEstates.mockResolvedValue([{ id: '1', navn: 'Wittenberg', slags: 'gods', ownerCount: 1 }]);
+  mocks.fetchEstates.mockResolvedValue({ estates: [{ id: '1', navn: 'Wittenberg', slags: 'gods', ownerCount: 1 }], sammenlagt: new Map(), hoererUnder: [] });
   mocks.fetchArms.mockResolvedValue([]);
   mocks.fetchAbout.mockResolvedValue([]);
   mocks.fetchEstateInfo.mockResolvedValue({ narrativ: '', sted: '', media: [] });

@@ -5,7 +5,7 @@
 import { supabase } from '../supabase';
 import type { Model } from './types';
 import type { EjerRelation } from './ejerraekke';
-import { byggAboutSections, type AboutSection, type RawAboutRow, type RawAboutLineage, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { byggAboutSections, type AboutSection, type RawAboutRow, type RawAboutLineage, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, estateKanonisk, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
 import { laesCitationer } from './citationLaes';
 import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, fetchMediaAfSlags, type MediaItem } from './media';
@@ -90,19 +90,48 @@ export type EstateInfo = { narrativ: string; sted: string; media: MediaItem[] };
 type RawEstate = { id: number; navn: string | null; slags: string | null };
 type RawEstateRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
+// »Hører under«: en gård hørte under et majorat (grevskab/baroni/stamhus) i en periode (#471).
+export type HoererUnder = { gaard: string; majorat: string; periode: string };
+export type EstatesData = {
+  estates: EstateItem[];
+  // sammenlagt gods → det gods, det blev lagt ind i (alle id'er som tekst). Sammenlagte rækker står ikke i `estates`.
+  sammenlagt: Map<string, string>;
+  hoererUnder: HoererUnder[];
+};
+
+type RawEstateGodsRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
+
 // Kaster ved fejl (fase 7b): en fejlet hentning må ikke ligne »ingen besiddelser«. ownerCount er antal forskellige
 // ejere (personer), ikke ejer-relationer — samme person med to perioder er én ejer.
-export async function fetchEstates(): Promise<EstateItem[]> {
-  const [estates, rels] = await Promise.all([
+// Gods→gods-relationerne (sammenlagt_i, hører_under) hentes i ÉT filtreret opslag (ikke pr. gods); uden dem er
+// resultatet som før (#471).
+export async function fetchEstates(): Promise<EstatesData> {
+  const [estates, rels, godsRels] = await Promise.all([
     getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags')),
     getAll<{ subjekt_id: number; objekt_id: number }>(() => supabase.from('relation').select('subjekt_id,objekt_id')
       .eq('objekt_type', 'estate').eq('subjekt_type', 'person').eq('rolle', 'ejer')),
+    getAll<RawEstateGodsRel>(() => supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
+      .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').in('rolle', ['sammenlagt_i', 'hører_under'])),
   ]);
   const ejere: Record<string, Set<string>> = {};
   rels.forEach((r) => { (ejere[String(r.objekt_id)] ??= new Set()).add(String(r.subjekt_id)); });
-  return estates
+  const sammenlagt = new Map<string, string>();
+  godsRels.filter((r) => r.rolle === 'sammenlagt_i').forEach((r) => sammenlagt.set(String(r.subjekt_id), String(r.objekt_id)));
+  const kendt = new Set(estates.map((e) => String(e.id)));
+  const hoererUnder: HoererUnder[] = [];
+  const set = new Set<string>();
+  godsRels.filter((r) => r.rolle === 'hører_under').forEach((r) => {
+    const gaard = estateKanonisk(String(r.subjekt_id), sammenlagt), majorat = estateKanonisk(String(r.objekt_id), sammenlagt);
+    const nøgle = `${gaard}|${majorat}|${r.periode_raw ?? ''}`;
+    if (gaard === majorat || !kendt.has(gaard) || !kendt.has(majorat) || set.has(nøgle)) return;
+    set.add(nøgle);
+    hoererUnder.push({ gaard, majorat, periode: r.periode_raw ?? '' });
+  });
+  const items = estates
+    .filter((e) => !sammenlagt.has(String(e.id)))
     .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: ejere[String(e.id)]?.size ?? 0, ejerIds: [...(ejere[String(e.id)] ?? [])] }))
     .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
+  return { estates: items, sammenlagt, hoererUnder };
 }
 
 // Ejer-relationerne for én besiddelse. En relation kan være registreret under et foldet alias-person-id → kanonisér
@@ -155,6 +184,14 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
 }
 
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
+
+// Sammenlagt-kanterne (sammenlagt gods → overlevende) for en mængde godser; tomt uden opslag, når listen er tom.
+async function fetchSammenlagtFor(estIds: number[]): Promise<Map<string, string>> {
+  if (!estIds.length) return new Map();
+  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() => supabase.from('relation').select('subjekt_id,objekt_id')
+    .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').eq('rolle', 'sammenlagt_i').in('subjekt_id', estIds));
+  return new Map(rows.map((r) => [String(r.subjekt_id), String(r.objekt_id)]));
+}
 
 // Slå organisation/estate-navne op i ét hug (delt af person-detalje + relations-læsning).
 export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string> }> {
@@ -383,7 +420,11 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
         ?? selectDefaultPublicBioSourceVersionV2(kladder))?.narrativeText ?? ''
       : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
-    const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
+    // Et sammenlagt gods vises som det gods, det blev lagt ind i (#471): ét filtreret opslag, kun når personen har godser.
+    const rawEstIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
+    const estSammenlagt = await fetchSammenlagtFor(rawEstIds);
+    const estKanon = (id: number | string) => estateKanonisk(String(id), estSammenlagt);
+    const estIds = [...new Set(rawEstIds.map((id) => Number(estKanon(id))))];
     // Navne og redaktørens kildetekster i samme bølge (ingen ekstra seriel rundtur for personsiden).
     const [{ org: orgNavn, estate: estNavn }, fritekstKilde] = await Promise.all([
       resolveOrgEstateNames(orgIds, estIds),
@@ -399,7 +440,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     );
     const estates = dedupBy(
       rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
-        id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`, personId: String(r.subjekt_id),
+        id: estKanon(r.objekt_id), navn: estNavn.get(estKanon(r.objekt_id)) || `#${estKanon(r.objekt_id)}`, personId: String(r.subjekt_id),
       })),
       (e) => `${e.personId}|${e.id}`,
     );

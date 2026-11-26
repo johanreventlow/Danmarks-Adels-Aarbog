@@ -14,3 +14,18 @@ const ETIKETTER: Record<EstateSlags, string> = { gård: 'Gård', grevskab: 'Grev
 export function estateArtEtiket(slags: string | null): string | null {
   return slags !== null && Object.prototype.hasOwnProperty.call(ETIKETTER, slags) ? ETIKETTER[slags as EstateSlags] : null;
 }
+
+// Følger »sammenlagt_i« fra et sammenlagt gods til det gods, det blev lagt ind i (id'er som tekst). Vagten i databasen
+// forhindrer kæder, så ét skridt er normalt; funktionen stopper dog efter 10 skridt og ved en cyklus og giver så det
+// sidste id, i stedet for at hænge. Et id uden indgang er sit eget (#471).
+export function estateKanonisk(id: string, sammenlagt: ReadonlyMap<string, string>): string {
+  const set = new Set<string>([id]);
+  let nu = id;
+  for (let i = 0; i < 10; i++) {
+    const naeste = sammenlagt.get(nu);
+    if (naeste === undefined || set.has(naeste)) return nu;
+    set.add(naeste);
+    nu = naeste;
+  }
+  return nu;
+}

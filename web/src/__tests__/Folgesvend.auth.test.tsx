@@ -32,7 +32,7 @@ vi.mock('../router', () => ({
 vi.mock('../data/model', () => ({ loadModel: mocks.loadModel }));
 vi.mock('../data/public', async (importOriginal) => ({
   ...await importOriginal<typeof import('../data/public')>(),
-  fetchEstates: async () => [], fetchArms: async () => [], fetchAbout: async () => [],
+  fetchEstates: async () => ({ estates: [], sammenlagt: new Map(), hoererUnder: [] }), fetchArms: async () => [], fetchAbout: async () => [],
   fetchEstateInfo: async () => ({ narrativ: '', sted: '', media: [] }),
   fetchEstateOwners: async () => [],
   fetchPersonDetail: async () => ({ bio: '', offices: [] }),

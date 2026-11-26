@@ -12,7 +12,8 @@ import { gemMigId, laesMigId } from './data/migLager';
 import { useModalFokus } from './components/useModalFokus';
 import { initials } from './data/format';
 import type { MediaItem } from './data/media';
-import { fetchArms, fetchVaabenGalleri, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
+import { estateKanonisk } from '@daa/core';
+import { fetchArms, fetchVaabenGalleri, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type HoererUnder, type PersonDetailData } from './data/public';
 import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
 import type { EjereTilstand } from './components/EstatesView';
 import { personMemberIds } from './data/personMembers';
@@ -195,6 +196,9 @@ export default function Folgesvend() {
   };
   const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
+  // Sammenlagte godser (id → overlevende) og »hører under« (#471); tomme, til de er hentet eller hvis der ingen er.
+  const [sammenlagt, setSammenlagt] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [hoererUnder, setHoererUnder] = useState<HoererUnder[]>([]);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [vaabenGalleri, setVaabenGalleri] = useState<MediaItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
@@ -265,8 +269,17 @@ export default function Folgesvend() {
   // ikke ved et tavst skift til listen.
   useEffect(() => {
     if (estates || estatesFejl) return;
-    fetchEstates().then(setEstates).catch(() => { setEstates([]); setEstatesFejl(true); });
+    fetchEstates().then((d) => { setSammenlagt(d.sammenlagt); setHoererUnder(d.hoererUnder); setEstates(d.estates); })
+      .catch(() => { setEstates([]); setEstatesFejl(true); });
   }, [estates, estatesFejl]);
+  // Et link til et sammenlagt gods (/besiddelse/405) ender på det gods, det blev lagt ind i — som alias-personer (replace).
+  useEffect(() => {
+    if (mode !== 'estates' || !estateId) return;
+    const kanonisk = estateKanonisk(estateId, sammenlagt);
+    if (kanonisk === estateId) return;
+    setEstateId(kanonisk);
+    navigate(estatePath(kanonisk), { replace: true, state: window.history.state });
+  }, [mode, estateId, sammenlagt]);
   // 'home' og 'about' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidernes feed
   // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
   // besøgt Våben-siden.
@@ -673,7 +686,7 @@ export default function Folgesvend() {
             )
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} relA={relA} relB={relB} meId={meCanon} slug={slug} onVaelg={findSlaegtskab} />
-            : mode === 'estates' ? <EstatesView estates={estatesVist} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
+            : mode === 'estates' ? <EstatesView estates={estatesVist} hoererUnder={hoererUnder} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
               estateId={estateId} estate={estatesVist?.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
               slaegt={findSlaegt(slug) ?? SLAEGTER[0]} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onPickOwner={visPerson}
               besiddelserHref={pathForMode('estates', slug)} onBesiddelser={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }}

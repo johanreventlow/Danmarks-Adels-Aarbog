@@ -5,10 +5,10 @@ import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath } from '../data/nav';
 import { withUrl } from '../data/media';
-import type { EstateInfo, EstateItem } from '../data/public';
+import type { EstateInfo, EstateItem, HoererUnder } from '../data/public';
 import type { Ejerraekke, EjerRaekke } from '../data/ejerraekke';
 import type { Geo } from '../data/types';
-import { estatePoints } from '@daa/core';
+import { estatePoints, estateArtEtiket, MAJORAT_SLAGS, type EstateSlags } from '@daa/core';
 import { NarrativRenderer } from './NarrativRenderer';
 import { Lightbox } from './Lightbox';
 import { ViewHeader, MediaThumb } from './primitives';
@@ -20,8 +20,8 @@ export type EjereTilstand = { status: 'henter' } | { status: 'fejl' } | { status
 
 const etiket: CSSProperties = { margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '0.16em', textTransform: 'uppercase' };
 
-export function EstatesView({ estates, estatesFejl, onRetryEstates, estateId, estate, info, ejere, onRetryEjere, slaegt, geo, geoLoading, onOpen, onPickOwner, besiddelserHref, onBesiddelser, slaegtensKortHref, onSlaegtensKort }: {
-  estates: EstateItem[] | null; estatesFejl: boolean; onRetryEstates: () => void;
+export function EstatesView({ estates, hoererUnder = [], estatesFejl, onRetryEstates, estateId, estate, info, ejere, onRetryEjere, slaegt, geo, geoLoading, onOpen, onPickOwner, besiddelserHref, onBesiddelser, slaegtensKortHref, onSlaegtensKort }: {
+  estates: EstateItem[] | null; hoererUnder?: HoererUnder[]; estatesFejl: boolean; onRetryEstates: () => void;
   estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
   ejere: EjereTilstand; onRetryEjere: () => void;
   slaegt: { slug: string; navn: string };
@@ -44,7 +44,7 @@ export function EstatesView({ estates, estatesFejl, onRetryEstates, estateId, es
         </div>
       );
     }
-    return <BesiddelseSide estate={estate} info={info} ejere={ejere} onRetryEjere={onRetryEjere} slaegt={slaegt} geo={geo} geoLoading={geoLoading}
+    return <BesiddelseSide estate={estate} estates={estates} hoererUnder={hoererUnder} onOpen={onOpen} info={info} ejere={ejere} onRetryEjere={onRetryEjere} slaegt={slaegt} geo={geo} geoLoading={geoLoading}
       onPickOwner={onPickOwner} besiddelserHref={besiddelserHref} onBesiddelser={onBesiddelser} slaegtensKortHref={slaegtensKortHref} onSlaegtensKort={onSlaegtensKort} />;
   }
   const points = geo ? estatePoints(geo) : [];
@@ -81,6 +81,7 @@ export function EstatesView({ estates, estatesFejl, onRetryEstates, estateId, es
             <Link key={e.id} href={estatePath(e.id)} onNavigate={() => onOpen(e.id)} style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 13, padding: 15, boxShadow: '0 1px 2px rgba(34,31,26,.03)', display: 'block' }}>
               <span aria-hidden="true" style={{ width: 36, height: 36, borderRadius: 8, background: T.surfaceSunken, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 17, color: T.bordeaux }}>⌂</span>
               <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 11 }}>{e.navn}</div>
+              {estateArtEtiket(e.slags) && <div style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.goldInk, marginTop: 4 }}>{estateArtEtiket(e.slags)}</div>}
               <div style={{ fontSize: 12.5, color: T.inkMuted, marginTop: 3 }}>{e.ownerCount ? `${e.ownerCount} ${e.ownerCount === 1 ? 'ejer' : 'ejere'} i Aarbogen` : 'Ingen ejere registreret'}</div>
             </Link>
           ))}
@@ -101,8 +102,9 @@ function HentFejl({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function BesiddelseSide({ estate, info, ejere, onRetryEjere, slaegt, geo, geoLoading, onPickOwner, besiddelserHref, onBesiddelser, slaegtensKortHref, onSlaegtensKort }: {
-  estate: EstateItem; info: EstateInfo | null; ejere: EjereTilstand; onRetryEjere: () => void;
+function BesiddelseSide({ estate, estates, hoererUnder, onOpen, info, ejere, onRetryEjere, slaegt, geo, geoLoading, onPickOwner, besiddelserHref, onBesiddelser, slaegtensKortHref, onSlaegtensKort }: {
+  estate: EstateItem; estates: EstateItem[]; hoererUnder: HoererUnder[]; onOpen: (id: string) => void;
+  info: EstateInfo | null; ejere: EjereTilstand; onRetryEjere: () => void;
   slaegt: { slug: string; navn: string }; geo?: Geo; geoLoading: boolean; onPickOwner: (id: string) => void;
   besiddelserHref: string; onBesiddelser: () => void; slaegtensKortHref?: string; onSlaegtensKort?: () => void;
 }) {
@@ -121,8 +123,9 @@ function BesiddelseSide({ estate, info, ejere, onRetryEjere, slaegt, geo, geoLoa
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: smal ? 28 : 40, alignItems: 'flex-start' }}>
         <article style={{ flex: '999 1 600px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 28 }}>
           <header style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ ...etiket, color: T.goldInk }}>{['Besiddelse', info?.sted].filter(Boolean).join(' · ')}</p>
+            <p style={{ ...etiket, color: T.goldInk }}>{[estateArtEtiket(estate.slags) ?? 'Besiddelse', info?.sted].filter(Boolean).join(' · ')}</p>
             <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 40 : 56, fontWeight: 500, lineHeight: 1 }}>{estate.navn}</h1>
+            <TilhoererLinje estate={estate} estates={estates} hoererUnder={hoererUnder} onOpen={onOpen} />
             {info?.narrativ && (
               <div style={{ maxWidth: '36em', fontFamily: T.serif, fontSize: 17, lineHeight: 1.6, color: T.inkSecondary }}>
                 <NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />
@@ -186,6 +189,23 @@ function BesiddelseSide({ estate, info, ejere, onRetryEjere, slaegt, geo, geoLoa
       {lightbox != null && <Lightbox items={billeder} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />}
     </main>
   );
+}
+
+// »Hørte under <majorat> (<periode>)« på en gård og »Omfattede: <gårde>« på et majorat; linjen udelades, når der intet er.
+function TilhoererLinje({ estate, estates, hoererUnder, onOpen }: { estate: EstateItem; estates: EstateItem[]; hoererUnder: HoererUnder[]; onOpen: (id: string) => void }) {
+  const navnFor = (id: string) => estates.find((e) => e.id === id)?.navn ?? null;
+  const link = (id: string, navn: string) => <Link key={id} href={estatePath(id)} onNavigate={() => onOpen(id)} style={{ color: T.bordeaux, fontWeight: 600 }}>{navn}</Link>;
+  const stil: CSSProperties = { margin: 0, fontSize: 15, lineHeight: '22px', color: T.inkSecondary };
+  const erMajorat = MAJORAT_SLAGS.has(estate.slags as EstateSlags);
+  if (erMajorat) {
+    const gaarde = hoererUnder.filter((h) => h.majorat === estate.id).map((h) => ({ id: h.gaard, navn: navnFor(h.gaard) })).filter((g): g is { id: string; navn: string } => g.navn !== null);
+    const unikke = gaarde.filter((g, i) => gaarde.findIndex((x) => x.id === g.id) === i);
+    if (!unikke.length) return null;
+    return <p style={stil}>Omfattede: {unikke.map((g, i) => <span key={g.id}>{i > 0 && ', '}{link(g.id, g.navn)}</span>)}</p>;
+  }
+  const under = hoererUnder.filter((h) => h.gaard === estate.id).map((h) => ({ ...h, navn: navnFor(h.majorat) })).filter((h) => h.navn !== null);
+  if (!under.length) return null;
+  return <p style={stil}>{under.map((h, i) => <span key={`${h.majorat}|${h.periode}`}>{i > 0 && ' · '}Hørte under {link(h.majorat, h.navn as string)}{h.periode ? ` ${h.periode.startsWith('(') ? h.periode : `(${h.periode})`}` : ''}</span>)}</p>;
 }
 
 function EjerListe({ raekker, smal, onPickOwner }: { raekker: EjerRaekke[]; smal: boolean; onPickOwner: (id: string) => void }) {

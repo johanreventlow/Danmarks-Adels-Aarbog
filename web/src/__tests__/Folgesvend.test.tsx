@@ -85,7 +85,7 @@ beforeEach(() => {
     parentChild: [],
   });
   mocks.loadModel.mockResolvedValue({ ...base, loadGeo: () => new Promise(() => {}) });
-  mocks.fetchEstates.mockResolvedValue([]);
+  mocks.fetchEstates.mockResolvedValue({ estates: [], sammenlagt: new Map(), hoererUnder: [] });
   mocks.fetchArms.mockResolvedValue([]);
   mocks.fetchAbout.mockResolvedValue([]);
   mocks.fetchEstateInfo.mockResolvedValue({ narrativ: '', sted: '', media: [] });
@@ -196,7 +196,7 @@ test('/slaegtskab?a=<alias> erstattes med det kanoniske id; et ukendt id bliver 
 });
 
 test('/besiddelse/<id>: en fejlet ejer-hentning er en fejl med »Prøv igen«; et ukendt id bliver stående og siges', async () => {
-  mocks.fetchEstates.mockResolvedValue([{ id: '1', navn: 'Wittenberg', slags: 'gods', ownerCount: 1 }]);
+  mocks.fetchEstates.mockResolvedValue({ estates: [{ id: '1', navn: 'Wittenberg', slags: 'gods', ownerCount: 1 }], sammenlagt: new Map(), hoererUnder: [] });
   mocks.fetchEstateOwners.mockRejectedValue(new Error('netværk'));
   window.history.replaceState({}, '', '/besiddelse/1');
   const { unmount } = render(<Folgesvend />);
@@ -309,4 +309,14 @@ test('fejler en ny hentning (fx efter login/logout), viser fanen kun værkets na
   fireEvent.submit(screen.getByRole('dialog'));
   await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(document.title).toBe('Danmarks Adels Aarbog'));
+});
+
+test('/besiddelse/<sammenlagt id> omdirigeres med replace til det gods, det blev lagt ind i (#471)', async () => {
+  mocks.fetchEstates.mockResolvedValue({
+    estates: [{ id: '5', navn: 'Christianssæde', slags: 'grevskab', ownerCount: 0 }],
+    sammenlagt: new Map([['405', '5']]), hoererUnder: [],
+  });
+  window.history.replaceState({}, '', '/besiddelse/405');
+  render(<Folgesvend />);
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/besiddelse/5', expect.objectContaining({ replace: true })));
 });
