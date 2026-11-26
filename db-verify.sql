@@ -10229,7 +10229,8 @@ BEGIN
   IF v_txt IS DISTINCT FROM '-937702|∅|∅ -937701|Hans og Grethe 1950.jpg|'||repeat('c5',32) THEN
     RAISE EXCEPTION 'FEJL: R37C5A — red_media_interne_felter gav «%»', v_txt; END IF;
   IF (SELECT count(*) FROM public.red_media_interne_felter(ARRAY[]::bigint[])) <> 0
-     OR (SELECT count(*) FROM public.red_media_interne_felter(ARRAY(SELECT -g FROM generate_series(1,1000) g)::bigint[])) > 1000 THEN
+     -- 1000 ikke-eksisterende id'er (loftet præcis): kaldet skal lykkes (ingen 22023) og give 0 rækker.
+     OR (SELECT count(*) FROM public.red_media_interne_felter(ARRAY(SELECT -g FROM generate_series(1,1000) g)::bigint[])) <> 0 THEN
     RAISE EXCEPTION 'FEJL: R37C5A — tomt array eller 1000 id''er afvist'; END IF;
   SELECT id||'|'||titel||'|'||upload_status||'|'||storage_path INTO v_txt FROM public.red_media_efter_sha(repeat('c5',32));
   IF v_txt IS DISTINCT FROM '-937701|c5 familiebillede|klar|c5/-937701.jpg' THEN

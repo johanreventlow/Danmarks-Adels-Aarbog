@@ -50713,8 +50713,9 @@ $purge_outbox_ack$;
 -- (dublettjekket). Kun authenticated får EXECUTE (redaktionens allow-liste i db-rls.sql); anon aldrig. Ingen data og
 -- ingen tabelretter ændres: den gamle klient virker uændret efter blokken. Kroppene er kopieret fra schema.sql og er
 -- de endelige definitioner.
--- Deploy-rækkefølge: blok A → ny klient (web) deployet → blok B (review37-c5b). Kør IKKE hele db-rls.sql mellem A og B:
--- filen har allerede B's slutform (authenticated mister original_filnavn/sha256) og ville bryde den gamle klient.
+-- Deploy-rækkefølge: blok A → ny klient (web) deployet → blok B (review37-c5b). Kør hverken hele db-rls.sql eller hele
+-- db-migrations.sql mellem A og B: begge har allerede B's slutform (authenticated mister original_filnavn/sha256) og
+-- ville bryde den gamle klient. Kør kun denne navngivne blok.
 CREATE OR REPLACE FUNCTION public.red_slet_medierelation_uden_evidens(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_relation relation%ROWTYPE;
