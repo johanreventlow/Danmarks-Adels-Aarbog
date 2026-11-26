@@ -321,6 +321,7 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(() => planCall({ art: 'setLevende', subjektType: 'person', subjektId: '42', payload: {} }, 'redaktion'))
       .toThrow('Ufuldstændig ændring');
     expect(oversaetFejl('LEVENDE_UGYLDIG')).toBe('Vælg om personen er levende eller afdød.');
+    expect(oversaetFejl('LEVENDE_UAENDRET')).toMatch(/^Personen har allerede den markering/);
   });
 
   it('omvendt datointerval (DATO_INTERVAL_OMVENDT) oversættes (review 37 D5)', () => {

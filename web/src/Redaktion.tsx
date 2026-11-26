@@ -799,6 +799,13 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
       });
+      // Review 37 R37P11-2 (review-fund): personlisten hentes kun én gang, så privat/levende opdateres her efter en
+      // direkte ændring. Ellers viser knapperne den gamle tilstand og tilbyder samme retning igen.
+      if (!dryRun && res.direkte && (change.art === 'setPrivat' || change.art === 'setLevende')) {
+        const felt = change.art === 'setPrivat' ? 'privat' : 'levende';
+        const ny = change.payload?.[felt];
+        if (typeof ny === 'boolean') setPersons((ps) => ps.map((p) => (p.id === change.subjektId ? { ...p, [felt]: ny } : p)));
+      }
       // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
       // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
       const mediaChanged = MEDIA_ARTER.has(change.art);

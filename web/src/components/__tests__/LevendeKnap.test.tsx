@@ -19,7 +19,7 @@ it('levende → afdød viser advarslen og sender først efter »Ja«', async () 
   render(<LevendeKnap personId="42" levende={true} privat={false} run={run} />);
   fireEvent.click(screen.getByRole('button', { name: 'Levende' }));
   const advarsel = screen.getByRole('alertdialog');
-  expect(advarsel.textContent).toMatch(/bliver synlige for gæster/);
+  expect(advarsel.textContent).toMatch(/kan blive synlige for gæster/);
   expect(run).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Ja, sæt som afdød' }));
   await waitFor(() => expect(run).toHaveBeenCalledTimes(1));

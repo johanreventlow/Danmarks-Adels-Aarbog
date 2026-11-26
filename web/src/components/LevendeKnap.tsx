@@ -36,7 +36,7 @@ export function LevendeKnap({ personId, levende, privat, run }: Props) {
       <p id={`levende-advarsel-${personId}`} style={{ margin: 0, fontWeight: 600 }}>Sæt personen som afdød?</p>
       <p style={{ margin: '6px 0 0' }}>{privat
         ? 'Personen er markeret privat og forbliver skjult for gæster, indtil privat slås fra.'
-        : 'Personen og dens oplysninger bliver synlige for gæster på siden. Vil du skjule personen alligevel, så slå »Privat« til først.'}
+        : 'Personen og dens oplysninger kan blive synlige for gæster på siden (biografier følger deres egen publicering). Vil du skjule personen alligevel, så slå »Privat« til først.'}
         {' '}Ændringen kan fortrydes i historikken.</p>
       <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
         <button type="button" disabled={busy} onClick={() => setBekraeft(false)} style={{ ...knap, background: T.surfaceRaised, border: '1px solid rgba(34,31,26,.2)' }}>Annullér</button>

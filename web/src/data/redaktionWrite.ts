@@ -848,6 +848,7 @@ export function oversaetFejl(message: string): string {
   // Review 37 R37C2-1: red_fortryd_change_set afviser et sæt, der selv er en fortrydelse (HistorikPanel skjuler knappen).
   if (message.includes('FORTRYD_AF_FORTRYDELSE')) return 'En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.';
   if (message.includes('LEVENDE_UGYLDIG')) return 'Vælg om personen er levende eller afdød.';
+  if (message.includes('LEVENDE_UAENDRET')) return 'Personen har allerede den markering. Genindlæs siden for at se den aktuelle tilstand.';
   // Review 37 P11: den simple sletning afviser en person, der (nu) ikke er offentlig.
   const sletHelt = sletKraeverSletHelt(message);
   if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);
