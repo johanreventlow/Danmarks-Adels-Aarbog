@@ -29,6 +29,14 @@ React (web, vitest), React Native/Expo (mobil, jest).
     den er stifterens adling og hører til en senere `navneform`.
 - **Ingen formel form**, når: personen ikke har en adelstitel (`erAdelsTitel`), ingen af personens linjer har en regel,
   personens linjer har *forskellige* regler (fail-closed), eller fornavne mangler.
+- **Tørkørsel mod prod 26/11 (kun læsning):** 2018-20 IV har 94 personer (93 med adelstitel), V 200 (192). Ingen
+  `visning_navn` indeholder titelord, »til …« eller slægtsnavnet; kaldenavne i parentes (»Adelheid (Lilli) Margarethe«)
+  er bogens egen form og bevares. Fail-closed rammer 2 med sammensat titel (415 »Grevinde (?)«, 470 »Grevinde, fyrstinde
+  af Slesvig«) og 8 uden/anden titel. IV-stifteren (298) giver »Detlef lensgreve de Reventlou« = bogen. **Eneste kendte
+  forkerte form: V-stifteren Conrad (392)** → »Conrad greve af Reventlow«, hvor bogen skriver »Greve Conrad de Reventlow«
+  (se projektejerens afgørelse herom i PR'en).
+- **Udgavernes linjekoder er byttet om:** 1939 »IV« → lineage 5 (grevelige 1673), 1939 »V« → lineage 4 (`lineage_scheme_entry_lineage`,
+  `canonical`). Slå derfor aldrig en regel op på linjekoden — kun på lineage-id via den kanoniske kortlægning.
 - **Udskudt (ikke i denne plan):** tyske former (V »Graf zu«, IV »Graf von«; venter på evt. tysk oversættelse), person-
   faktatypen `navneform` til undtagelser (stifterne, Criminil, Hardenberg-Reventlow, »von Reventlou«), ingifte via
   ægtefællens linje (»Margarethe lensgrevinde de Reventlou«), 1939-only-personer uden 2018-20-linje, oprydning af de 138
@@ -77,7 +85,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
 **Files:**
 - Create: `packages/core/src/adelsnavn.ts`
 - Create: `packages/core/src/adelsTitler.ts` (flyt `ADELS_TITLER` + `erAdelsTitel` fra `web/src/data/presens.ts:85-91` uændret)
-- Modify: `web/src/data/presens.ts` (re-eksportér fra `@daa/core`, så eksisterende imports og den låsende vitest virker uændret)
+- Modify: `web/src/data/presens.ts` og `mobile/src/data/presens.ts` (begge har en kopi af listen; re-eksportér fra `@daa/core`, så eksisterende imports virker uændret, og `web/src/data/__tests__/adelstitler.sql-paritet.test.ts` forbliver grøn)
 - Modify: `packages/core/src/navnevarianter.ts` (ny klasse `['reventlov', 'reventlou']` i `RAW_CLASSES` — lag-1-foldet form)
 - Modify: `packages/core/src/index.ts`
 - Test: `packages/core/src/__tests__/adelsnavn.test.ts`, udvid `packages/core/src/__tests__/navnevarianter*.test.ts`
@@ -86,6 +94,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
 - Produces:
   - `export type LinjeAdelsnavne = Record<string, string>` — lineage-id (streng) → adelsnavn (»af Reventlow«).
   - `export function adelsnavnForLinjer(lineageIds: readonly string[], regler: LinjeAdelsnavne): string | null` — præcis én distinkt regel blandt linjerne → den; 0 eller ≥2 distinkte → `null`.
+  - Samme form som præsenslistens `formatAnkerNavn` (`web/src/data/presens.ts:244`: navn + titel med lille + efternavn); hold dem konsistente.
   - `export function formelNavneform(input: { fornavne: string | null | undefined; titel: string | null | undefined; adelsnavn: string | null; slaegtsnavn?: string | null }): string | null` — `null` hvis et af de tre første mangler/er blankt eller titlen ikke er en adelstitel; ellers `${fornavne uden slægtsnavn til sidst} ${titel i små bogstaver} ${adelsnavn}`.
   - `export function lineageIdAfNoegle(key: string): string | null` — udtrækker lineage-id fra `lineageContextKey`-formatet (`…:lineage:<id>:…`); `null` for rå koder/tekniske nøgler.
   - `ADELS_TITLER`, `erAdelsTitel` (flyttet, uændret).
@@ -103,7 +112,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
   - navnevarianter: `foldToken('Reventlou') === foldToken('Reventlow')`.
 - [ ] **Step 2: Kør** `npm run test -w @daa/core`. Forventet: FAIL (moduler findes ikke).
 - [ ] **Step 3: Implementér** de fire funktioner, flyt titellisten, tilføj variantklassen, eksportér fra `index.ts`. Brug `udenSlaegtsnavnTilSidst` fra `slaegtsnavn.ts`.
-- [ ] **Step 4: Kør** `npm run test -w @daa/core` og `npm run test -w web` (titel-låsen i web skal stadig være grøn). Forventet: PASS.
+- [ ] **Step 4: Kør** `npm run test -w @daa/core`, `npm run test -w web` (inkl. `adelstitler.sql-paritet`) og `npm test -w mobile -- presens`. Forventet: PASS.
 - [ ] **Step 5: Commit** `feat(core): bogens formelle navneform ud fra linjens adelsnavn`
 
 ### Task 3: Web — hent linjereglerne og vis den formelle form
@@ -121,7 +130,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
 
 - [ ] **Step 1: Skriv fejlende tests**: (a) `fetchLinjeAdelsnavne` med mocket supabase returnerer `{ '4': 'de Reventlou', '5': 'af Reventlow' }` og ignorerer en ikke-afklaret konklusion; ved kastet fejl `{}`. (b) PersonSide: person med `fornavne 'Johan Martin'`, `title 'Greve'`, linjenøgle med lineage 5 og `adelsnavne { '5': 'af Reventlow' }` viser teksten `Johan Martin greve af Reventlow`; uden `adelsnavne` vises ingen sådan linje, og siden renderer i øvrigt som før.
 - [ ] **Step 2: Kør** `npm run test -w web -- adelsnavn PersonSide`. Forventet: FAIL.
-- [ ] **Step 3: Implementér.** Visning i `navneblok` under titlen: én `<p>` i `T.inkMuted`, 14 px, med `title`-attribut »Sådan skriver Aarbogen navnet«, kun når `formelNavneform(...)` ≠ `null`. Linje-id'er: `model.lineage.byPerson[focusId]` → `lineageIdAfNoegle`.
+- [ ] **Step 3: Implementér.** Visning i `navneblok` under titlen, kun når `formelNavneform(...)` ≠ `null`: en synlig etiket »I Aarbogen« (samme stil som `etiketStil`) og derunder navneformen i `T.ink`, 15 px — en mini-sektion »Navne og titler«, der kan vokse, når `navneform`/tyske former kommer. Ingen `title`-attribut som eneste forklaring (usynlig på touch). Linje-id'er: `model.lineage.byPerson[focusId]` → `lineageIdAfNoegle`.
 - [ ] **Step 4: Kør** `npm run test -w web` og `npm run build -w web`. Forventet: PASS / bygget. Kør e2e lokalt (CLAUDE.md-kommandoen) og notér resultatet til PR'en.
 - [ ] **Step 5: Commit** `feat(web): personsiden viser bogens formelle navneform`
 
@@ -133,7 +142,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
 - Test: tilsvarende jest-test under `mobile/src/**/__tests__/`
 
 **Interfaces:**
-- Kendt forskel: web finder linjen gennem stamtavle-skemaets kanoniske kortlægning (`buildLineage`), så en 1939-person i V
+- Kendt forskel (bemærk: 1939's koder IV/V er byttet om i forhold til 2018-20 — et kodeopslag på tværs af udgaver ville give forkert regel): web finder linjen gennem stamtavle-skemaets kanoniske kortlægning (`buildLineage`), så en 1939-person i V
   også får reglen; mobilen kender ikke `lineage_scheme*` og slår kun `(source_id, linje)` op, så 1939-only-personer får
   ingen formel form på mobil. Notér det i mobil-paritetslisten; løs det ikke her.
 - Consumes: Task 2's funktioner. Data-læsningen må gerne flyttes til `packages/core` som en funktion, der tager en supabase-klient, hvis både web og mobil kan bruge den uden DOM/RN-afhængighed — ellers dupliker de 20 linjer.
@@ -156,7 +165,7 @@ React (web, vitest), React Native/Expo (mobil, jest).
 
 - [ ] **Step 1: Skriv skriptet**: én transaktion; `set_config('request.jwt.claim.sub', :'redaktoer_uid', true)` (psql-variabel, aldrig hardkodet; se memory om jwt-claim); slå lineage-id op via `JOIN source s ON s.id=l.source_id WHERE s.udgave='DAA 2018-20' AND l.kode IN ('IV','V')` og afbryd, hvis der ikke er præcis to rækker; kald `red_upsert_fakta('lineage', <id>, 'adelsnavn', <værdi>, p_kilde_fritekst => …)` med kildeteksterne fra »Design«. Verificér PDF-sidernes trykte sidetal mod PDF'en før kildeteksten skrives. Afslut med en SELECT, der viser de to afklarede værdier. Idempotens: kør ikke `red_upsert_fakta`, hvis linjen allerede har en afklaret `adelsnavn` med samme værdi.
 - [ ] **Step 2: Generalprøve** mod en lokal base med `db-migrations.sql` + en lineage-fixture (eller stand-in), kør to gange: første gang 2 fakta, anden gang 0 nye rækker.
-- [ ] **Step 3: Skriv decisions-sektionen** (design, fravalg: patentets ordlyd som regel, tysk nu, cache-kolonne; udskudte punkter fra »Design«) og datamodel-linjen.
+- [ ] **Step 3: Skriv decisions-sektionen** (nævn, at reglens kilde er fritekst, fordi `red_upsert_fakta` sætter `source_id` NULL — jf. #389; design, fravalg: patentets ordlyd som regel, tysk nu, cache-kolonne; udskudte punkter fra »Design«) og datamodel-linjen.
 - [ ] **Step 4: Commit** `docs(decisions): linjens adelsnavn og dataskript til IV og V`
 
 ### Efter alle tasks (projektejeren gater hvert skridt)
