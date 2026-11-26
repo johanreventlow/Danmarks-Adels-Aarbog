@@ -82,8 +82,10 @@ export function buildAux(
     const per = stripParen(r.periode_raw);
     if (r.objekt_type === 'estate') {
       (estatesBy[pid] = estatesBy[pid] || []).push({
+        id: String(r.objekt_id),
         navn: estById[String(r.objekt_id)] || 'Gods #' + r.objekt_id,
         period: per,
+        personId: String(r.subjekt_id),
       });
       if ((r.rolle || '').toLowerCase() === 'ejer') {
         (ownersByEstate[String(r.objekt_id)] = ownersByEstate[String(r.objekt_id)] || []).push({
