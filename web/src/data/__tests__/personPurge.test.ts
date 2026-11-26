@@ -103,6 +103,12 @@ describe('executeSletHelt — DB først og dryRun-threading (PR #72)', () => {
     expect(d.submit.mock.calls[2][0].payload).toEqual({ bucket: 'media', sti: 'b' });
     expect(d.submit.mock.calls[2][1]).toEqual({ dryRun: false, role: 'redaktion' });
   });
+  it('databasen afviser kvitteringen, mens filen stadig ligger i lageret (review 37 P8)', async () => {
+    const d = deps();
+    d.submit.mockResolvedValueOnce({ dryRun: false })
+      .mockRejectedValueOnce({ code: 'P0001', message: 'PURGE_FIL_FINDES_STADIG' });
+    expect((await executeSletHelt(opts, d)).storageAdvarsel).toMatch(/media\/a: filen ligger stadig i lageret/);
+  });
   it('en fejlet udbakkelæsning efter commit er en advarsel', async () => {
     const d = deps(); d.listOutbox.mockRejectedValueOnce(new Error('listen nede'));
     expect(await executeSletHelt(opts, d)).toMatchObject({ kind: 'completed', storageAdvarsel: expect.stringContaining('listen nede') });

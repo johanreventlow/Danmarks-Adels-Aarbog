@@ -115,7 +115,11 @@ export async function executePurgeOprydning(
             const ack = await deps.submit({ art: 'kvitterPersonPurgeFil', subjektType: 'storage', subjektId: '',
               payload: { bucket, sti } }, { dryRun: opts.dryRun, role: opts.role });
             if (ack.dryRun) fejl.push(`${bucket}/${sti}: kvittering ikke udført`);
-          } catch (e) { fejl.push(`${bucket}/${sti}: ${rawError(e)}`); }
+          } catch (e) {
+            // Review 37 P8: databasen kvitterer kun, når objektet er væk fra lageret.
+            const raw = rawError(e);
+            fejl.push(`${bucket}/${sti}: ${/\bPURGE_FIL_FINDES_STADIG\b/.test(raw) ? 'filen ligger stadig i lageret' : raw}`);
+          }
         }
       } catch (e) { fejl.push(`${bucket}: ${rawError(e)}`); }
     }
