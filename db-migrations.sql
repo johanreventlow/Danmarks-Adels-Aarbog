@@ -18937,6 +18937,8 @@ DECLARE
     'public.red_set_konklusion(bigint)'::regprocedure,
     'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)'::regprocedure,
     'public.red_set_privat(bigint,boolean)'::regprocedure,
+    -- Review 37 R37P11-2: oprettes i blokken review37-r37p11-2 sidst i filen; findes kun her, når schema.sql er kørt først.
+    to_regprocedure('public.red_set_levende(bigint,boolean)'),
     'public.red_set_story_kilder(bigint,jsonb)'::regprocedure,
     'public.red_set_story_status(bigint,text)'::regprocedure,
     'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
