@@ -22,7 +22,7 @@ import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, portraetTilpasning, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, familieIderForPerson, lifeJourney, vielsePraecision, type UdgaveChip } from '@daa/core';
+import { bogensNummer, familieIderForPerson, formelNavneform, lifeJourney, personensAdelsnavn, vielsePraecision, type UdgaveChip } from '@daa/core';
 import { hentVielsesDatoer } from '../data/vielser';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
@@ -107,6 +107,11 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   // Fuldt linjenavn i etiketten (»V. Den grevelige Linje af 1673, nr. 1«, projektejeren 2026-11-19).
   const nr = bogensNummer(model.sourcesBy, focusId, 'fuld');
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
+  // Bogens formelle navneform (»Johan Martin greve af Reventlow«): fornavne + adelstitel + linjens adelsnavn. Ingen
+  // form uden regel, uden adelstitel, for linjens stifter eller ved modstridende linjer (plan 2026-11-26).
+  const formelNavn = model.lineage && model.adelsnavne
+    ? formelNavneform({ fornavne: p.fornavne, titel: p.title, adelsnavn: personensAdelsnavn(focusId, model.lineage, model.adelsnavne), slaegtsnavn: slaegt?.navn })
+    : null;
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
   const henter = detail === null && !detailError;
   const konfOrd = (barn: string, foraelder: string) => konfTekst(model.indexes.konfByEdge?.[`${barn}|${foraelder}`]);
@@ -125,6 +130,12 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
       <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 32 : 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
       {p.years && <p style={{ margin: 0, fontFamily: T.mono, fontSize: smal ? 13 : 14, lineHeight: '20px', color: T.inkMuted }}>{p.years}</p>}
       {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
+      {formelNavn && (
+        <div style={{ marginTop: 6 }}>
+          <p style={{ ...etiketStil, color: T.inkMuted }}>I Aarbogen</p>
+          <p style={{ margin: '2px 0 0', fontFamily: T.serif, fontSize: 17, lineHeight: 1.3, color: T.ink }}>{formelNavn}</p>
+        </div>
+      )}
     </>
   );
   // Handlingerne: højre spalte på bred skærm, lige under navnet på telefonen (fase 9, tegningen »Mobil – personside«).
