@@ -62,6 +62,12 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
   (`packages/core/src/adelsTitler.ts`). Målt i prod 27/11: ingen person har mere end én adelstitel, så »højeste egne
   titel« er i dag det samme som den ene. Funktionen skal alligevel vælge efter rang, hvis der kommer flere
   (lensgreve > greve; for kvinder kun fødselstitlen, jf. punkt 7). Bogens stavning bevares (128 har »comtesse«).
+  *Min beslutning:* en kvindes titel regnes som ægteskabstitel — og flyttes til gift-delen — når den er lig den
+  feminine form af en ægtefælles adelstitel; ellers er den hendes egen. Så gælder punkt 7 som regel, ikke som et
+  tilfælde af dagens data.
+- **Rangfølge** (*min beslutning*): komtesse/comtesse < friherreinde = baronesse < grevinde < lensgrevinde <
+  rigsgrevinde; friherre = baron < greve < lensgreve < rigsgreve. `feminiserTitel` dækker allerede greve, lensgreve,
+  baron, friherre og rigsgreve; komtesse er aldrig en ægteskabstitel.
 - **Partikel-adelsnavn** = `personensAdelsnavn(id, lineage, adelsnavne)` som i #499, med samme fail-closed-regler
   (ingen regel, linjens stifter, modstridende linjer → intet adelsnavn). Uden adelsnavn står adelstitlen alene. Det er
   præcis `formelNavneform` uden fornavnene.
@@ -98,6 +104,9 @@ en titel personen ikke havde, ca. hver femte uden overskrift får en titel.
    kammerjunker, foged — plus stigernes øvrige trin (sekondløjtnant, justitsråd, jagtjunker, overhofjægermester).
    Et ord uden for listen giver ingen titel (fail-closed).
 
+Titel-fakta og embedsroller er ligestillede input (som i målingen); begge normaliseres ens. Levende personer ses kun
+af redaktører, som har detaljerne, så de får samme behandling.
+
 Algoritmen er en ren funktion i `packages/core` med målescriptets tilfælde som tests. Statuslinjen vises med adelsdelen
 med det samme og får hof-titlen, når personens detaljer er hentet (samme linje, ingen ny række).
 
@@ -113,8 +122,8 @@ Hof-titlen kommer **ikke** i træet.
 `packages/core/src/faktaVisning.ts:7`: `navn: 'Navn'` → `navn: 'Fornavne'`. Gælder web og mobil.
 
 ## Data: køn for ingifte (prod-skrivning)
-659 personer har tomt køn (målt 27/11). Regel: en partner i en familie, hvor **alle** andre partnere er mænd, er
-kvinde; hvor alle er kvinder, er mand.
+659 personer har tomt køn (målt 27/11). Regel: ser man på **alle** personens familier, og er alle modparter mænd, er
+personen kvinde; er alle kvinder, er personen mand. Blandede modparter → redaktørlisten (målt: 0).
 
 | Udfald | Antal | heraf levende | Håndtering |
 |---|---|---|---|
