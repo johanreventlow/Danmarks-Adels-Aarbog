@@ -12,7 +12,7 @@
 //   uden dem er der intet forslag, og stamfædrene står allerede under linjerne.
 // - Feedet er Aarbogens feed, ikke filtreret pr. slægt (kun én slægt i dag); overskriften siger det.
 import { useEffect, useId, useMemo, useState, type ComponentProps } from 'react';
-import { groupBlocks, parseNarrativ } from '@daa/core';
+import { groupBlocks, indledningKilde, parseNarrativ } from '@daa/core';
 import { T } from '../theme';
 import type { FeedPinInput } from '@daa/feed';
 import type { AboutSection } from '../data/public';
@@ -30,11 +30,8 @@ const etiket = { margin: 0, fontFamily: T.mono, fontSize: 11, letterSpacing: '.1
 const kildeStil = { margin: 0, fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted } as const;
 const h2Stil = { margin: 0, fontFamily: T.serif, fontSize: 30, fontWeight: 600, color: T.ink, borderBottom: `1px solid ${T.line}`, paddingBottom: 12 } as const;
 
-// »Kilde: DAA 2018-20« — udgavens etiket alene, som udgavevælgeren viser den.
-export function indledningKilde(s: Pick<AboutSection, 'kilde' | 'aar'>): string {
-  if (s.kilde) return `Kilde: ${s.kilde}`;
-  return s.aar ? `Kilde: Danmarks Adels Aarbog ${s.aar}` : 'Kilde ikke registreret';
-}
+// »Kilde: DAA 2018-20« — bygget i @daa/core (omSlaegten.ts), samme tekst som mobilens »Om slægten«.
+export { indledningKilde };
 
 // Har indledningen mere end uddraget (første afsnit i rendererens egen blokopdeling)?
 export function indledningHarMere(tekst: string): boolean {
