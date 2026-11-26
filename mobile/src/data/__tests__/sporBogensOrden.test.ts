@@ -13,7 +13,7 @@ jest.mock('../../lib/supabase', () => ({ supabase: {
 
 import { buildModel, type Db, type RawLineageContext } from '@daa/core';
 import { useStore } from '../../store/useStore';
-import { boernIBogensOrden, buildSnapPath, childrenOf, routeToMe, wayToMe } from '../selectors';
+import { boernIBogensOrden, buildSnapPath, childrenOf, routeToMe, sporLinje, wayToMe } from '../selectors';
 import type { AppPerson, Model, RawExtId, RawSource } from '../types';
 import { byggUdgaveLag } from '../udgaveLag';
 
@@ -60,5 +60,18 @@ describe('Spor (variant C) i Aarbogens rækkefølge', () => {
     expect(useStore.getState().focusId).toBe('20');
     useStore.getState().moveSnapSib(1);
     expect(useStore.getState().snapPath).toEqual(['10', '21']);
+  });
+});
+
+describe('Spors linjenavn (sporLinje)', () => {
+  test('den valgte linje vinder, når personen står i den', () => {
+    expect(sporLinje(['IV', 'V'], 'V')).toBe('V');
+  });
+  test('personen står ikke i den valgte linje: personens egen første linje', () => {
+    expect(sporLinje(['IV'], 'V')).toBe('IV');
+  });
+  test('ingen linjer på personen: den valgte (eller ingen)', () => {
+    expect(sporLinje(undefined, 'V')).toBe('V');
+    expect(sporLinje([], null)).toBeNull();
   });
 });
