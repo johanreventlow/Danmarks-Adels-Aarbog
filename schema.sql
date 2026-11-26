@@ -6608,6 +6608,33 @@ REVOKE ALL ON FUNCTION private.validate_media_slags() FROM PUBLIC,anon,authentic
 CREATE OR REPLACE TRIGGER trg_media_slags BEFORE INSERT OR UPDATE OF slags ON public.media
   FOR EACH ROW EXECUTE FUNCTION private.validate_media_slags();
 
+-- Godsets art som kontrolleret ordliste (#471, decisions 2026-11-26; invariant 9): gård eller en af de tre
+-- majoratsformer. Koderne skal være de samme som ESTATE_SLAGS i packages/core/src/estates.ts (db-verify låser listen).
+-- Ingen oversættelse af gamle værdier: estate.slags er NULL på alle rækker, og NULL er fortsat tilladt (art ukendt).
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('estate_slags','gård',     'Gård'),
+  ('estate_slags','grevskab', 'Grevskab'),
+  ('estate_slags','baroni',   'Baroni'),
+  ('estate_slags','stamhus',  'Stamhus')
+ON CONFLICT (scheme, code) DO NOTHING;
+
+-- Alle skriveveje til estate.slags går gennem denne trigger; en ikke-NULL værdi uden for ordlisten afvises med 23514.
+-- Klienterne matcher på ESTATE_SLAGS_UKENDT.
+CREATE OR REPLACE FUNCTION private.validate_estate_slags()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $estate_slags$
+BEGIN
+  IF NEW.slags IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.vocab v WHERE v.scheme = 'estate_slags' AND v.code = NEW.slags) THEN
+    RAISE EXCEPTION 'ESTATE_SLAGS_UKENDT: »%« er ikke en art af gods', NEW.slags USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$estate_slags$;
+REVOKE ALL ON FUNCTION private.validate_estate_slags() FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE TRIGGER trg_estate_slags BEFORE INSERT OR UPDATE OF slags ON public.estate
+  FOR EACH ROW EXECUTE FUNCTION private.validate_estate_slags();
+
 -- ---------- SYNLIGHED PR. SAMME_SOM-GRUPPE (#415) ----------
 -- Et menneske kan stå som flere person-rækker (én pr. udgave), bundet af samme_som. Er mennesket levende eller privat
 -- ifølge NOGEN af rækkerne, skal alle rækkerne skjules — ellers kan en ældre udgaves alias vise en nulevendes navn og

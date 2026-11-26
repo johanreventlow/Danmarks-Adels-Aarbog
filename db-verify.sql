@@ -13644,3 +13644,66 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $verify_media_slags$;
 -- END-VERIFY media-slags
+
+-- BEGIN-VERIFY godser-fase1
+-- ===== Godsernes oprydning, fase 1 (#471): ordforrådet estate_slags =====
+-- Ordlisten er låst til en fast liste, som også står i ESTATE_SLAGS (packages/core/src/estates.ts). Et nyt gods-slags
+-- kræver en vocab-række, en linje dér og en linje her. Skriver kun i en transaktion, der rulles tilbage.
+DO $verify_godser_fase1$
+DECLARE v_fejl text; v_antal bigint; v_state text; v_msg text;
+  f regprocedure := to_regprocedure('private.validate_estate_slags()');
+BEGIN
+  -- (1) Præcis de fire koder med deres labels.
+  WITH forventet(code, label) AS (VALUES
+    ('gård','Gård'), ('grevskab','Grevskab'), ('baroni','Baroni'), ('stamhus','Stamhus')),
+  faktisk AS (SELECT v.code, v.label FROM public.vocab v WHERE v.scheme = 'estate_slags')
+  SELECT coalesce(string_agg(CASE WHEN f2.code IS NULL THEN ' mangler:'||e.code||'='||e.label
+                                  ELSE ' uventet:'||f2.code||'='||coalesce(f2.label,'NULL') END, ''
+                             ORDER BY coalesce(e.code, f2.code)), '')
+    INTO v_fejl
+    FROM forventet e FULL JOIN faktisk f2 ON e.code = f2.code AND e.label IS NOT DISTINCT FROM f2.label
+   WHERE e.code IS NULL OR f2.code IS NULL;
+  IF v_fejl <> '' THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — vocab estate_slags ≠ den faste liste:%', v_fejl; END IF;
+
+  -- (2) Triggeren: BEFORE INSERT OR UPDATE OF slags, pr. række, aktiv, på den rigtige funktion.
+  IF f IS NULL OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid = 'public.estate'::regclass AND t.tgname = 'trg_estate_slags' AND NOT t.tgisinternal
+          AND t.tgenabled = 'O' AND t.tgfoid = f::oid
+          AND t.tgtype = (1 | 2 | 4 | 16)   -- ROW | BEFORE | INSERT | UPDATE
+          AND t.tgattr::text = (SELECT a.attnum::text FROM pg_attribute a
+                                 WHERE a.attrelid = 'public.estate'::regclass AND a.attname = 'slags')
+          AND t.tgqual IS NULL) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — trg_estate_slags mangler eller er ikke BEFORE INSERT OR UPDATE OF slags ON estate FOR EACH ROW → private.validate_estate_slags()';
+  END IF;
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
+     OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=public, pg_temp']
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                 WHERE p.oid = f AND a.grantee = 0)
+     OR has_function_privilege('anon', f, 'EXECUTE') OR has_function_privilege('authenticated', f, 'EXECUTE')
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') AND has_function_privilege('service_role', f, 'EXECUTE')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — validate_estate_slags er ikke DEFINER med fast search_path eller kan kaldes af en klientrolle';
+  END IF;
+
+  -- (3) Data: ingen estate-række med en slags uden for ordlisten (NULL er tilladt).
+  SELECT count(*) INTO v_antal FROM public.estate e
+   WHERE e.slags IS NOT NULL AND e.slags NOT IN (SELECT v.code FROM public.vocab v WHERE v.scheme = 'estate_slags');
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % estate-rækker har en slags uden for ordlisten', v_antal; END IF;
+
+  -- (4) Adfærd: kendt og NULL lykkes, ukendt afvises med 23514 ESTATE_SLAGS_UKENDT.
+  INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1__', 'grevskab');
+  INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1__', NULL);
+  BEGIN
+    INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1__', 'gods');
+  EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF v_state IS NULL OR strpos(v_msg, 'ESTATE_SLAGS_UKENDT') <> 1 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — INSERT med slags »gods« blev ikke afvist med 23514 ESTATE_SLAGS_UKENDT';
+  END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: godser-fase1 — estate_slags er de fire koder; trg_estate_slags afviser alt andet end NULL og ordlisten';
+  ELSE RAISE; END IF;
+END $verify_godser_fase1$;
+-- END-VERIFY godser-fase1

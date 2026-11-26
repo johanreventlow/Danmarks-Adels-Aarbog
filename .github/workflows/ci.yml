@@ -915,6 +915,10 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
       - name: 1939 editions-katalog
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
+      - name: Godsernes oprydning fase 1 (#471)
+        run: |
+          out=$(psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-godser-fase1.sql)
+          grep -qx 'OK test-godser-fase1' <<<"$out"
       - name: Nulstil til frisk DBI-racedatabase
         run: |
           dropdb --force narrative_record_152_ci
