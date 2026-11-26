@@ -80,7 +80,7 @@ export * from './kunIAeldreUdgave';
 export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
 export { ADELS_TITLER, erAdelsTitel } from './adelsTitler';
-export { adelsnavnForLinjer, formelNavneform, lineageIdAfNoegle, personensAdelsnavn } from './adelsnavn';
+export { adelsnavnForLinjer, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn } from './adelsnavn';
 export type { LinjeAdelsnavne } from './adelsnavn';
 export * from './sletVej';
 export * from './mediaVisning';

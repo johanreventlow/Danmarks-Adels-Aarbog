@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adelsnavnForLinjer, formelNavneform, lineageIdAfNoegle, personensAdelsnavn,
+  adelsnavnForLinjer, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn,
 } from '../adelsnavn';
 import { ADELS_TITLER, erAdelsTitel } from '../adelsTitler';
 import { lineageContextKey } from '../lineage';
@@ -119,5 +119,27 @@ describe('adelstitler flyttet til core', () => {
     ]);
     expect(erAdelsTitel(' Greve ')).toBe(true);
     expect(erAdelsTitel('Kammerherre')).toBe(false);
+  });
+});
+
+describe('byggLinjeAdelsnavne — fact/konklusion/påstand → regel pr. linje', () => {
+  const facts = [{ id: 10, subjekt_id: 4 }, { id: 11, subjekt_id: 5 }];
+  it('afklarede konklusioner giver reglerne', () => {
+    expect(byggLinjeAdelsnavne(facts,
+      [{ target_id: 10, valgt_assertion_id: 100 }, { target_id: 11, valgt_assertion_id: 101 }],
+      [{ id: 100, vaerdi_tekst: 'de Reventlou' }, { id: 101, vaerdi_tekst: ' af Reventlow ' }],
+    )).toEqual({ '4': 'de Reventlou', '5': 'af Reventlow' });
+  });
+  it('fakta uden konklusion eller med tom værdi giver ingen regel', () => {
+    expect(byggLinjeAdelsnavne(facts,
+      [{ target_id: 10, valgt_assertion_id: 100 }, { target_id: 11, valgt_assertion_id: null }],
+      [{ id: 100, vaerdi_tekst: '  ' }],
+    )).toEqual({});
+  });
+  it('to forskellige afklarede regler på samme linje → ingen (fail-closed)', () => {
+    expect(byggLinjeAdelsnavne([{ id: 10, subjekt_id: 4 }, { id: 12, subjekt_id: 4 }],
+      [{ target_id: 10, valgt_assertion_id: 100 }, { target_id: 12, valgt_assertion_id: 102 }],
+      [{ id: 100, vaerdi_tekst: 'de Reventlou' }, { id: 102, vaerdi_tekst: 'af Reventlow' }],
+    )).toEqual({});
   });
 });

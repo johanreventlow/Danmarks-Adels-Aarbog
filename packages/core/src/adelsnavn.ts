@@ -43,6 +43,33 @@ export function adelsnavnForLinjer(
   return fundne.size === 1 ? [...fundne][0] : null;
 }
 
+type Id = number | string;
+
+/**
+ * Linjereglerne fra evidenslaget: `fact` (subjekt_type='lineage', faktatype='adelsnavn') → afklaret `conclusion` →
+ * valgt `assertion.vaerdi_tekst`. Klienten henter de tre rækkesæt (web og mobil hver med sin supabase-klient); her
+ * stykkes de sammen. To forskellige afklarede værdier på samme linje → ingen regel (fail-closed).
+ */
+export function byggLinjeAdelsnavne(
+  facts: readonly { id: Id; subjekt_id: Id }[],
+  conclusions: readonly { target_id: Id; valgt_assertion_id: Id | null }[],
+  assertions: readonly { id: Id; vaerdi_tekst: string | null }[],
+): LinjeAdelsnavne {
+  const vaerdi = new Map(assertions.map((a) => [String(a.id), tekst(a.vaerdi_tekst)]));
+  const valgt = new Map(conclusions.map((c) => [String(c.target_id), c.valgt_assertion_id == null ? '' : String(c.valgt_assertion_id)]));
+  const prLinje = new Map<string, Set<string>>();
+  facts.forEach((f) => {
+    const v = vaerdi.get(valgt.get(String(f.id)) ?? '') ?? '';
+    if (!v) return;
+    const s = prLinje.get(String(f.subjekt_id)) ?? new Set<string>();
+    s.add(v);
+    prLinje.set(String(f.subjekt_id), s);
+  });
+  const ud: LinjeAdelsnavne = {};
+  prLinje.forEach((s, linje) => { if (s.size === 1) ud[linje] = [...s][0]; });
+  return ud;
+}
+
 /** Lineage-id fra en `lineageContextKey` (`slaegt:…:lineage:<id>:scheme:…`); `null` for rå koder og tekniske nøgler. */
 export function lineageIdAfNoegle(key: string): string | null {
   const m = /(?:^|:)lineage:([^:]+)(?::|$)/.exec(key);
