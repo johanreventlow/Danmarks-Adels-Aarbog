@@ -8,12 +8,20 @@
 -- Kørsel (projektejerens shell; aktøren gives som variabel og står aldrig i filen):
 --   psql "$DSN" -v redaktoer_uid=<uuid> -f docs/runbooks/2026-11-26-linjernes-adelsnavn.sql            -- prøve: ROLLBACK
 --   psql "$DSN" -v redaktoer_uid=<uuid> -v skriv=1 -f docs/runbooks/2026-11-26-linjernes-adelsnavn.sql -- skriv: COMMIT
--- Idempotent: en linje, der allerede har en afklaret adelsnavn med samme værdi, røres ikke.
+-- `skriv` skal være en psql-boolean (1/0, true/false); udeladt = prøve. Uden redaktoer_uid stopper skriptet med fejlkode.
+-- Idempotent: en linje, der allerede har en afklaret adelsnavn med samme værdi, røres ikke; en ANDEN afklaret værdi
+-- (fx en senere redaktionel rettelse) stopper skriptet i stedet for at blive overskrevet.
+-- Ændringssæt: begge kald lander i ét ændringssæt (begin_change_set genbruger transaktionens sæt), mærket med den
+-- første linje (IV). Fortrydelse af sættet fortryder begge fakta.
 \set ON_ERROR_STOP on
+\if :{?skriv}
+\else
+  \set skriv false
+\endif
 \if :{?redaktoer_uid}
 \else
-  \echo 'FEJL: angiv -v redaktoer_uid=<uuid>'
-  \quit
+  \echo 'ADELSNAVN_FEJL: angiv -v redaktoer_uid=<uuid>'
+  SELECT 1/0 AS mangler_redaktoer_uid;
 \endif
 
 BEGIN;
@@ -50,9 +58,18 @@ DO $maal$ BEGIN
 END $maal$;
 
 DO $skriv$
-DECLARE m record; v_har boolean;
+DECLARE m record; v_har boolean; v_anden text;
 BEGIN
   FOR m IN SELECT * FROM adelsnavn_maal ORDER BY kode LOOP
+    SELECT string_agg(DISTINCT btrim(a.vaerdi_tekst), ' | ') INTO v_anden
+    FROM fact f
+    JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id AND c.status = 'afklaret'
+    JOIN assertion a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type = 'lineage' AND f.subjekt_id = m.lineage_id AND f.faktatype = 'adelsnavn'
+      AND btrim(a.vaerdi_tekst) IS DISTINCT FROM m.vaerdi;
+    IF v_anden IS NOT NULL THEN
+      RAISE EXCEPTION 'ADELSNAVN_FEJL: % har allerede en anden afklaret adelsnavn (»%«) — overskrives ikke', m.kode, v_anden;
+    END IF;
     SELECT EXISTS (
       SELECT 1 FROM fact f
       JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id AND c.status = 'afklaret'
@@ -88,7 +105,7 @@ DO $kontrol$ BEGIN
   RAISE NOTICE 'ADELSNAVN_OK: IV og V har hver én afklaret adelsnavn';
 END $kontrol$;
 
-\if :{?skriv}
+\if :skriv
 COMMIT;
 \echo 'ADELSNAVN: COMMIT'
 \else

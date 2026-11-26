@@ -53,6 +53,13 @@ React (web, vitest), React Native/Expo (mobil, jest).
    mobilens `linjeByPerson` nøgler på rå koder på tværs af udgaver (1939's IV/V er byttet om). Regelsammenstykningen
    er delt i core (`byggLinjeAdelsnavne`). Mobilens personside har ingen komponenttest; dækningen er core + `buildAux`.
 4. V-reglens kilde er bevillingen 1692 (s. 202), ikke overskriftseksemplet på s. 206.
+5. **Slutreview (Opus) fund 1, stifter kun fra nyeste udgave (web):** målt i prod 26/11 via
+   `public_person_source_coordinates()`: 1939 »IV«/»V« har 155/83 personer; den eneste med slægtled 1 (1354 »Ditlev
+   Reventlow«) er samme_som-foldet med 298 (Detlef), Conrad har ingen 1939-koordinat i »IV«, og den eneste ufoldede
+   adelige (1235, slægtled 4) får korrekt form. Ingen ændring: 1939 nummererer pr. slægtled, så »hoved pr. udgave«
+   ville gøre Conrads søn (1792, slægtled 2) til stifter og fjerne hans korrekte form. 0 personer i IV/V har flere
+   afklarede adelstitler (fund 7). Fund 2-6 rettet (skriv-flag som boolean, fejlkode uden aktør, stop ved anden
+   afklaret værdi, ændringssæt dokumenteret, mobilen fjerner slægtsnavnet som web).
 
 ## Global Constraints
 
