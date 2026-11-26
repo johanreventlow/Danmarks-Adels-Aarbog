@@ -529,6 +529,43 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 57. Review 37 ceremoni 4 (R37P11-2 + P8): redaktøren retter »levende«, filkvittering kræver objektbevis — LIVE i prod (2026-11-26)
+
+**Grundlag:** PR #500 (CI grøn i alle jobs på `3462819d`; merget `c8511ecb` efter DDL). Privat runner
+`~/.private/review37-c4/prod.zsh`, fastlåst på `3462819d` (blok-sha `78a517e6…`), base `03f23607` (prods SQL efter §56),
+kørt efter projektejerens udtrykkelige ønske (remote control) **før** merge. Afgørelser: `docs/decisions.md` 2026-11-26
+(»redaktøren kan rette »levende« begge veje …«).
+
+- **Hvorfor:** `levende` kunne kun vælges ved oprettelse (R37P11-2). Kvitteringen for en slettet fil fjernede rækken i
+  udbakken uden at tjekke, at filen var væk (P8); fil-oprydningen har aldrig kørt (målt i prod: udbakken tom, ingen
+  slettede personer med billeder).
+- **DDL (én transaktion, 2,9 s):** blokkene `-- BEGIN review37-r37p11-2` og `-- BEGIN review37-p8` (sidst i
+  db-migrations.sql). Ingen data.
+  - **R37P11-2:** ny `red_set_levende(bigint,boolean)`, samme protokol som `red_set_privat` (rollegate, ukendt id før
+    ændringssættet, samme_som-låsen, fortrydelig). NULL → `22023 LEVENDE_UGYLDIG`; uændret værdi → `LEVENDE_UAENDRET`.
+    Kun `authenticated` har EXECUTE (REVOKE/GRANT i blokken; også på db-rls' allow-liste, db-verify's liste og
+    db-migrations' red_*-ACL-blok).
+  - **P8:** `red_person_purge_udbakke_kvitter` afviser med `PURGE_FIL_FINDES_STADIG`, så længe objektet står i
+    `storage.objects`. Ejeren (`postgres`) har SELECT + `bypassrls` og ser alle 633 objekter (målt læse-kun 26/11), så
+    beviset gælder alle buckets. Samme signatur og ACL.
+- **I transaktionen:** facit OK (2 kroppe); katalog-delta præcis de 2 funktioner; retter `anon=false authenticated=true
+  service_role=false`; verify-enheden `c1` OK; anon 1725 personer og fakta-md5 før = efter; data uændret (5 tal).
+- **Efterkontrol:** `tal` anvendt=1; `get_advisors` (security): samme 4 lint-typer som efter §56, `red_set_levende`
+  kun under `authenticated_security_definer_function_executable` (som alle `red_*`); sitet 200 (`/`, `/person/402`,
+  `/redaktion`); Vercel `success` på `c8511ecb`.
+- **Web (ved merge):** knappen »Levende« under »Privat« i person-editoren; levende → afdød kræver »Ja« efter en advarsel.
+  Knapperne opdateres efter en direkte ændring (Opus-review-fund). En afvist filkvittering vises som »filen ligger
+  stadig i lageret«.
+- **Bevis:** verify-enheden `r37p11-2` (begge retninger, synlighed, fortryd, afvisninger); `test-person-purge.sh`
+  (`p8_kvitter_objektbevis`); `tests/sql/test-review37-c4-upgrade.sh` fra `03f23607`. Generalprøve på stand-in (løftet
+  til §55 + §56 først): prøve → apply → `tal` → fortryd-prøve → fortryd (`P_FORTRYD_TROFAST`) → prøve. Prod-runneren
+  kører ikke `r37p11-2` (den skriver, rullet tilbage, i `auth.users`/`profiles`); facit binder kroppene til commit'en.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-c4/prod.zsh fortryd [--jeg-mener-det]` (DROP af `red_set_levende` +
+  prods kvitteringskrop fra `fortryd-definitioner.prod.sql`). Fortryder først webben (revert af #500) — ellers kalder
+  knappen en funktion, der ikke findes.
+- **Åbent:** P8's generalprøve mod rigtig Storage (en ægte fil gennem hele sletningen); mobilens redaktion får knappen
+  med mobil-pariteten.
+
 ## 56. Linjernes adelsnavn: bogens formelle navneform — DATA i prod (2026-11-26)
 
 **Grundlag:** PR #499 (CI grøn i alle 8 jobs på `8b6ddf90`, inkl. `tests/sql/test-adelsnavn-upgrade.sh` fra prods SQL
