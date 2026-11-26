@@ -140,9 +140,10 @@ export type Aux = {
   officesBy: Record<string, OfficeRef[]>;
   mediaBy: Record<string, RawMedia[]>;
   mediaById: Record<string, RawMedia>; // alle media-rækker, id-nøglet (billeder-i-narrativer 2026-07-05, Slice C)
+  mediaByObjekt: Record<string, RawMedia[]>; // »estate:12« / »coat_of_arms:3« → billeder (media→objekt, 'afbildet')
   ownersByEstate: Record<string, OwnerRef[]>;
   estateList: EstateListEntry[];
-  estateById: Record<string, { id: string; navn: string; slags: string }>;
+  estateById: Record<string, { id: string; navn: string; slags: string; stedId: string | null }>;
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
   orgListe: { id: string; navn: string; slags: string }[];
   medieListe: {
@@ -154,5 +155,6 @@ export type Aux = {
   }[];
   medieKoeTaellere: Record<import('./redaktionRead').MedieKoe, number>;
   godsListe: { id: string; navn: string; slags: string; ownerCount: number }[];
-  vaabenListe: { id: string; blasonering: string; note: string }[];
+  vaabenListe: { id: string; blasonering: string; note: string }[]; // dansk-sorteret (redaktionen)
+  vaaben: { id: string; blasonering: string; note: string }[]; // id-orden (våbensiden; første = hovedvåbnet)
 };

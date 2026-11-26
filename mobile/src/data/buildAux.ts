@@ -122,7 +122,7 @@ export function buildAux(
     .map((e) => {
       const eid = String(e.id);
       const navn = e.navn || 'Gods #' + eid;
-      estateById[eid] = { id: eid, navn, slags: e.slags || '' };
+      estateById[eid] = { id: eid, navn, slags: e.slags || '', stedId: e.sted_id != null ? String(e.sted_id) : null };
       const ejere = ownersByEstate[eid] || [];
       return { id: eid, navn, slags: e.slags || '', ownerCount: antalEjere(ejere), ejerIds: [...new Set(ejere.map((o) => o.personId))] };
     })
@@ -148,6 +148,19 @@ export function buildAux(
   });
   Object.keys(mediaBy).forEach((pid) => {
     mediaBy[pid] = dedupPreferPrimaer(mediaBy[pid]);
+  });
+
+  // Objekt-billeder (media→gods/våben/linje, rolle 'afbildet'), nøglet »type:id« — samme retning som web's
+  // fetchObjectMedia. Både relationerne og media-rækkerne er allerede hentet ved opstart, så gods- og våbensiden
+  // slår billederne op her uden et nyt kald. Ét medie pr. objekt én gang, i relationernes rækkefølge.
+  const mediaByObjekt: Aux['mediaByObjekt'] = {};
+  (mediaRelations || []).forEach((r) => {
+    if (r.subjekt_type !== 'media' || (r.rolle || '') !== 'afbildet') return;
+    const m = mediaById[String(r.subjekt_id)];
+    if (!m) return;
+    const k = `${r.objekt_type}:${r.objekt_id}`;
+    const arr = (mediaByObjekt[k] = mediaByObjekt[k] || []);
+    if (!arr.some((x) => String(x.id) === String(m.id))) arr.push(m);
   });
 
   // Flade entitets-lister (2C-1, read-only browse). Rene mappings, dansk-sorteret.
@@ -214,6 +227,10 @@ export function buildAux(
   const vaabenListe = (arms || []).map((a) => ({
     id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
   })).sort((a, b) => compareDanish(a.blasonering, b.blasonering));
+  // Våbensiden: samme rækker i id-orden (som web's fetchArms) — det første er slægtens hovedvåben.
+  const vaaben = (arms || []).map((a) => ({
+    id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
+  })).sort((a, b) => Number(a.id) - Number(b.id));
 
   return {
     sourcesBy,
@@ -221,6 +238,7 @@ export function buildAux(
     officesBy,
     mediaBy,
     mediaById,
+    mediaByObjekt,
     ownersByEstate,
     estateList,
     estateById,
@@ -230,5 +248,6 @@ export function buildAux(
     medieKoeTaellere,
     godsListe,
     vaabenListe,
+    vaaben,
   };
 }
