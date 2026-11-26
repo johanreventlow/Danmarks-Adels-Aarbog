@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('../../supabase', () => ({ supabase: { auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) } } }));
-
-import { byggAboutSections, type RawAboutRow } from '../public';
+// Flyttet fra web/src/data/__tests__/about.test.ts sammen med byggAboutSections (mobil-paritet).
+import { describe, expect, it } from 'vitest';
+import { byggAboutSections, indledningKilde, type RawAboutRow } from '../omSlaegten';
 
 const daa = (aar: number, udgave: string | null, titel = 'Danmarks Adels Aarbog') => ({ slags: 'DAA-udgave', titel, aar, udgave });
 
@@ -41,5 +39,21 @@ describe('byggAboutSections', () => {
       { id: 1, subjekt_type: 'slaegt', subjekt_id: 1, source_id: 30, tekst: 'Stub', source: { slags: 'TNG', aar: null, udgave: null } },
     ];
     expect(byggAboutSections(rows, [])).toEqual([]);
+  });
+
+  it('springer private rækker over (mobilen henter privat-feltet; web filtrerer i forespørgslen)', () => {
+    const rows: RawAboutRow[] = [
+      { id: 1, subjekt_type: 'slaegt', subjekt_id: 1, source_id: 10, tekst: 'Privat udkast', privat: true, source: daa(2018, 'DAA 2018-20') },
+      { id: 2, subjekt_type: 'slaegt', subjekt_id: 1, source_id: 11, tekst: 'Offentlig', privat: false, source: daa(1939, 'DAA 1939') },
+    ];
+    expect(byggAboutSections(rows, []).map((s) => s.tekst)).toEqual(['Offentlig']);
+  });
+});
+
+describe('indledningKilde', () => {
+  it('udgaven, ellers årbogens år, ellers »Kilde ikke registreret«', () => {
+    expect(indledningKilde({ kilde: 'DAA 2018-20', aar: 2020 })).toBe('Kilde: DAA 2018-20');
+    expect(indledningKilde({ kilde: null, aar: 1939 })).toBe('Kilde: Danmarks Adels Aarbog 1939');
+    expect(indledningKilde({ kilde: null, aar: null })).toBe('Kilde ikke registreret');
   });
 });
