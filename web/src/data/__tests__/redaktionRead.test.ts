@@ -463,8 +463,14 @@ describe('interne mediefelter via red_media_interne_felter (R37S8-1)', () => {
     const rpc = vi.fn();
     expect((await fetchMediaInterneFelter([], rpc)).size).toBe(0);
     expect(rpc).not.toHaveBeenCalled();
-    await expect(fetchMediaInterneFelter([1], async () => ({ data: null, error: { message: 'Kun redaktion' } })))
-      .rejects.toThrow('red_media_interne_felter: Kun redaktion');
+    await expect(fetchMediaInterneFelter([1], async () => ({ data: null, error: { message: 'permission denied for function red_media_interne_felter' } })))
+      .rejects.toThrow('red_media_interne_felter: permission denied for function red_media_interne_felter');
+  });
+
+  it('et medlem (»Kun redaktion«) får listen uden de interne felter i stedet for en fejl', async () => {
+    const felter = await fetchMediaInterneFelter([1, 2], async () => ({ data: null, error: { message: 'Kun redaktion' } }));
+    expect(felter.size).toBe(0);
+    expect(flettInterneFelter([{ id: 1 }], felter)).toEqual([{ id: 1, original_filnavn: null, sha256: null }]);
   });
 
   it('fletter felterne ind på id; et medie uden svar får null', () => {

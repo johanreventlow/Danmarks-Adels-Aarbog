@@ -1067,6 +1067,10 @@ const bigintArg = (id: number | string): number | string => {
   return Number.isSafeInteger(n) ? n : id;
 };
 
+// Et medlem kan åbne redaktionen i forslagstilstand og se de medier, RLS viser det; serverens gate svarer da
+// »Kun redaktion«. Det er ikke en fejl i listen, men netop skellet: medlemmet får listen uden de interne felter (null).
+// Alle andre fejl kastes frem.
+const erIkkeRedaktion = (error: { message?: string } | null | undefined) => error?.message === 'Kun redaktion';
 export async function fetchMediaInterneFelter(
   ids: readonly (number | string)[],
   rpc: InterneFelterRpc = defaultInterneFelterRpc,
@@ -1075,7 +1079,9 @@ export async function fetchMediaInterneFelter(
   const out = new Map<string, MediaInterneFelter>();
   for (let i = 0; i < unikke.length; i += MEDIA_INTERNE_FELTER_BID) {
     const bid = unikke.slice(i, i + MEDIA_INTERNE_FELTER_BID).map(bigintArg);
-    const rows = orThrow(await rpc(bid), 'red_media_interne_felter') ?? [];
+    const svar = await rpc(bid);
+    if (erIkkeRedaktion(svar.error)) return new Map();
+    const rows = orThrow(svar, 'red_media_interne_felter') ?? [];
     for (const r of rows) out.set(String(r.id), { originalFilnavn: r.original_filnavn, sha256: r.sha256 });
   }
   return out;
