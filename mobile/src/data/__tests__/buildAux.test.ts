@@ -31,7 +31,18 @@ test('buildAux: godsListe komplet (inkl. ejerløse) m. ownerCount', () => {
   const brahe = aux.godsListe.find((g) => g.id === '1');
   const ejerloes = aux.godsListe.find((g) => g.id === '2');
   expect(brahe?.ownerCount).toBe(1);
-  expect(ejerloes?.ownerCount).toBe(0); // ejerløs gods er MED (modsat estateList)
+  expect(ejerloes?.ownerCount).toBe(0); // ejerløs gods er MED
+});
+
+test('buildAux: estateList og estateById rummer alle godser, også ejerløse (som web)', () => {
+  const aux = buildAux({ ...base,
+    estates: [{ id: 1, navn: 'Brahetrolleborg', slags: 'gods' }, { id: 2, navn: 'Ejerløs', slags: null }] as never,
+    relations: [{ subjekt_type: 'person', subjekt_id: 9, objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: '(1700-†)' }] as never,
+  });
+  expect(aux.estateList.map((e) => [e.id, e.ownerCount, e.ejerIds])).toEqual([['1', 1, ['9']], ['2', 0, []]]);
+  expect(aux.estateById['2']).toEqual({ id: '2', navn: 'Ejerløs', slags: '' });
+  // Bogens periodetekst bevares til ejerrækken; period er uden parenteser som før.
+  expect(aux.ownersByEstate['1']?.[0]).toMatchObject({ period: '1700-†', periodeRaw: '(1700-†)' });
 });
 
 test('buildAux: orgListe + medieListe felt-map', () => {
@@ -184,4 +195,5 @@ test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder
   });
   expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
   expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
+  expect(aux.estateList.find((g) => g.id === '1')?.ejerIds).toEqual(['9']);
 });

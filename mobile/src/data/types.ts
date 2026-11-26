@@ -127,8 +127,10 @@ export function normalizeKoen(k: string | null | undefined): Koen {
 // som @daa/core's godserIUdgave slår rækkens udgave op på — samme form som web's PersonEstate.
 export type EstateRef = { id: string; navn: string; period: string; personId: string };
 export type OfficeRef = { label: string; period: string; _y: number };
-export type OwnerRef = { personId: string; period: string; _y: number };
-export type EstateListEntry = { id: string; navn: string; ownerCount: number };
+// period: perioden uden parenteser (stripParen); periodeRaw: bogens tekst, som ejerrækken (byggEjerraekke) tager.
+export type OwnerRef = { personId: string; period: string; periodeRaw: string; _y: number };
+// ejerIds: kanoniske ejer-id'er; ownerCount: antal forskellige af dem (før skærmens omtælling mod modellen).
+export type EstateListEntry = { id: string; navn: string; slags: string; ownerCount: number; ejerIds: string[] };
 
 // Linjerne bor ikke her men på modellen (model.lineage, 6e): én nøgle pr. kanonisk linje på tværs af udgaver.
 export type Aux = {

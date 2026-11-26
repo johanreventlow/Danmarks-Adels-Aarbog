@@ -91,6 +91,8 @@ export function buildAux(
         (ownersByEstate[String(r.objekt_id)] = ownersByEstate[String(r.objekt_id)] || []).push({
           personId: pid,
           period: per,
+          // Bogens periodetekst urørt: ejerrækken (byggEjerraekke i @daa/core) fjerner selv kun de ydre parenteser.
+          periodeRaw: r.periode_raw ?? '',
           _y: parseYear(r.periode_raw) || 9999,
         });
       }
@@ -112,15 +114,17 @@ export function buildAux(
   });
   Object.values(officesBy).forEach((arr) => arr.sort((a, b) => a._y - b._y));
 
-  // Gods-oversigt: kun godser med registrerede ejere.
+  // Besiddelser: ALLE godser (som web's fetchEstates), også dem uden registrerede ejere. ejerIds er de kanoniske
+  // ejer-id'er; skærmen tæller dem om mod modellen (antalEjere i @daa/core), så ejere læseren ikke kan se, ikke tælles.
   const estateById: Aux['estateById'] = {};
-  const estateList: Aux['estateList'] = Object.keys(ownersByEstate)
-    .map((eid) => {
-      const e = estById2[eid] || { id: eid, navn: 'Gods #' + eid, slags: '' };
+  Object.values(ownersByEstate).forEach((arr) => arr.sort((a, b) => a._y - b._y));
+  const estateList: Aux['estateList'] = (estates || [])
+    .map((e) => {
+      const eid = String(e.id);
       const navn = e.navn || 'Gods #' + eid;
       estateById[eid] = { id: eid, navn, slags: e.slags || '' };
-      ownersByEstate[eid].sort((a, b) => a._y - b._y);
-      return { id: eid, navn, ownerCount: antalEjere(ownersByEstate[eid]) };
+      const ejere = ownersByEstate[eid] || [];
+      return { id: eid, navn, slags: e.slags || '', ownerCount: antalEjere(ejere), ejerIds: [...new Set(ejere.map((o) => o.personId))] };
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
 
