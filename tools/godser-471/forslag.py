@@ -183,13 +183,15 @@ def hent_data(db: str) -> tuple[dict, dict]:
 
 # ---------------------------------------------------------------- navnet
 
-_BINDESTREG = {ord(c): "-" for c in "‐‑‒"}
-_BINDESTREG[0x00AD] = None  # blød bindestreg
+# Kun den bløde bindestreg fjernes fra navnet; hårde bindestreger (U+2010-2012, fx »Ober‑Ellguth« i 2018-20) bevares
+# i navnet og ignoreres kun i nøglen.
+_BINDESTREG = {0x00AD: None}
+_BS = "‐‑‒-"  # bindestreg sidst, så den kan stå sidst i en tegnklasse
 _FORMORD_RE = re.compile(r"^(grevskab|baroni|stamhus)(et|erne|ene)?\s+(.+)$", re.I)
 _NAVNESKIFT_RE = re.compile(r"^(?:fra\s+\d{3,4}\s+|senere\s+)([A-ZÆØÅÄÖÜ][^,;()]*)$")
 _IKKE_GAARD_RE = re.compile(
     r"\b(len|herred|herreder|sogn|fogderi|fogderiet|birk|palæ|hus|frihus|kongsgaard|kongsgård|kloster|"
-    r"skovdistrikt|forpagter|forlening|andel|skænkede|slot|fideikommis\w*)\b|o\.s\.v", re.I)
+    r"skovdistrikt|forpagter|forlening|andel|skænkede|slot|kalkbjerg|fideikommis\w*)\b|o\.s\.v", re.I)
 _EMBEDE_RE = re.compile(r"\b(høvedsmand|hofmester|amtmand)\b", re.I)
 _HALE_RE = re.compile(r"\s+[—–-]\s+|,\s+|\s+(?:ved|i|paa|på)\s+(?=[A-ZÆØÅÄÖÜ])")
 _HALE_UDEN_KOMMA_RE = re.compile(r"\s+[—–-]\s+|\s+(?:ved|i|paa|på)\s+(?=[A-ZÆØÅÄÖÜ])")
@@ -222,7 +224,7 @@ class Navn:
 
 def _norm(s: str) -> str:
     s = s.lower()
-    s = re.sub(r"[\s\-—–]+", "", s)
+    s = re.sub(rf"[\s—–{_BS}]+", "", s)
     return s.strip(".,;:")
 
 
@@ -231,7 +233,7 @@ def fold(s: str) -> str:
     s = s.lower()
     for a, b in (("æ", "ae"), ("ø", "o"), ("å", "a"), ("ä", "a"), ("ö", "o"), ("ü", "u"), ("é", "e"),
                  ("ß", "ss"), ("aa", "a"), ("ph", "f"), ("th", "t"), ("dt", "t"), ("ck", "k"), ("c", "k"),
-                 ("w", "v")):
+                 ("w", "v"), ("v", "f")):
         s = s.replace(a, b)
     s = re.sub(r"[^a-z]", "", s)
     return re.sub(r"(.)\1+", r"\1", s)
@@ -247,13 +249,13 @@ def _dele(tekst: str) -> list:
     dele = [d.strip() for d in _LISTE_RE.split(tekst) if d.strip()]
     # »Gross- og Klein-Koppel« → Gross-Koppel, Klein-Koppel
     for i in range(len(dele) - 1):
-        if dele[i].endswith("-") and "-" in dele[i + 1]:
-            dele[i] += dele[i + 1].rsplit("-", 1)[1]
+        if dele[i][-1] in _BS and re.search(f"[{_BS}]", dele[i + 1]):
+            dele[i] += re.split(f"[{_BS}]", dele[i + 1])[-1]
     return dele
 
 
 def _ligner_navn(d: str) -> bool:
-    return len(d) >= 3 and d[0].isupper() and not d.endswith("-") and not re.fullmatch(r"[IVX]+", d)
+    return len(d) >= 3 and d[0].isupper() and d[-1] not in _BS and not re.fullmatch(r"[IVX]+", d)
 
 
 def parse_navn(navn: str) -> Navn:
@@ -581,6 +583,11 @@ def byg_forslag(data: dict) -> Forslag:
         if medl != [ov] and len({kanonisk_navn(navne[m]) for m in medl}) > 1:
             info.append("andre stavemåder i gruppen: " +
                         ", ".join(sorted({kanonisk_navn(navne[m]) for m in medl} - {g.navn})))
+        if not estates[ov].get("sted_id"):
+            for m in medl:
+                if m != ov and estates[m].get("sted_id"):
+                    info.append(f"stedet ({estates[m]['sted']}) står på række {m}, som lægges sammen; planen kan ikke "
+                                f"flytte stedet til række {ov}")
         if any(m in gammelt_navn for m in medl):
             info.append("navneskift: bogen siger selv, at godset senere fik det nye navn (samme gods)")
         if any(navne[m].landsbyer for m in medl):
@@ -780,6 +787,34 @@ def byg_forslag(data: dict) -> Forslag:
     # ---- S: grupper, der ligner hinanden (stavemåde eller stedtilføjelse)
     sammenhaenge = []
     kant = {g.nr: set() for g in grupper}
+
+    def ord_i(g):
+        """Foldede ord i rækkernes navne uden parentes og uden hale efter tankestreg/komma (og-lister undtaget)."""
+        ud = set()
+        for m in g.medlemmer:
+            if navne[m].liste == "og":
+                continue
+            n = navne[m]
+            # Stedtilføjelsen (»ved Altenhof«) tæller kun med, når kernen er et fællesord (»gård i Bistingsmåla«).
+            del_ = n.kerne if n.kerne[:1].isupper() and not n.ikke_gaard else n.hoved
+            del_ = re.split(r"\s+[—–-]\s+|,\s+", del_)[0]
+            ud |= {fold(w) for w in re.split(r"[\s\-‐-‒/]+", del_) if w}
+        return ud
+
+    # Et enkeltords-gårdnavn (5+ bogstaver), der står som helt ord eller med »gaard« bagefter i en anden gruppes navn
+    # (»Glibstrup Gaard i Andst Sogn«, »gård i Bistingsmåla«, »Tølløsegaard«).
+    enkeltord = {g.nr: next(iter(loese(g))) for g in grupper
+                 if len(loese(g)) == 1 and len(next(iter(loese(g)))) >= 5
+                 and all(" " not in navne[m].kerne and navne[m].kerne[:1].isupper() and not navne[m].ikke_gaard
+                         for m in g.medlemmer)}
+    for g1 in grupper:
+        k = enkeltord.get(g1.nr)
+        if not k:
+            continue
+        for g2 in grupper:
+            if g2 is not g1 and g1.art == g2.art and any(w == k or w == k + "gard" for w in ord_i(g2)):
+                kant[g1.nr].add(g2.nr)
+                kant[g2.nr].add(g1.nr)
     for i, g1 in enumerate(grupper):
         l1 = loese(g1)
         for g2 in grupper[i + 1:]:

@@ -41,12 +41,6 @@
    "navn": "Skjelstofte",
    "slags": "gård",
    "gruppe": 213
-  },
-  {
-   "noegle": "ny:Gieschenhagen",
-   "navn": "Gieschenhagen",
-   "slags": "gård",
-   "gruppe": 247
   }
  ],
  "saet": [
@@ -1072,7 +1066,7 @@
   },
   {
    "estate": 158,
-   "navn": "Ober-Ellguth",
+   "navn": "Ober‑Ellguth",
    "slags": "gård",
    "gruppe": 207
   },
@@ -1273,12 +1267,6 @@
    "navn": "Schönweide",
    "slags": "gård",
    "gruppe": 246
-  },
-  {
-   "estate": 354,
-   "navn": "Segeberg Kalkbjerg",
-   "slags": "gård",
-   "gruppe": 247
   },
   {
    "estate": 209,
@@ -2268,12 +2256,6 @@
    "gruppe": 230
   },
   {
-   "relation": 2580,
-   "til": "ny:Gieschenhagen",
-   "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
-   "gruppe": 247
-  },
-  {
    "relation": 2613,
    "til": 202,
    "citat": "Stamhusene Frisenvold (vundet 1762 ved Højesteretsdom) og Krenkerup",
@@ -2342,6 +2324,7 @@
   222,
   225,
   238,
+  247,
   251,
   254,
   271,
@@ -2394,7 +2377,17 @@
   "S38",
   "S39",
   "S40",
-  "S41"
+  "S41",
+  "S42",
+  "S43",
+  "S44",
+  "S45",
+  "S46",
+  "S47",
+  "S48",
+  "S49",
+  "S50",
+  "S51"
  ],
  "forvalg": {
   "1": "A",
@@ -2601,7 +2594,6 @@
   "244": "A",
   "245": "A",
   "246": "A",
-  "247": "A",
   "248": "A",
   "249": "A",
   "250": "A",
@@ -8294,7 +8286,7 @@
   },
   "167": {
    "A": {
-    "tekst": "Navn og art: række 182 får navnet »Koppel« (før »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«), art gård; ny gård oprettes: Gross-Koppel; ny gård oprettes: Klein-Koppel; ny gård oprettes: Etelsen; ny gård oprettes: Embsen; ny gård oprettes: Ruschbaden; ny gård oprettes: Nesehof; ejerforhold 737 kopieres til den nye gård Gross-Koppel; ejerforhold 737 kopieres til den nye gård Klein-Koppel; ejerforhold 737 kopieres til den nye gård Etelsen; ejerforhold 737 kopieres til den nye gård Embsen; ejerforhold 737 kopieres til den nye gård Ruschbaden; ejerforhold 737 kopieres til den nye gård Nesehof",
+    "tekst": "Navn og art: række 182 får navnet »Koppel« (før »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«), art gård; ny gård oprettes: Gross-Koppel; ny gård oprettes: Klein‑Koppel; ny gård oprettes: Etelsen; ny gård oprettes: Embsen; ny gård oprettes: Ruschbaden; ny gård oprettes: Nesehof; ejerforhold 737 kopieres til den nye gård Gross-Koppel; ejerforhold 737 kopieres til den nye gård Klein‑Koppel; ejerforhold 737 kopieres til den nye gård Etelsen; ejerforhold 737 kopieres til den nye gård Embsen; ejerforhold 737 kopieres til den nye gård Ruschbaden; ejerforhold 737 kopieres til den nye gård Nesehof",
     "opret": [
      {
       "noegle": "ny:Gross-Koppel",
@@ -8303,8 +8295,8 @@
       "gruppe": 167
      },
      {
-      "noegle": "ny:Klein-Koppel",
-      "navn": "Klein-Koppel",
+      "noegle": "ny:Klein‑Koppel",
+      "navn": "Klein‑Koppel",
       "slags": "gård",
       "gruppe": 167
      },
@@ -8351,7 +8343,7 @@
      },
      {
       "relation": 737,
-      "til": "ny:Klein-Koppel",
+      "til": "ny:Klein‑Koppel",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
@@ -9540,12 +9532,12 @@
   },
   "207": {
    "A": {
-    "tekst": "Læg sammen: række 158 får navnet »Ober-Ellguth« (før »Ober‑Ellguth«), art gård; række 416 lægges ind i række 158 (1 ejerforhold flyttes med)",
+    "tekst": "Læg sammen: række 158 beholder navnet »Ober‑Ellguth«, art gård; række 416 lægges ind i række 158 (1 ejerforhold flyttes med)",
     "opret": [],
     "saet": [
      {
       "estate": 158,
-      "navn": "Ober-Ellguth",
+      "navn": "Ober‑Ellguth",
       "slags": "gård",
       "gruppe": 207
      }
@@ -10839,6 +10831,36 @@
       "estate": 354,
       "navn": "Segeberg Kalkbjerg",
       "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 2580,
+      "til": "ny:Gieschenhagen",
+      "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
+      "gruppe": 247
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "Au": {
+    "tekst": "Navn og art — art ukendt (ikke en gård): række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art art ukendt; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
+    "opret": [
+     {
+      "noegle": "ny:Gieschenhagen",
+      "navn": "Gieschenhagen",
+      "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "saet": [
+     {
+      "estate": 354,
+      "navn": "Segeberg Kalkbjerg",
+      "slags": null,
       "gruppe": 247
      }
     ],
@@ -13238,13 +13260,18 @@
   },
   "S1": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 8 lægges ind i række 146 (gruppe 7); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 4 lægges ind i række 179 (gruppe 3); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 406,
-      "til": 146,
+      "fra": 394,
+      "til": 179,
+      "gruppe": "S1"
+     },
+     {
+      "fra": 400,
+      "til": 179,
       "gruppe": "S1"
      }
     ],
@@ -13264,13 +13291,13 @@
   },
   "S2": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 12 lægges ind i række 213 (gruppe 11); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 6 lægges ind i række 84 (gruppe 313); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 393,
-      "til": 213,
+      "fra": 237,
+      "til": 84,
       "gruppe": "S2"
      }
     ],
@@ -13290,18 +13317,13 @@
   },
   "S3": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 24 lægges ind i række 115 (gruppe 23); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 8 lægges ind i række 146 (gruppe 7); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 318,
-      "til": 115,
-      "gruppe": "S3"
-     },
-     {
-      "fra": 330,
-      "til": 115,
+      "fra": 406,
+      "til": 146,
       "gruppe": "S3"
      }
     ],
@@ -13321,13 +13343,13 @@
   },
   "S4": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 28 lægges ind i række 421 (gruppe 27); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 12 lægges ind i række 213 (gruppe 11); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 423,
-      "til": 421,
+      "fra": 393,
+      "til": 213,
       "gruppe": "S4"
      }
     ],
@@ -13347,13 +13369,13 @@
   },
   "S5": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 35 lægges ind i række 198 (gruppe 36); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 20 lægges ind i række 25 (gruppe 19); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 427,
-      "til": 198,
+      "fra": 234,
+      "til": 25,
       "gruppe": "S5"
      }
     ],
@@ -13373,13 +13395,18 @@
   },
   "S6": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 164 lægges ind i række 263 (gruppe 51); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 24 lægges ind i række 115 (gruppe 23); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 124,
-      "til": 263,
+      "fra": 318,
+      "til": 115,
+      "gruppe": "S6"
+     },
+     {
+      "fra": 330,
+      "til": 115,
       "gruppe": "S6"
      }
     ],
@@ -13399,13 +13426,13 @@
   },
   "S7": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 170 lægges ind i række 144 (gruppe 52); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 26 lægges ind i række 226 (gruppe 129); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 343,
-      "til": 144,
+      "fra": 384,
+      "til": 226,
       "gruppe": "S7"
      }
     ],
@@ -13425,13 +13452,13 @@
   },
   "S8": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 71 lægges ind i række 136 (gruppe 70); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 28 lægges ind i række 421 (gruppe 27); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 336,
-      "til": 136,
+      "fra": 423,
+      "til": 421,
       "gruppe": "S8"
      }
     ],
@@ -13451,13 +13478,13 @@
   },
   "S9": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 75 lægges ind i række 79 (gruppe 74); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 35 lægges ind i række 198 (gruppe 36); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 252,
-      "til": 79,
+      "fra": 427,
+      "til": 198,
       "gruppe": "S9"
      }
     ],
@@ -13477,13 +13504,13 @@
   },
   "S10": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 81 lægges ind i række 160 (gruppe 80); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 164 lægges ind i række 263 (gruppe 51); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 409,
-      "til": 160,
+      "fra": 124,
+      "til": 263,
       "gruppe": "S10"
      }
     ],
@@ -13503,13 +13530,13 @@
   },
   "S11": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 83 lægges ind i række 10 (gruppe 82); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 170 lægges ind i række 144 (gruppe 52); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 312,
-      "til": 10,
+      "fra": 343,
+      "til": 144,
       "gruppe": "S11"
      }
     ],
@@ -13529,13 +13556,18 @@
   },
   "S12": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 94 lægges ind i række 166 (gruppe 95); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 183 lægges ind i række 60 (gruppe 68); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 358,
-      "til": 166,
+      "fra": 295,
+      "til": 60,
+      "gruppe": "S12"
+     },
+     {
+      "fra": 302,
+      "til": 60,
       "gruppe": "S12"
      }
     ],
@@ -13555,13 +13587,13 @@
   },
   "S13": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 116 lægges ind i række 90 (gruppe 115); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 71 lægges ind i række 136 (gruppe 70); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 322,
-      "til": 90,
+      "fra": 336,
+      "til": 136,
       "gruppe": "S13"
      }
     ],
@@ -13581,13 +13613,13 @@
   },
   "S14": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 127 lægges ind i række 8 (gruppe 126); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 75 lægges ind i række 79 (gruppe 74); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 308,
-      "til": 8,
+      "fra": 252,
+      "til": 79,
       "gruppe": "S14"
      }
     ],
@@ -13607,13 +13639,13 @@
   },
   "S15": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 133 lægges ind i række 116 (gruppe 132); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 81 lægges ind i række 160 (gruppe 80); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 319,
-      "til": 116,
+      "fra": 409,
+      "til": 160,
       "gruppe": "S15"
      }
     ],
@@ -13633,13 +13665,13 @@
   },
   "S16": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 142 lægges ind i række 148 (gruppe 135); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 83 lægges ind i række 10 (gruppe 82); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 410,
-      "til": 148,
+      "fra": 312,
+      "til": 10,
       "gruppe": "S16"
      }
     ],
@@ -13659,13 +13691,23 @@
   },
   "S17": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 140 lægges ind i række 130 (gruppe 146); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 88, 89 lægges ind i række 45 (gruppe 287); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 134,
-      "til": 130,
+      "fra": 9,
+      "til": 45,
+      "gruppe": "S17"
+     },
+     {
+      "fra": 246,
+      "til": 45,
+      "gruppe": "S17"
+     },
+     {
+      "fra": 248,
+      "til": 45,
       "gruppe": "S17"
      }
     ],
@@ -13685,13 +13727,13 @@
   },
   "S18": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 148 lægges ind i række 217 (gruppe 147); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 94 lægges ind i række 166 (gruppe 95); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 380,
-      "til": 217,
+      "fra": 358,
+      "til": 166,
       "gruppe": "S18"
      }
     ],
@@ -13711,13 +13753,13 @@
   },
   "S19": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 159 lægges ind i række 67 (gruppe 158); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 108 lægges ind i række 32 (gruppe 107); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 303,
-      "til": 67,
+      "fra": 264,
+      "til": 32,
       "gruppe": "S19"
      }
     ],
@@ -13737,13 +13779,13 @@
   },
   "S20": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 163 lægges ind i række 168 (gruppe 162); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 116 lægges ind i række 90 (gruppe 115); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 361,
-      "til": 168,
+      "fra": 322,
+      "til": 90,
       "gruppe": "S20"
      }
     ],
@@ -13763,13 +13805,13 @@
   },
   "S21": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 165 lægges ind i række 36 (gruppe 166); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 127 lægges ind i række 8 (gruppe 126); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 266,
-      "til": 36,
+      "fra": 308,
+      "til": 8,
       "gruppe": "S21"
      }
     ],
@@ -13789,13 +13831,13 @@
   },
   "S22": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 168 lægges ind i række 210 (gruppe 169); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 133 lægges ind i række 116 (gruppe 132); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 420,
-      "til": 210,
+      "fra": 319,
+      "til": 116,
       "gruppe": "S22"
      }
     ],
@@ -13815,13 +13857,13 @@
   },
   "S23": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 176 lægges ind i række 1 (gruppe 175); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 142 lægges ind i række 148 (gruppe 135); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 306,
-      "til": 1,
+      "fra": 410,
+      "til": 148,
       "gruppe": "S23"
      }
     ],
@@ -13841,23 +13883,13 @@
   },
   "S24": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 189 lægges ind i række 88 (gruppe 188); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 140 lægges ind i række 130 (gruppe 146); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 75,
-      "til": 88,
-      "gruppe": "S24"
-     },
-     {
-      "fra": 315,
-      "til": 88,
-      "gruppe": "S24"
-     },
-     {
-      "fra": 346,
-      "til": 88,
+      "fra": 134,
+      "til": 130,
       "gruppe": "S24"
      }
     ],
@@ -13877,13 +13909,13 @@
   },
   "S25": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 192 lægges ind i række 225 (gruppe 191); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 144 lægges ind i række 197 (gruppe 143); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 177,
-      "til": 225,
+      "fra": 200,
+      "til": 197,
       "gruppe": "S25"
      }
     ],
@@ -13903,28 +13935,13 @@
   },
   "S26": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 200, 198, 201 lægges ind i række 106 (gruppe 199); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 148 lægges ind i række 217 (gruppe 147); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 151,
-      "til": 106,
-      "gruppe": "S26"
-     },
-     {
-      "fra": 262,
-      "til": 106,
-      "gruppe": "S26"
-     },
-     {
-      "fra": 323,
-      "til": 106,
-      "gruppe": "S26"
-     },
-     {
-      "fra": 412,
-      "til": 106,
+      "fra": 380,
+      "til": 217,
       "gruppe": "S26"
      }
     ],
@@ -13944,13 +13961,13 @@
   },
   "S27": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 205 lægges ind i række 193 (gruppe 204); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 159 lægges ind i række 67 (gruppe 158); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 401,
-      "til": 193,
+      "fra": 303,
+      "til": 67,
       "gruppe": "S27"
      }
     ],
@@ -13970,13 +13987,13 @@
   },
   "S28": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 231 lægges ind i række 183 (gruppe 230); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 163 lægges ind i række 168 (gruppe 162); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 396,
-      "til": 183,
+      "fra": 361,
+      "til": 168,
       "gruppe": "S28"
      }
     ],
@@ -13996,13 +14013,13 @@
   },
   "S29": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 232 lægges ind i række 169 (gruppe 233); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 165 lægges ind i række 36 (gruppe 166); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 355,
-      "til": 169,
+      "fra": 266,
+      "til": 36,
       "gruppe": "S29"
      }
     ],
@@ -14022,18 +14039,13 @@
   },
   "S30": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 236, 242 lægges ind i række 96 (gruppe 241); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 168 lægges ind i række 210 (gruppe 169); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 112,
-      "til": 96,
-      "gruppe": "S30"
-     },
-     {
-      "fra": 317,
-      "til": 96,
+      "fra": 420,
+      "til": 210,
       "gruppe": "S30"
      }
     ],
@@ -14053,18 +14065,13 @@
   },
   "S31": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 244 lægges ind i række 38 (gruppe 246); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 176 lægges ind i række 1 (gruppe 175); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 271,
-      "til": 38,
-      "gruppe": "S31"
-     },
-     {
-      "fra": 279,
-      "til": 38,
+      "fra": 306,
+      "til": 1,
       "gruppe": "S31"
      }
     ],
@@ -14084,18 +14091,23 @@
   },
   "S32": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 264, 259 lægges ind i række 30 (gruppe 258); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 189 lægges ind i række 88 (gruppe 188); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 35,
-      "til": 30,
+      "fra": 75,
+      "til": 88,
       "gruppe": "S32"
      },
      {
-      "fra": 259,
-      "til": 30,
+      "fra": 315,
+      "til": 88,
+      "gruppe": "S32"
+     },
+     {
+      "fra": 346,
+      "til": 88,
       "gruppe": "S32"
      }
     ],
@@ -14115,13 +14127,13 @@
   },
   "S33": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 261 lægges ind i række 40 (gruppe 262); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 192 lægges ind i række 225 (gruppe 191); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 272,
-      "til": 40,
+      "fra": 177,
+      "til": 225,
       "gruppe": "S33"
      }
     ],
@@ -14141,13 +14153,28 @@
   },
   "S34": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 267 lægges ind i række 135 (gruppe 266); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 200, 198, 201 lægges ind i række 106 (gruppe 199); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 333,
-      "til": 135,
+      "fra": 151,
+      "til": 106,
+      "gruppe": "S34"
+     },
+     {
+      "fra": 262,
+      "til": 106,
+      "gruppe": "S34"
+     },
+     {
+      "fra": 323,
+      "til": 106,
+      "gruppe": "S34"
+     },
+     {
+      "fra": 412,
+      "til": 106,
       "gruppe": "S34"
      }
     ],
@@ -14167,23 +14194,13 @@
   },
   "S35": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 279, 274 lægges ind i række 125 (gruppe 273); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 205 lægges ind i række 193 (gruppe 204); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 6,
-      "til": 125,
-      "gruppe": "S35"
-     },
-     {
-      "fra": 304,
-      "til": 125,
-      "gruppe": "S35"
-     },
-     {
-      "fra": 305,
-      "til": 125,
+      "fra": 401,
+      "til": 193,
       "gruppe": "S35"
      }
     ],
@@ -14203,13 +14220,13 @@
   },
   "S36": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 277 lægges ind i række 31 (gruppe 276); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 231 lægges ind i række 183 (gruppe 230); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 260,
-      "til": 31,
+      "fra": 396,
+      "til": 183,
       "gruppe": "S36"
      }
     ],
@@ -14229,13 +14246,13 @@
   },
   "S37": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 280 lægges ind i række 218 (gruppe 281); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 232 lægges ind i række 169 (gruppe 233); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 385,
-      "til": 218,
+      "fra": 355,
+      "til": 169,
       "gruppe": "S37"
      }
     ],
@@ -14255,18 +14272,18 @@
   },
   "S38": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 310, 305 lægges ind i række 175 (gruppe 296); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 236, 242 lægges ind i række 96 (gruppe 241); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 229,
-      "til": 175,
+      "fra": 112,
+      "til": 96,
       "gruppe": "S38"
      },
      {
-      "fra": 390,
-      "til": 175,
+      "fra": 317,
+      "til": 96,
       "gruppe": "S38"
      }
     ],
@@ -14286,13 +14303,13 @@
   },
   "S39": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 298 lægges ind i række 59 (gruppe 297); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 239 lægges ind i række 19 (gruppe 237); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 292,
-      "til": 59,
+      "fra": 233,
+      "til": 19,
       "gruppe": "S39"
      }
     ],
@@ -14312,13 +14329,18 @@
   },
   "S40": {
    "ja": {
-    "tekst": "Ja: alle rækker i gruppe 300 lægges ind i række 56 (gruppe 299); det erstatter de gruppers egne sammenlægninger",
+    "tekst": "Ja: alle rækker i gruppe 244 lægges ind i række 38 (gruppe 246); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
     "sammenlaeg": [
      {
-      "fra": 280,
-      "til": 56,
+      "fra": 271,
+      "til": 38,
+      "gruppe": "S40"
+     },
+     {
+      "fra": 279,
+      "til": 38,
       "gruppe": "S40"
      }
     ],
@@ -14338,6 +14360,291 @@
   },
   "S41": {
    "ja": {
+    "tekst": "Ja: alle rækker i gruppe 264, 259 lægges ind i række 30 (gruppe 258); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 35,
+      "til": 30,
+      "gruppe": "S41"
+     },
+     {
+      "fra": 259,
+      "til": 30,
+      "gruppe": "S41"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S42": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 261 lægges ind i række 40 (gruppe 262); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 272,
+      "til": 40,
+      "gruppe": "S42"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S43": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 267 lægges ind i række 135 (gruppe 266); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 333,
+      "til": 135,
+      "gruppe": "S43"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S44": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 279, 274 lægges ind i række 125 (gruppe 273); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 6,
+      "til": 125,
+      "gruppe": "S44"
+     },
+     {
+      "fra": 304,
+      "til": 125,
+      "gruppe": "S44"
+     },
+     {
+      "fra": 305,
+      "til": 125,
+      "gruppe": "S44"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S45": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 277 lægges ind i række 31 (gruppe 276); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 260,
+      "til": 31,
+      "gruppe": "S45"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S46": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 280 lægges ind i række 218 (gruppe 281); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 385,
+      "til": 218,
+      "gruppe": "S46"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S47": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 284 lægges ind i række 203 (gruppe 285); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 370,
+      "til": 203,
+      "gruppe": "S47"
+     },
+     {
+      "fra": 371,
+      "til": 203,
+      "gruppe": "S47"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S48": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 310, 305 lægges ind i række 175 (gruppe 296); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 229,
+      "til": 175,
+      "gruppe": "S48"
+     },
+     {
+      "fra": 390,
+      "til": 175,
+      "gruppe": "S48"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S49": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 298 lægges ind i række 59 (gruppe 297); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 292,
+      "til": 59,
+      "gruppe": "S49"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S50": {
+   "ja": {
+    "tekst": "Ja: alle rækker i gruppe 300 lægges ind i række 56 (gruppe 299); det erstatter de gruppers egne sammenlægninger",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [
+     {
+      "fra": 280,
+      "til": 56,
+      "gruppe": "S50"
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej: forskellige godser",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "S51": {
+   "ja": {
     "tekst": "Ja: alle rækker i gruppe 304 lægges ind i række 76 (gruppe 303); det erstatter de gruppers egne sammenlægninger",
     "opret": [],
     "saet": [],
@@ -14345,7 +14652,7 @@
      {
       "fra": 287,
       "til": 76,
-      "gruppe": "S41"
+      "gruppe": "S51"
      }
     ],
     "kopier": [],

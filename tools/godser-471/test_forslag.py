@@ -324,7 +324,7 @@ def test_levende_ejer_paa_navn_med_tekst_stopper():
 
 def test_forkortet_bindestreg_udvides():
     p = forslag.parse_navn("Koppel med Gross- og Klein‑Koppel, Etelsen")
-    assert p.dele == ["Gross-Koppel", "Klein-Koppel", "Etelsen"]
+    assert p.dele == ["Gross-Koppel", "Klein\u2011Koppel", "Etelsen"]
 
 
 def test_med_i_parentes_kraever_et_stednavn():
@@ -384,3 +384,35 @@ def test_stavevarianter_samles_i_et_spoergsmaal():
 
 def test_med_hr_i_parentes_er_ikke_en_liste():
     assert not forslag.parse_navn("Gaarz og Kaden (arvekrav 1528, trætte med Hr. Iven Reventlow)").parentes_med
+
+
+def test_haard_bindestreg_bevares_i_navnet():
+    f = forslag.byg_forslag(data([(158, "Ober\u2011Ellguth"), (416, "Ober-Ellguth")], udgave={416: "DAA 1939"}))
+    g = gruppe_med(f, 158)
+    assert sorted(g.medlemmer) == [158, 416] and g.navn == "Ober\u2011Ellguth"
+
+
+def test_gaardnavn_inde_i_et_andet_navn_er_et_spoergsmaal():
+    f = forslag.byg_forslag(data([(32, "Glibstrup"), (264, "Glibstrup Gaard i Andst Sogn"), (371, "Tølløse"),
+                                  (203, "Tølløsegaard"), (384, "til Bistingsmåla i Mønsterås"),
+                                  (226, "gård i Bistingsmåla"), (306, "Lammershagen — solgt til Bertram Rantzau"),
+                                  (143, "Rantzau")]))
+    par = [set(s.medlemmer) for s in f.sammenhaenge]
+    for a, b in ((32, 264), (371, 203), (384, 226)):
+        assert any({a, b} <= x for x in par), (a, b)
+    assert not any({306, 143} <= x for x in par)
+
+
+def test_sted_paa_raekke_der_laegges_sammen_vises():
+    d = data([(170, "grevskabet Christianssæde", 6), (205, "grevskabet Christiansborg (fra 1741 Christianssæde)")],
+             snapshots=[170])
+    d["estates"][1].update(sted_id=667, sted="Skørringe S., Fuglse H.")
+    g = gruppe_med(forslag.byg_forslag(d), 170)
+    assert g.overlever == 170 and any("Skørringe" in t for t in g.info)
+
+
+def test_stedtilfoejelse_skaber_ikke_lighed_med_stedet():
+    f = forslag.byg_forslag(data([(119, "Altenhof"), (406, "Aschau ved Altenhof (1782)"), (36, "kongsgård i Hamburg"),
+                                  (37, "Hvidøre Kongsgaard")]))
+    par = [set(s.medlemmer) for s in f.sammenhaenge]
+    assert not any({119, 406} <= x for x in par) and not any({36, 37} <= x for x in par)
