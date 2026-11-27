@@ -1,11 +1,11 @@
 -- Køn for ingifte efter ægteskabsreglen (spec docs/superpowers/specs/2026-11-27-personside-navnevisning-design.md,
 -- afsnit »Data: køn for ingifte (prod-skrivning)«).
 --
--- Regel: kandidater = person med koen IS NULL og levende IS NOT TRUE (afdøde). Alle kandidatens modparter
+-- Regel: kandidater = person med koen IS NULL og levende IS FALSE (afdøde). Alle kandidatens modparter
 -- (partner-rækker i ALLE kandidatens familier, ikke kandidaten selv) samles. Er alle modparter 'mand' -> 'kvinde';
 -- er alle 'kvinde' -> 'mand'. Ellers sættes intet: ingen modpart, en modpart med NULL/'ukendt' køn, eller blandede køn.
 -- Levende med tomt køn sættes aldrig af reglen (et nutidigt ægteskab kan være mellem to af samme køn); de tælles og
--- listes. Udfaldet beregnes ÉN gang, før første skrivning (så en kandidat, der er modpart til en anden, ikke ændrer
+-- listes. Er levende ukendt (NULL), sættes heller intet: udfaldet 'levende_ukendt' (listes). Udfaldet beregnes ÉN gang, før første skrivning (så en kandidat, der er modpart til en anden, ikke ændrer
 -- den andens udfald undervejs).
 --
 -- Skrivevej: red_set_koen(person_id, koen) (kræver current_rolle() = 'redaktion'). Hvert kald kører begin_change_set,
@@ -61,6 +61,7 @@ WITH modpart AS (
 SELECT p.id AS person_id,
        CASE
          WHEN p.levende IS TRUE THEN 'levende'
+         WHEN p.levende IS NULL THEN 'levende_ukendt'
          WHEN a.kandidat_id IS NULL THEN 'ingen_aegtefaelle'
          WHEN a.n_mand = a.n_modpart THEN 'kvinde'
          WHEN a.n_kvinde = a.n_modpart THEN 'mand'
@@ -101,12 +102,14 @@ SELECT jsonb_pretty(jsonb_build_object(
   'sat_kvinde', count(*) FILTER (WHERE udfald = 'kvinde'),
   'sat_mand', count(*) FILTER (WHERE udfald = 'mand'),
   'levende_sprunget_over', count(*) FILTER (WHERE udfald = 'levende'),
+  'levende_ukendt', count(*) FILTER (WHERE udfald = 'levende_ukendt'),
   'ingen_aegtefaelle', count(*) FILTER (WHERE udfald = 'ingen_aegtefaelle'),
   'modpart_ukendt_koen', count(*) FILTER (WHERE udfald = 'modpart_ukendt'),
   'blandet', count(*) FILTER (WHERE udfald = 'blandet'),
   'change_set_id', nullif(current_setting('app.change_set_id', true), ''),
   'ikke_sat', jsonb_build_object(
     'levende', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'levende'), '[]'),
+    'levende_ukendt', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'levende_ukendt'), '[]'),
     'ingen_aegtefaelle', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'ingen_aegtefaelle'), '[]'),
     'modpart_ukendt', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'modpart_ukendt'), '[]'),
     'blandet', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'blandet'), '[]'))
