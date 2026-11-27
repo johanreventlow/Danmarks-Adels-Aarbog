@@ -189,13 +189,16 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 // "seneste ægteskab"-regel, men deterministisk, og proportionalt med det aktuelle behov (kun
 // gift-ind-titel-visning).
 //
-// Skilsmisse (spec 2026-11-27): en skilt familie giver ingen ægtefælle-overtagelse. `skilteFamilier === null` =
-// opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en skilt kvinde.
-async function fetchAegtefaelleIdById(personIds: number[], skilteFamilier: ReadonlySet<string> | null): Promise<Map<string, string>> {
-  if (skilteFamilier === null || !personIds.length) return new Map();
-  const mineAlle = await getAll<RawPartnerRow>(() =>
+// Skilsmisse (spec 2026-11-27): et skilt PAR giver ingen ægtefælle-overtagelse — vurderet pr. par, ikke pr. familie,
+// for samme par kan stå i flere familier (fx 1939 + 2018-20), og kun den ene behøver at bære skilsmissen.
+// `erSkiltPar === null` = opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en
+// skilt kvinde.
+export type ErSkiltPar = (a: string, b: string) => boolean;
+
+async function fetchAegtefaelleIdById(personIds: number[], erSkiltPar: ErSkiltPar | null): Promise<Map<string, string>> {
+  if (erSkiltPar === null || !personIds.length) return new Map();
+  const mine = await getAll<RawPartnerRow>(() =>
     supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
-  const mine = mineAlle.filter((m) => !skilteFamilier.has(String(m.family_id)));
   if (!mine.length) return new Map();
   const familyIds = [...new Set(mine.map((m) => m.family_id))];
   const alle = await getAll<RawPartnerRow>(() =>
@@ -212,15 +215,15 @@ async function fetchAegtefaelleIdById(personIds: number[], skilteFamilier: Reado
     const id = String(m.person_id);
     const partnere = partnereByFamily.get(String(m.family_id)) ?? [];
     const andenPart = partnere.find((pid) => pid !== id);
-    if (andenPart) aegtefaelleIdById.set(id, andenPart);
+    if (andenPart && !erSkiltPar(id, andenPart)) aegtefaelleIdById.set(id, andenPart);
   }
   return aegtefaelleIdById;
 }
 
-export async function fetchPresensNavneDele(ids: string[], skilteFamilier: ReadonlySet<string> | null): Promise<Record<string, PresensNavneDele>> {
+export async function fetchPresensNavneDele(ids: string[], erSkiltPar: ErSkiltPar | null): Promise<Record<string, PresensNavneDele>> {
   if (!ids.length) return {};
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
-  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, skilteFamilier);
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, erSkiltPar);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([

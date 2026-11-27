@@ -1,7 +1,7 @@
 // Præsensliste-læsefladen (spec 2026-07-22 §6). Redaktion-gated i v1: klient-gaten er UX —
 // RLS er sikkerhedsgrænsen (§8). Beregningen er en ren projektion; ingen skrivninger.
 import { useEffect, useMemo, useState } from 'react';
-import { buildPresensListe, fmtSkilt, kanoniserPresensGrundlag, groupByLinje, samlIds } from '@daa/core';
+import { buildPresensListe, fmtSkilt, kanoniserPresensGrundlag, groupByLinje, parSkilsmisse, samlIds } from '@daa/core';
 import type { Model, PresensGren, PresensListe, PresensNode, PresensLinjeGruppe } from '@daa/core';
 import {
   fetchPresensGrundlag, fetchPresensNavneDele, formatAnkerNavn, formatAndetNavn,
@@ -265,10 +265,11 @@ export default function PresensView(props: {
 
   useEffect(() => {
     if (!alleIds.length) return;
-    // Skilte familier (model.skilsmisser; null/manglende = ukendt → ingen ægtefælle-titel, fail-closed).
-    const skilte = model?.skilsmisser == null ? null : new Set(Object.keys(model.skilsmisser));
-    fetchPresensNavneDele(alleIds, skilte).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
-  }, [alleIds, model?.skilsmisser]);
+    // Skilte par (model.skilsmisser via parSkilsmisse, pr. par på tværs af familier; null/manglende = ukendt → ingen
+    // ægtefælle-titel, fail-closed).
+    const erSkiltPar = model == null || model.skilsmisser == null ? null : (a: string, b: string) => parSkilsmisse(model, a, b) != null;
+    fetchPresensNavneDele(alleIds, erSkiltPar).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
+  }, [alleIds, model]);
 
   useEffect(() => {
     if (liste && fokusId) document.querySelector(`[data-person-id="${fokusId}"]`)?.scrollIntoView({ block: 'center' });
