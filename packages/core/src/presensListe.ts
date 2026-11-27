@@ -1,10 +1,13 @@
 // Præsensliste-kernen: bottom-up-beskæring + anker-klatring (spec 2026-07-22 §5).
 // Rene funktioner på den COLLAPSEDE model (kanoniske id'er — kald kanoniserPresensGrundlag først).
 import { KONFIDENS_RANK } from './types';
+import { parSkilsmisse } from './skilsmisse';
+import type { Skilsmisse } from './skilsmisse';
 import type { Konfidens, Model } from './types';
 
 export type LevendeById = Record<string, boolean>;
-export type PresensPartner = { id: string; levende: boolean };
+// skilsmisse: sat kun når parret er skilt (ukendt = null, som før).
+export type PresensPartner = { id: string; levende: boolean; skilsmisse: Skilsmisse | null };
 export type PresensNode = {
   id: string;
   levende: boolean;
@@ -28,7 +31,7 @@ function partnereAf(model: Model, levendeById: LevendeById, id: string): Presens
   return (model.indexes.spousesBy[id] ?? [])
     .map((s) => s.id)
     .filter((sid): sid is string => sid != null)
-    .map((sid) => ({ id: sid, levende: levendeById[sid] === true }));
+    .map((sid) => ({ id: sid, levende: levendeById[sid] === true, skilsmisse: parSkilsmisse(model, id, sid) ?? null }));
 }
 
 function sortNodes(model: Model, ns: PresensNode[]): void {
@@ -85,7 +88,7 @@ export function pruneUndertrae(
   sortNodes(model, boern);
   paaVej.delete(id);
   const partnere = partnereAf(model, levendeById, id);
-  const efterlevendePartner = !levende && partnere.some((p) => p.levende);
+  const efterlevendePartner = !levende && partnere.some((p) => p.levende && p.skilsmisse == null);
   if (!levende && boern.length === 0 && !efterlevendePartner) return null;
   alleredeVist.add(id);
   return { id, levende, forbindelsesled: !levende, partnere, boern, usikker: svag(edgeKonfidens), krydsReference: false };
@@ -198,7 +201,7 @@ function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, 
     }
     // 3) Enke efter afdød blodforfader (som ikke er gift-ind-forælderen — hun har egen gruppe).
     if (blod != null && levendeById[blod] !== true) {
-      const enker = partnereAf(model, levendeById, blod).filter((p) => p.levende && p.id !== giftInd);
+      const enker = partnereAf(model, levendeById, blod).filter((p) => p.levende && p.skilsmisse == null && p.id !== giftInd);
       if (enker.length > 0) {
         grupper.push({
           art: 'enke', niveau,

@@ -7,8 +7,10 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   buildPresensListe,
+  fmtSkilt,
   groupByLinje,
   kanoniserPresensGrundlag,
+  parSkilsmisse,
   samlIds,
 } from '@daa/core';
 import type {
@@ -93,6 +95,7 @@ function PraesensNodeView({
               {navnAf(partner.id)}
             </Body>
           </Pressable>
+          {partner.skilsmisse ? <Body size={12} color={Colors.inkMuted}>{`, ${fmtSkilt(partner.skilsmisse, 'aar')}`}</Body> : null}
         </View>
       ))}
 
@@ -341,11 +344,14 @@ export default function PraesensScreen() {
     if (!alleIds.length) {
       return () => { aktiv = false; };
     }
-    fetchPresensNavneDele(alleIds)
+    // Skilte par (model.skilsmisser via parSkilsmisse, pr. par på tværs af familier; null/manglende = ukendt → ingen
+    // ægtefælle-titel, fail-closed).
+    const erSkiltPar = model == null || model.skilsmisser == null ? null : (a: string, b: string) => parSkilsmisse(model, a, b) != null;
+    fetchPresensNavneDele(alleIds, erSkiltPar)
       .then((resultat) => { if (aktiv) setNavneDele(resultat); })
       .catch(() => { if (aktiv) setNavneDele({}); });
     return () => { aktiv = false; };
-  }, [alleIds]);
+  }, [alleIds, model]);
 
   const fallbackNavn = (id: string) => model?.byId[id]?.name ?? `person ${id}`;
   const navnAf = (id: string) => formatAndetNavn(navneDele[id], fallbackNavn(id));

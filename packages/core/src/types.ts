@@ -7,6 +7,7 @@
 import type { GenCoord, ParentsUnknown } from './generations';
 import type { Udgave } from './editionFacts';
 import type { LinjeAdelsnavne } from './adelsnavn';
+import type { Skilsmisser } from './skilsmisse';
 
 export type RawExtId = {
   person_id: number | string;
@@ -194,6 +195,9 @@ export type Model = {
   // Linjernes adelsnavn (lineage-id → »af Reventlow«) til bogens formelle navneform. Valgfrit: tomt/udefineret =
   // ingen formel form (data ikke hentet eller ikke i basen endnu).
   adelsnavne?: LinjeAdelsnavne;
+  // Skilsmisser pr. familie (family-id uden »f«). undefined = ikke hentet, null = opslaget fejlede; begge betyder
+  // ukendt (må ikke vises som »ikke skilt«).
+  skilsmisser?: Skilsmisser | null;
   // Slægtsrodens navn (»Reventlow«). Valgfrit: mobilen sætter det (web bruger SlaegtRef.navn); bruges til at fjerne et
   // slægtsnavn, der allerede står i fornavnene, fra bogens formelle navneform.
   slaegtsnavn?: string | null;

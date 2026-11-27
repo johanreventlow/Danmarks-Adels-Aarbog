@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: personsidens statuslinje, titlen følger navnet og skilsmisse vises (2026-11-27)
+
+**Projektejeren valgte** (26-27/11; spec `docs/superpowers/specs/2026-11-27-personside-navnevisning-design.md`): H1 er
+brugsformen, og **én statuslinje** under den erstatter både titellinjen og blokken »I Aarbogen«.
+
+- **Statuslinjen** viser algoritmens hof-/rangtitel forrest og derefter adelstitlen i stamtavlens partikelform med
+  linjens adelsnavn (»Kammerherre, greve af Reventlow«). **Kun for nu:** kvinders egne titler (hof-/rangtitler) er
+  ikke med og noteres i issue #424.
+- **Titlen følger navnet.** Et sted, der viser fødenavnet, viser fødselstitlen: træets kort bruger personens egen titel
+  (Beke er »Komtesse«, ikke lensgrevinde). Ægteskabets titel står kun sammen med »gift … af …«.
+- **Titel gennem ægteskab er en regel, ikke et faktum:** hustruen får mandens adelstitel i feminin form; mand uden
+  adelstitel, skilt eller ukendt ægteskab giver ingen. **Fail-closed:** fejler skilsmisseopslaget, vises ingen gift-del
+  og ingen overtaget ægtefælle-titel (opslaget giver `null`, ikke `{}`) — en skilt kvinde må aldrig fremstå som gift
+  på grund af en opslagsfejl.
+- **Skilsmisse vises, hvor ægteskabet vises**, i bogens form »…, skilt <dato>«: personsiden (hel dato), træet
+  (»⚭ X, skilt«) og præsenslisten (kun året; en skilt ægtefælle er hverken enke eller efterlevende). Etiketten »Navn«
+  i fakta hedder nu »Fornavne«.
+- **Ingen DDL og ingen nye grants.** Skilsmisserne hentes én gang i modellen (`Model.skilsmisser`) af eksisterende
+  fakta; web og mobil følger med (paritet).
+- **To dataløb i prod, hver med egen godkendelse** (prøvekørsel først, ét ændringssæt, kan fortrydes, backup, output
+  kun antal): (1) køn for ingifte efter regel, (2) skilsmissedatoer i 20 familier (kun entydige fund; resten på
+  redaktørlisten). Kan køres før eller efter merge; uden dem mangler »gift …« for de berørte, og »skilt« står uden dato.
+- **Ikke med:** Titulatur-rækken (hører under genimport-styringen) og søgning på gift navn.
+
 ## BESLUTTET: godserne ryddes op i to niveauer — majorat og gård (#471, 2026-11-26)
 
 **Projektejeren valgte** (afgørelsesark v3, uafhængigt review med Fable undervejs) en oprydning af `estate` i tre faser.

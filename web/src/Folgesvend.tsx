@@ -204,9 +204,12 @@ export default function Folgesvend() {
   const [ejereForsoeg, setEjereForsoeg] = useState(0);
   const [estatesFejl, setEstatesFejl] = useState(false);
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
-  const [detail, setDetail] = useState<PersonDetailData | null>(null);
+  // Detaljen bærer id'et, den er hentet for: ved et personskift ville den forrige persons detalje ellers nå den nye
+  // persons side i én render (effekten nulstiller først efter renderen) — fx hof-titler i statuslinjen.
+  const [detailFor, setDetailFor] = useState<{ personId: string; data: PersonDetailData } | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailForsoeg, setDetailForsoeg] = useState(0); // »Prøv igen« i personpanelets fejl
+  const detail = detailFor && detailFor.personId === focusId ? detailFor.data : null;
 
   // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
   // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
@@ -309,8 +312,8 @@ export default function Folgesvend() {
   const modelUdgaver = model?.udgaver;
   const modelUdgaveForPersonRaekke = model?.udgaveForPersonRaekke;
   useEffect(() => {
-    if (!focusId) { setDetail(null); setDetailError(null); return; }
-    setDetail(null);
+    if (!focusId) { setDetailFor(null); setDetailError(null); return; }
+    setDetailFor(null);
     setDetailError(null);
     if (!modelKlar) return;
     let current = true;
@@ -320,7 +323,7 @@ export default function Folgesvend() {
     const manglerBogNummer = !(fokusKilder?.length);
     // Redaktøren får også kladder for medlemmer, gæster ikke kan se (decisions 2026-11-13); et rolleskift henter igen.
     fetchPersonDetail(focusId, members, manglerBogNummer, { udgaver: modelUdgaver ?? [], udgaveForPersonRaekke: modelUdgaveForPersonRaekke ?? {} }, erRedaktoer).then(
-      (next) => { if (current) setDetail(next); },
+      (next) => { if (current) setDetailFor({ personId: focusId, data: next }); },
       (e) => { if (current) { console.warn('[Folgesvend] persondetalje fejlede:', e); setDetailError(String((e as Error)?.message ?? e)); } },
     );
     return () => { current = false; };

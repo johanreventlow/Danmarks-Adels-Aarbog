@@ -3,6 +3,7 @@
 // SEPARAT bagefter (i storen) for at udlede parentId/spouse + indekser.
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
+import { fetchSkilsmisser } from './skilsmisser';
 import { byggUdgaveLag, type UdgaveLag } from './udgaveLag';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
@@ -458,7 +459,7 @@ export async function loadFromSupabase(opts?: {
     { extIds, sources, lineageRows: lineage, schemeRows: { schemes, entries: schemeEntries, mappings: schemeMappings } },
     collapsed.canonicalIdById,
   );
-  const [citationKilder, adelsnavne] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb)]);
+  const [citationKilder, adelsnavne, skilsmisser] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb), fetchSkilsmisser(sb)]);
   const aux = buildAux(
     { bogKilder: udgaveLag.sourcesBy, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, arms, citationKilder },
     collapsed.canonicalIdById,
@@ -531,7 +532,7 @@ export async function loadFromSupabase(opts?: {
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
     // Linjernes adelsnavn + slægtsrodens navn til bogens formelle navneform (plan 2026-11-26), lagt på modellen som web.
-    udgaveLag: { ...udgaveLag, adelsnavne, slaegtsnavn: slaegtsrodensNavn(lineage) },
+    udgaveLag: { ...udgaveLag, adelsnavne, skilsmisser, slaegtsnavn: slaegtsrodensNavn(lineage) },
     geo,
     loadGeo,
     loadBios,

@@ -4,7 +4,7 @@
 import type { KunIUdgave, UdgaveNote } from './editionFacts';
 
 const NAVN: Record<string, string> = {
-  navn: 'Navn', tilnavn: 'Tilnavn', fødsel: 'Født', dåb: 'Døbt', titel: 'Titel', dekoration: 'Dekoration',
+  navn: 'Fornavne', tilnavn: 'Tilnavn', fødsel: 'Født', dåb: 'Døbt', titel: 'Titel', dekoration: 'Dekoration',
   adling: 'Adlet', floruit: 'Nævnt', klosterindgang: 'Klosterindgang', overhoved: 'Overhoved', død: 'Død',
   dødsårsag: 'Dødsårsag', begravelse: 'Begravet',
 };

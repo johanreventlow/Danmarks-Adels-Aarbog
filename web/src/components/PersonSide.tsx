@@ -22,7 +22,7 @@ import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, portraetTilpasning, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, familieIderForPerson, formelNavneform, lifeJourney, personensAdelsnavn, vielsePraecision, type UdgaveChip } from '@daa/core';
+import { bogensNummer, byggStatuslinje, familieIderForPerson, fmtSkilt, lifeJourney, parSkilsmisse, vielsePraecision, type UdgaveChip } from '@daa/core';
 import { hentVielsesDatoer } from '../data/vielser';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
@@ -87,6 +87,15 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
     return () => { aktuel = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- familieNoegle bærer aegteskaber's familie-id'er
   }, [familieNoegle]);
+  // Statuslinjen under årene (spec 2026-11-27): ét sted for titel, adelsnavn og ægteskabstitel. Hof-/rangtitler kommer
+  // fra titel-fakta og embedsroller, så de er først med, når detaljerne er hentet (null før). Folgesvend
+  // giver kun detaljen videre, når den er hentet for netop focusId. Før det tidlige return (hooks i fast rækkefølge).
+  const hofKilder = useMemo(() => detail
+    ? [
+        ...(detail.faktaInput?.rows ?? []).filter((r) => r.faktatype === 'titel' && r.chosen && r.conclusion_status === 'afklaret').map((r) => r.vaerdi_tekst),
+        ...detail.offices.map((o) => o.rolle),
+      ].filter((x): x is string => !!x)
+    : null, [detail]);
   const p = v.p;
   if (!p) return null;
   const kunI = kunIAeldreTekst(model, focusId);
@@ -107,12 +116,9 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   // Fuldt linjenavn i etiketten (»V. Den grevelige Linje af 1673, nr. 1«, projektejeren 2026-11-19).
   const nr = bogensNummer(model.sourcesBy, focusId, 'fuld');
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
-  // Bogens formelle navneform (»Johan Martin greve af Reventlow«): fornavne + adelstitel + linjens adelsnavn. Ingen
-  // form uden regel, uden adelstitel, for linjens stifter eller ved modstridende linjer (plan 2026-11-26).
-  const formelNavn = model.lineage && model.adelsnavne
-    ? formelNavneform({ fornavne: p.fornavne, titel: p.title, adelsnavn: personensAdelsnavn(focusId, model.lineage, model.adelsnavne), slaegtsnavn: slaegt?.navn })
-    : null;
+  const statuslinje = byggStatuslinje(model, focusId, hofKilder);
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
+  const skiltTekst = (spId: string) => { const sk = parSkilsmisse(model, focusId, spId); return sk ? fmtSkilt(sk, 'dag') : undefined; };
   const henter = detail === null && !detailError;
   const konfOrd = (barn: string, foraelder: string) => konfTekst(model.indexes.konfByEdge?.[`${barn}|${foraelder}`]);
   const offices = detail?.offices ?? [];
@@ -129,13 +135,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
     <>
       <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 32 : 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
       {p.years && <p style={{ margin: 0, fontFamily: T.mono, fontSize: smal ? 13 : 14, lineHeight: '20px', color: T.inkMuted }}>{p.years}</p>}
-      {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
-      {formelNavn && (
-        <div style={{ marginTop: 6 }}>
-          <p style={{ ...etiketStil, color: T.inkMuted }}>I Aarbogen</p>
-          <p style={{ margin: '2px 0 0', fontFamily: T.serif, fontSize: 17, lineHeight: 1.3, color: T.ink }}>{formelNavn}</p>
-        </div>
-      )}
+      {statuslinje && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{statuslinje}</p>}
     </>
   );
   // Handlingerne: højre spalte på bred skærm, lige under navnet på telefonen (fase 9, tegningen »Mobil – personside«).
@@ -253,7 +253,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <dd style={{ margin: 0 }}>
                 {v.spouses.map((sp, i) => (
                   <div key={(sp.id ?? sp.name) + i}>
-                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} vielse={vielseBySpouse[sp.id]} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
+                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} vielse={vielseBySpouse[sp.id]} skilt={skiltTekst(sp.id)} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
                   </div>
                 ))}
               </dd>
@@ -428,7 +428,7 @@ function Henter() {
   return <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter …</p>;
 }
 
-function PersonLink({ id, navn, aar, vielse, konf, kunI, aktiv = true, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; aktiv?: boolean; onVis: (id: string) => void }) {
+function PersonLink({ id, navn, aar, vielse, skilt, konf, kunI, aktiv = true, onVis }: { id: string; navn: string; aar?: string; vielse?: string; skilt?: string; konf?: string; kunI?: KunIAeldreTekst | null; aktiv?: boolean; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
       {aktiv
@@ -436,7 +436,7 @@ function PersonLink({ id, navn, aar, vielse, konf, kunI, aktiv = true, onVis }: 
         : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.inkMuted }}>{navn}</span>}
       {/* Vielsen efter ægtefællens livsdatoer, adskilt med komma, så den ikke læses som hendes livsdato, og navnene
           holder linje (projektejeren 2026-11-24; »foran navnet« forskød navnene). */}
-      {(aar || vielse) && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[aar, vielse].filter(Boolean).join(', ')}</span>}
+      {(aar || vielse || skilt) && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[aar, vielse, skilt].filter(Boolean).join(', ')}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}
       {konf && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.danger }}>{konf}</span>}
       {kunI && <span title={kunI.forklaring} style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.goldInk }}>{kunI.maerke}</span>}

@@ -126,7 +126,8 @@ export function normalizeKoen(k: string | null | undefined): Koen {
 // id = godsets id (samler samme gods i flere rækker); personId = relationens rå subjekt-id (før samme_som-foldningen),
 // som @daa/core's godserIUdgave slår rækkens udgave op på — samme form som web's PersonEstate.
 export type EstateRef = { id: string; navn: string; period: string; personId: string };
-export type OfficeRef = { label: string; period: string; _y: number };
+// rolle: rå relation.rolle (statuslinjens hof-/rangtitel-algoritme læser den; label er kun visning)
+export type OfficeRef = { label: string; period: string; _y: number; rolle: string | null };
 // period: perioden uden parenteser (stripParen); periodeRaw: bogens tekst, som ejerrækken (byggEjerraekke) tager.
 export type OwnerRef = { personId: string; period: string; periodeRaw: string; _y: number };
 // ejerIds: kanoniske ejer-id'er; ownerCount: antal forskellige af dem (før skærmens omtælling mod modellen).

@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../supabase';
-import { erAdelsTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
+import { erAdelsTitel, feminiserTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -84,19 +84,11 @@ type RawNavneDele = { id: number | string; visning_navn: string | null; visning_
 // Derfor slås alle afklarede titel-fakta op direkte og filtreres til en lukket adels-titel-liste.
 // Listen bor i @daa/core (adelsTitler.ts) — delt med bogens formelle navneform; re-eksporteret her, så
 // eksisterende imports (og SQL-paritetstesten) er uændrede.
-export { ADELS_TITLER, erAdelsTitel } from '@daa/core';
+export { ADELS_TITLER, erAdelsTitel, feminiserTitel } from '@daa/core';
 
 type RawTitelFact = { subjekt_id: number | string; vaerdi_tekst: string };
 
-// Køns-bøjning af adelstitler — gift-ind kvinder overtager ægtefællens RANG (ikke egen fødetitel)
-// som deres visnings-titel; kun mænd-formerne fra ADELS_TITLER er nøgler her, da 'komtesse' (ugift
-// datter) og de kvindelige varianter i øvrigt ikke er noget en kvinde "gifter sig til" via ægtefællen.
-const FEMININ_TITEL: Record<string, string> = {
-  greve: 'Grevinde', lensgreve: 'Lensgrevinde', baron: 'Baronesse',
-  friherre: 'Friherreinde', rigsgreve: 'Rigsgrevinde',
-};
-// Eksporteret til test.
-export const feminiserTitel = (mandsTitel: string): string | null => FEMININ_TITEL[mandsTitel.trim().toLowerCase()] ?? null;
+// feminiserTitel (kønsbøjning af adelstitler) bor i packages/core/src/adelsTitler.ts.
 
 // Født-klausul af EGEN (ikke ægtefællens) titel+efternavn — titel med lille forbogstav som i
 // hovedrække-formatet ("født komtesse Ahlefeldt-Laurvig"), aldrig stort (det ville fejlagtigt
@@ -196,8 +188,15 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 // familie i family_id-orden (ORDER BY family_id, jf. filens øvrige queries) — ikke en semantisk
 // "seneste ægteskab"-regel, men deterministisk, og proportionalt med det aktuelle behov (kun
 // gift-ind-titel-visning).
-async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
-  if (!personIds.length) return new Map();
+//
+// Skilsmisse (spec 2026-11-27): et skilt PAR giver ingen ægtefælle-overtagelse — vurderet pr. par, ikke pr. familie,
+// for samme par kan stå i flere familier (fx 1939 + 2018-20), og kun den ene behøver at bære skilsmissen.
+// `erSkiltPar === null` = opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en
+// skilt kvinde.
+export type ErSkiltPar = (a: string, b: string) => boolean;
+
+async function fetchAegtefaelleIdById(personIds: number[], erSkiltPar: ErSkiltPar | null): Promise<Map<string, string>> {
+  if (erSkiltPar === null || !personIds.length) return new Map();
   const mine = await getAll<RawPartnerRow>(() =>
     supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
   if (!mine.length) return new Map();
@@ -216,15 +215,15 @@ async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, 
     const id = String(m.person_id);
     const partnere = partnereByFamily.get(String(m.family_id)) ?? [];
     const andenPart = partnere.find((pid) => pid !== id);
-    if (andenPart) aegtefaelleIdById.set(id, andenPart);
+    if (andenPart && !erSkiltPar(id, andenPart)) aegtefaelleIdById.set(id, andenPart);
   }
   return aegtefaelleIdById;
 }
 
-export async function fetchPresensNavneDele(ids: string[]): Promise<Record<string, PresensNavneDele>> {
+export async function fetchPresensNavneDele(ids: string[], erSkiltPar: ErSkiltPar | null): Promise<Record<string, PresensNavneDele>> {
   if (!ids.length) return {};
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
-  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, erSkiltPar);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([

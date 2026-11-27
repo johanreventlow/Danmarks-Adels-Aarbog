@@ -219,3 +219,11 @@ test('buildAux: vaaben i id-orden (våbensidens hovedvåben er det første), vaa
   expect(aux.vaaben.map((v) => v.id)).toEqual(['5', '7']);
   expect(aux.vaabenListe.map((v) => v.id)).toEqual(['7', '5']);
 });
+
+test('buildAux: embeder bærer den rå rolle (statuslinjens hof-titler læser den)', () => {
+  const aux = buildAux({ ...base,
+    orgs: [{ id: 4, navn: 'Hoffet', slags: 'myndighed' }] as never,
+    relations: [{ subjekt_type: 'person', subjekt_id: 9, objekt_type: 'organisation', objekt_id: 4, rolle: 'Hofjægermester', periode_raw: '1900' }] as never,
+  });
+  expect(aux.officesBy['9'][0]).toMatchObject({ label: 'Hofjægermester, Hoffet', rolle: 'Hofjægermester' });
+});

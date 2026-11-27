@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../lib/supabase';
-import { erAdelsTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
+import { erAdelsTitel, feminiserTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -84,18 +84,7 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 // for adelstitlen. Alle afklarede titel-fakta filtreres derfor gennem denne lukkede liste.
 // Listen bor i @daa/core (adelsTitler.ts) — delt med bogens formelle navneform; re-eksporteret her, så
 // eksisterende imports (og SQL-paritetstesten) er uændrede.
-export { erAdelsTitel } from '@daa/core';
-
-const FEMININ_TITEL: Record<string, string> = {
-  greve: 'Grevinde',
-  lensgreve: 'Lensgrevinde',
-  baron: 'Baronesse',
-  friherre: 'Friherreinde',
-  rigsgreve: 'Rigsgrevinde',
-};
-
-export const feminiserTitel = (mandsTitel: string): string | null =>
-  FEMININ_TITEL[mandsTitel.trim().toLowerCase()] ?? null;
+export { erAdelsTitel, feminiserTitel } from '@daa/core';
 
 function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefined {
   if (!egetEfternavn) return undefined;
@@ -189,8 +178,14 @@ async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]
   return (await fetchFaktaVaerdier('titel', personIds)).filter((t) => erAdelsTitel(t.vaerdi_tekst));
 }
 
-async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
-  if (!supabase || !personIds.length) return new Map();
+// Skilsmisse (spec 2026-11-27): et skilt PAR giver ingen ægtefælle-overtagelse — vurderet pr. par, ikke pr. familie,
+// for samme par kan stå i flere familier (fx 1939 + 2018-20), og kun den ene behøver at bære skilsmissen.
+// `erSkiltPar === null` = opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en
+// skilt kvinde. Spejl af web/src/data/presens.ts.
+export type ErSkiltPar = (a: string, b: string) => boolean;
+
+async function fetchAegtefaelleIdById(personIds: number[], erSkiltPar: ErSkiltPar | null): Promise<Map<string, string>> {
+  if (!supabase || erSkiltPar === null || !personIds.length) return new Map();
   const sb = supabase;
   const mine = await getAll<RawPartnerRow>(() =>
     sb.from('family_member').select('family_id,person_id')
@@ -212,18 +207,19 @@ async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, 
     const id = String(m.person_id);
     const andenPart = (partnereByFamily.get(String(m.family_id)) ?? [])
       .find((personId) => personId !== id);
-    if (andenPart) out.set(id, andenPart);
+    if (andenPart && !erSkiltPar(id, andenPart)) out.set(id, andenPart);
   }
   return out;
 }
 
 export async function fetchPresensNavneDele(
   ids: string[],
+  erSkiltPar: ErSkiltPar | null,
 ): Promise<Record<string, PresensNavneDele>> {
   if (!supabase || !ids.length) return {};
   const sb = supabase;
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
-  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, erSkiltPar);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([

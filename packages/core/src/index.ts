@@ -35,6 +35,7 @@ export * from './ocrKvalitet';
 export * from './physicalPersonIds';
 export * from './familieKilder';
 export * from './vielse';
+export * from './skilsmisse';
 export * from './recordLabel';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
@@ -79,7 +80,7 @@ export * from './bogensOrden';
 export * from './kunIAeldreUdgave';
 export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
-export { ADELS_TITLER, erAdelsTitel } from './adelsTitler';
+export { ADELS_TITLER, ADELS_RANG, adelsRang, erAdelsTitel, feminiserTitel } from './adelsTitler';
 export { adelsnavnForLinjer, byggLinjeAdelsnavne, formelNavneform, lineageIdAfNoegle, personensAdelsnavn } from './adelsnavn';
 export type { LinjeAdelsnavne } from './adelsnavn';
 export * from './sletVej';
@@ -100,6 +101,8 @@ export * from './faktaVisning';
 export * from './slaegtskab';
 export * from './omSlaegten';
 export * from './godserIUdgave';
+export * from './statuslinje';
+export { hofTitel } from './titelAlgoritme';
 // Besiddelsens ejerrække og ejertal — flyttet fra web/src/data (mobil-paritet, bid 9).
 export * from './ejerraekke';
 // Søgningens match, levetid, filtre og stavemåder — flyttet fra web/src/data/soeg.ts (mobil-paritet, bid 9).

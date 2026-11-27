@@ -17,7 +17,7 @@ const model = {
   sourcesBy: { '60': [{ ref: 'Linje I, nr. 60', work: 'Danmarks Adels Aarbog' }] },
 } as unknown as Model;
 const detail: PersonDetailData = {
-  bio: 'Lang biografi, der ikke hører hjemme i panelet.', bioVersions: [], offices: [{ label: 'amtmand', period: '1530' }],
+  bio: 'Lang biografi, der ikke hører hjemme i panelet.', bioVersions: [], offices: [{ label: 'amtmand', period: '1530', rolle: 'amtmand' }],
   estates: ['Rixdorf', 'Schönweide', 'Stocksee', 'Bramstedt', 'Neuhaus'].map((navn, i) => ({ id: `e${i}`, navn, personId: '60' })),
   media: [], sources: [], facts: [], factsError: false, faktaInput: null,
 };
