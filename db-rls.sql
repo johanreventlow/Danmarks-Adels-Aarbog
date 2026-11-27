@@ -405,8 +405,7 @@ REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authentic
 --   (1) afbildet-gating (GDPR/person) — media_afbilder_skjult/privat
 --   (2) rettigheds-gating (copyright/publikation) — media_rettigheder_ok
 -- Redaktion ser alt (additivt), uanset begge.
--- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken efter feed_pin nedenfor.
-grant select on table public.media to authenticated;
+-- Adgang for anon og authenticated er kolonnevis (ingen tabelret): se review37-s8-blokken efter feed_pin nedenfor.
 alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
 create policy anon_read on public.media for select to anon
@@ -810,6 +809,8 @@ BEGIN
     'public.red_set_story_status(bigint,text)',
     'public.red_slet_familie_link(bigint,bigint,text)',
     'public.red_slet_medierelation_uden_evidens(bigint)',
+    'public.red_media_interne_felter(bigint[])',
+    'public.red_media_efter_sha(text)',
     'public.red_slet_oplysning(bigint)',
     'public.red_slet_person(bigint)',
     'public.red_slet_person_preview(bigint)',
@@ -950,13 +951,16 @@ create policy auth_read on public.feed_pin for select to authenticated using (tr
 --   ud fra stien; det er sikkert, fordi bucket'en 'media' er privat (S5-assert i db-verify), og
 --   storage-politikken kun udsteder links til billeder, gæsten må se (media_object_synlig_anon). Stien kan
 --   bære et beskrivende filnavn (heraldik-filer); personbilleder fra redaktionen ligger under hash-navne.
--- Medlemmer og redaktion (authenticated) deler rolle, så kolonneret kan ikke skelne dem. På story og
---   feed_pin får authenticated samme kolonneliste som anon (redaktionen læser ingen af de interne kolonner;
---   projektejeren 2026-11-22). På media beholder authenticated tabelretten, fordi redaktionens medieliste og
---   dublettjek læser original_filnavn/sha256 direkte — KENDT REST (#397): skal flyttes til en rolle-gated RPC,
---   før medlemmer lukkes ind (prod har 0 medlemmer 2026-11-22).
+-- Medlemmer og redaktion (authenticated) deler rolle, så kolonneret kan ikke skelne dem. Derfor får authenticated
+--   på alle tre tabeller PRÆCIS samme kolonneliste som anon (listen står én gang: TO anon, authenticated, så de ikke
+--   kan glide fra hinanden); story og feed_pin fra 2026-11-22 (redaktionen læser ingen af de interne kolonner), media
+--   fra review 37 R37S8-1 (#397, blok review37-c5b): redaktionens medieliste og dublettjek læser original_filnavn og
+--   sha256 gennem de rolle-gatede SECURITY DEFINER-RPC'er red_media_interne_felter og red_media_efter_sha
+--   (current_rolle() = 'redaktion'), så et medlem aldrig ser uploadens filnavn. Klienternes kolonne-kontrakt er
+--   MEDIA_KLIENT_KOLONNER i web/src/data/mediaKontrakt.ts og mobile/src/data/mediaKontrakt.ts
+--   (packages/core/src/__tests__/mediaKolonner.test.ts holder dem lig listen her).
 -- FAIL-CLOSED: en ny kolonne er usynlig for gæster, til den føjes til listen her. En læser, der
---   vælger den (eller select('*')), får »permission denied« som anon.
+--   vælger den (eller select('*')), får »permission denied« som anon og authenticated (også redaktøren).
 -- Alle skrivninger på de tre tabeller går gennem SECURITY DEFINER-RPC'er, så anon og authenticated
 --   har kun SELECT (media havde fuld tabelret inkl. TRUNCATE, som RLS ikke dækker; alle tre havde
 --   MAINTAIN, som giver LOCK TABLE/VACUUM).
@@ -965,10 +969,9 @@ DO $review37_s8_anon_kolonner$
 BEGIN
   REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM anon;
   REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM authenticated;
-  GRANT SELECT ON TABLE public.media TO authenticated;
   GRANT SELECT (id, slags, titel, kunstner, datering, bucket, storage_path, mime_type, byte_size,
                 bredde, hoejde, upload_status, maa_publiceres, rettigheder_status, created_at)
-    ON TABLE public.media TO anon;
+    ON TABLE public.media TO anon, authenticated;
   GRANT SELECT (id, subjekt_type, subjekt_id, haendelse_id, fact_id, relation_id, historical_event_id,
                 titel, tekst, date_min, date_max, date_qualifier, date_raw, status, publiceret_dato, privat)
     ON TABLE public.story TO anon, authenticated;

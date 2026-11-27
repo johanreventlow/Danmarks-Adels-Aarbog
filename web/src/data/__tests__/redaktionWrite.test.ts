@@ -445,7 +445,8 @@ describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
     });
   });
 
-  it.each(['estate', 'coat_of_arms', 'lineage'] as const)('media står på subjekt-siden for %s', (maalType) => {
+  // R37B-3: family og place er kanoniske afbildninger i red_relation (S4), så medieflet kan flytte dem.
+  it.each(['estate', 'coat_of_arms', 'lineage', 'family', 'place'] as const)('media står på subjekt-siden for %s', (maalType) => {
     expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
       payload: { maalType, maalId: '7' } })).toEqual({
       fn: 'red_relation',
@@ -469,6 +470,8 @@ describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
     expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '-1' } })).toBeNull();
     expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '9223372036854775808' } })).toBeNull();
     expect(buildRpcCall({ ...base, payload: { maalType: 'organisation', maalId: '7' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { maalType: 'media', maalId: '7' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { maalType: 'Family', maalId: '7' } })).toBeNull();
   });
 
   it('bevarer gyldige BIGINT-id-er over JavaScripts sikre heltalsgrænse som strenge', () => {

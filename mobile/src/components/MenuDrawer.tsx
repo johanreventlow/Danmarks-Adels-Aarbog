@@ -17,7 +17,7 @@ type NavItem = { no: string; title: string; sub: string; href: string };
 const NAV: NavItem[] = [
   { no: '01', title: 'Stamtræ', sub: 'Naviger op, ned og til siden', href: '/tree' },
   { no: '02', title: 'Om slægten', sub: 'Historisk indledning', href: '/about' },
-  { no: '03', title: 'Godser & ejendomme', sub: 'Besiddelser og deres ejere', href: '/estates' },
+  { no: '03', title: 'Besiddelser', sub: 'Godser, gårde og len og deres ejere', href: '/estates' },
   { no: '04', title: 'Slægtens kort', sub: 'Steder på kort', href: '/kort' },
   { no: '05', title: 'Slægtens våben', sub: 'Autoriseret våben og gengivelser', href: '/arms' },
   { no: '06', title: 'Er vi i familie?', sub: 'Find slægtskabet', href: '/relate' },

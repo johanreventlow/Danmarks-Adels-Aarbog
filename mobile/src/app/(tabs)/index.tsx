@@ -345,7 +345,7 @@ function Hero({ counts: c, onSkift }: { counts: ReturnType<typeof counts>; onSki
         <View style={{ width: 1, height: 26, backgroundColor: Border.medium }} />
         <Counter value={c.linjer} label="linjer" />
         <View style={{ width: 1, height: 26, backgroundColor: Border.medium }} />
-        <Counter value={c.godser} label="godser" />
+        <Counter value={c.godser} label="besiddelser" />
       </View>
       <Pressable onPress={onSkift} style={{ marginTop: 15 }}>
         <BtnLabel size={12} color={Colors.bordeaux}>skift slægt ▾</BtnLabel>

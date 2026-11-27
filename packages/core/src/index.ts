@@ -103,3 +103,7 @@ export * from './omSlaegten';
 export * from './godserIUdgave';
 export * from './statuslinje';
 export { hofTitel } from './titelAlgoritme';
+// Besiddelsens ejerrække og ejertal — flyttet fra web/src/data (mobil-paritet, bid 9).
+export * from './ejerraekke';
+// Søgningens match, levetid, filtre og stavemåder — flyttet fra web/src/data/soeg.ts (mobil-paritet, bid 9).
+export * from './soeg';

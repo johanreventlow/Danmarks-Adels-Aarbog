@@ -48,31 +48,33 @@ describe('mediaDedup — målretning og autoritativ relation', () => {
 });
 
 describe('mediaDedup — eksisterende medie og dialogbeslutning', () => {
-  it('default-adapteren vælger id::text og bevarer sha-filteret', async () => {
+  it('default-adapteren kalder den rolle-gatede RPC (R37S8-1) og vælger id::text', async () => {
     const calls: unknown[] = [];
     const client = {
-      from: (table: string) => {
-        calls.push(['from', table]);
+      rpc: (fn: 'red_media_efter_sha', args: { p_sha256: string }) => {
+        calls.push(['rpc', fn, args]);
         return { select: (columns: string) => {
           calls.push(['select', columns]);
-          return { eq: (column: string, value: string) => {
-            calls.push(['eq', column, value]);
-            return { maybeSingle: async () => {
-              calls.push(['maybeSingle']);
-              return { data: { id: '9223372036854775807', titel: 'Stor id', upload_status: 'klar', storage_path: 'large.jpg' }, error: null };
-            } };
+          return { maybeSingle: async () => {
+            calls.push(['maybeSingle']);
+            return { data: { id: '9223372036854775807', titel: 'Stor id', upload_status: 'klar', storage_path: 'large.jpg' }, error: null };
           } };
         } };
       },
     };
-    const result = await queryMediaBySha('abc123', client);
+    const sha = 'ab'.repeat(32);
+    const result = await queryMediaBySha(sha, client);
     expect(result.data?.id).toBe('9223372036854775807');
     expect(calls).toEqual([
-      ['from', 'media'],
+      ['rpc', 'red_media_efter_sha', { p_sha256: sha }],
       ['select', 'id::text,titel,upload_status,storage_path'],
-      ['eq', 'sha256', 'abc123'],
       ['maybeSingle'],
     ]);
+  });
+
+  it('RPC-fejl (fx »Kun redaktion«) kastes frem i stedet for at ligne »ingen dublet«', async () => {
+    const mediaLookup = async () => ({ data: null, error: { message: 'Kun redaktion' } });
+    await expect(fetchExistingMediaBySha('ab'.repeat(32), { mediaLookup })).rejects.toThrow('Kun redaktion');
   });
 
   it('viser det eksisterende thumb; falder tilbage til signeret storage_path', async () => {

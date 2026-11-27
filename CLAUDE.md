@@ -71,6 +71,7 @@ Web og mobil taler **direkte** med Supabase med den offentlige anon-nøgle, så 
 - **Nye og ændrede anon-RPC'er afgrænser input og output server-side:** loft på array-parametre (`cardinality`) og afvisning af for store `limit`/sidestørrelser. Mønster: `public_haendelse_feed` (afviser uden for 1–200/1–2000 med `22023`). PostgREST's `max_rows` begrænser kun svaret, ikke arbejdet bag det.
 - **RLS-ændringer verificeres som anon** før deploy (som i `db-rls.sql`: 0 levende lækket).
 - **`service_role` og hemmeligheder aldrig i `web/` eller `mobile/`** — alt i klient-bundtet er offentligt, også i mobil-appen.
+- **Web håndhæver en CSP** (`web/vercel.json`, review 37 C3): en ny ekstern kilde (kortfliser, billeder, scripts, API) skal på den relevante liste (`img-src`, `connect-src` …), ellers blokerer browseren den lydløst i prod — dev-serveren bruger ikke `vercel.json`, så lokale tests og e2e fanger det ikke. Gælder fx C12's egen kortkilde. Links (`<a href>`) er ikke berørt.
 - **Ingen crawlbare uendelige URL-rum** i web (filtre/søgning som query-parametre); `web/public/robots.txt` forbliver `Disallow: /`, indtil review 37 C10 er genbesøgt.
 - **Før offentlig tilmelding åbnes:** Supabase Auth's captcha (Turnstile) på oprettelse, login og nulstilling af adgangskode.
 

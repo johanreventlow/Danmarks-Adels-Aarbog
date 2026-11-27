@@ -46,6 +46,15 @@ export function boernIBogensOrden(model: Model, id: string): ModelPerson[] {
   return sorterBoernEfterBogen(childrenOf(model, id), id, model.bogNrBy, model.udgaver);
 }
 
+// Linjen i Spors »Gen N · linje«: den valgte linje (linjechippen), når fokus-personen står i den; ellers personens
+// første kanoniske linje; uden linjer den valgte. Står en person i to linjer (fx én pr. udgave), viser sporet således
+// den linje, man filtrerer på, frem for den, koordinat-RPC'en tilfældigvis leverer først (ORDER BY person_id, source_id).
+export function sporLinje(personLinjer: readonly string[] | undefined, aktivLinje: string | null): string | null {
+  const mine = personLinjer ?? [];
+  if (aktivLinje && mine.includes(aktivLinje)) return aktivLinje;
+  return mine[0] ?? aktivLinje;
+}
+
 // Søskende = den primære forælders børn (inkl. personen selv). Hvis ingen forælder: kun personen.
 export function siblingsOf(model: Model, id: string): ModelPerson[] {
   const person = model.byId[id];

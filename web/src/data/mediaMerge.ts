@@ -2,8 +2,10 @@ import type { Change } from './redaktionWrite';
 import type { MediaAnvendelse, MediaBibliotekPost, MedieKoe } from './redaktionRead';
 import { supabase } from '../supabase';
 import { getAll } from '@daa/core';
+import { MEDIA_AFBILDET_OBJEKT_TYPER, type MediaAfbildetObjektType } from './mediaKontrakt';
 
-type MergeTargetType = 'person' | 'estate' | 'coat_of_arms' | 'lineage';
+// Review 37 R37B-3 (#397): også familie- og stedbilleder (media → family/place) kan flettes.
+type MergeTargetType = 'person' | MediaAfbildetObjektType;
 
 export type MediaMergeStep = {
   kind: 'soft-delete-copy' | 'link-original' | 'delete-copy-relation';
@@ -79,7 +81,7 @@ function targetKey(target: Pick<MediaAnvendelse['afbildet'][number], 'type' | 'i
 }
 
 function isMergeTargetType(type: string): type is MergeTargetType {
-  return type === 'person' || type === 'estate' || type === 'coat_of_arms' || type === 'lineage';
+  return type === 'person' || (MEDIA_AFBILDET_OBJEKT_TYPER as readonly string[]).includes(type);
 }
 
 export function buildMediaMergePlan(args: {

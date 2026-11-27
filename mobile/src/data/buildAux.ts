@@ -91,6 +91,8 @@ export function buildAux(
         (ownersByEstate[String(r.objekt_id)] = ownersByEstate[String(r.objekt_id)] || []).push({
           personId: pid,
           period: per,
+          // Bogens periodetekst urørt: ejerrækken (byggEjerraekke i @daa/core) fjerner selv kun de ydre parenteser.
+          periodeRaw: r.periode_raw ?? '',
           _y: parseYear(r.periode_raw) || 9999,
         });
       }
@@ -113,15 +115,17 @@ export function buildAux(
   });
   Object.values(officesBy).forEach((arr) => arr.sort((a, b) => a._y - b._y));
 
-  // Gods-oversigt: kun godser med registrerede ejere.
+  // Besiddelser: ALLE godser (som web's fetchEstates), også dem uden registrerede ejere. ejerIds er de kanoniske
+  // ejer-id'er; skærmen tæller dem om mod modellen (antalEjere i @daa/core), så ejere læseren ikke kan se, ikke tælles.
   const estateById: Aux['estateById'] = {};
-  const estateList: Aux['estateList'] = Object.keys(ownersByEstate)
-    .map((eid) => {
-      const e = estById2[eid] || { id: eid, navn: 'Gods #' + eid, slags: '' };
+  Object.values(ownersByEstate).forEach((arr) => arr.sort((a, b) => a._y - b._y));
+  const estateList: Aux['estateList'] = (estates || [])
+    .map((e) => {
+      const eid = String(e.id);
       const navn = e.navn || 'Gods #' + eid;
-      estateById[eid] = { id: eid, navn, slags: e.slags || '' };
-      ownersByEstate[eid].sort((a, b) => a._y - b._y);
-      return { id: eid, navn, ownerCount: antalEjere(ownersByEstate[eid]) };
+      estateById[eid] = { id: eid, navn, slags: e.slags || '', stedId: e.sted_id != null ? String(e.sted_id) : null };
+      const ejere = ownersByEstate[eid] || [];
+      return { id: eid, navn, slags: e.slags || '', ownerCount: antalEjere(ejere), ejerIds: [...new Set(ejere.map((o) => o.personId))] };
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
 
@@ -145,6 +149,19 @@ export function buildAux(
   });
   Object.keys(mediaBy).forEach((pid) => {
     mediaBy[pid] = dedupPreferPrimaer(mediaBy[pid]);
+  });
+
+  // Objekt-billeder (media→gods/våben/linje, rolle 'afbildet'), nøglet »type:id« — samme retning som web's
+  // fetchObjectMedia. Både relationerne og media-rækkerne er allerede hentet ved opstart, så gods- og våbensiden
+  // slår billederne op her uden et nyt kald. Ét medie pr. objekt én gang, i relationernes rækkefølge.
+  const mediaByObjekt: Aux['mediaByObjekt'] = {};
+  (mediaRelations || []).forEach((r) => {
+    if (r.subjekt_type !== 'media' || (r.rolle || '') !== 'afbildet') return;
+    const m = mediaById[String(r.subjekt_id)];
+    if (!m) return;
+    const k = `${r.objekt_type}:${r.objekt_id}`;
+    const arr = (mediaByObjekt[k] = mediaByObjekt[k] || []);
+    if (!arr.some((x) => String(x.id) === String(m.id))) arr.push(m);
   });
 
   // Flade entitets-lister (2C-1, read-only browse). Rene mappings, dansk-sorteret.
@@ -211,6 +228,10 @@ export function buildAux(
   const vaabenListe = (arms || []).map((a) => ({
     id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
   })).sort((a, b) => compareDanish(a.blasonering, b.blasonering));
+  // Våbensiden: samme rækker i id-orden (som web's fetchArms) — det første er slægtens hovedvåben.
+  const vaaben = (arms || []).map((a) => ({
+    id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
+  })).sort((a, b) => Number(a.id) - Number(b.id));
 
   return {
     sourcesBy,
@@ -218,6 +239,7 @@ export function buildAux(
     officesBy,
     mediaBy,
     mediaById,
+    mediaByObjekt,
     ownersByEstate,
     estateList,
     estateById,
@@ -227,5 +249,6 @@ export function buildAux(
     medieKoeTaellere,
     godsListe,
     vaabenListe,
+    vaaben,
   };
 }

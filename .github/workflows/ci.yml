@@ -129,6 +129,12 @@ jobs:
       - name: web · build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build -w web
+      # Review 37 C5: lint. Fejl stopper altid; advarsler har et loft (målt 27/11: 10, alle
+      # react-hooks/exhaustive-deps — de rettes kun med test, fordi en ændret afhængighedsliste ændrer
+      # adfærd). Sænk loftet, når én rettes; hæv det aldrig uden en begrundelse her.
+      - name: web · lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint -w web -- --max-warnings 10
       - name: web · PostgREST-gate (node:test)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node --test web/scripts/verify-public-rpcs.test.mjs
@@ -313,6 +319,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-offentlig-gruppe.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-b3-gate.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-p11-kaldere.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-c5-kaldere.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-y1-udsnit.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
@@ -744,11 +751,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 ceremoni 4 · red_set_levende + P8)
+      - name: Opgradering fra prods skema (review 37 ceremoni 5 · interne mediefelter via RPC + familie-/stedbilleder, blok A og B)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # 03f23607 = main efter merge af #499 (linjernes adelsnavn, i prod 26/11 §56) — prods SQL. Ceremoni 3's og
-        # adelsnavn-blokkens tests er pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-c4-upgrade.sh ci_r37c4_upgrade 03f23607
+        # b9d2c508 = main efter merge af #502 (ceremoni 4 i prod 26/11) — prods SQL. Ceremoni 4's test er pensioneret
+        # (tests/ikke-i-ci.txt).
+        run: bash tests/sql/test-review37-c5-upgrade.sh ci_r37c5_upgrade b9d2c508
       - name: Review 37 R37S8-2 · verify-enheden rød med Supabase-retter, grøn efter blokken (frisk base)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-review37-r37s8-2-seeded.sh ci_r37s8_2_seeded

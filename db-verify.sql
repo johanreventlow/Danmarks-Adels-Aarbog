@@ -3195,6 +3195,8 @@ DECLARE
     'public.red_set_story_status(bigint,text)'::regprocedure,
     'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
     'public.red_slet_medierelation_uden_evidens(bigint)'::regprocedure,
+    'public.red_media_interne_felter(bigint[])'::regprocedure,
+    'public.red_media_efter_sha(text)'::regprocedure,
     'public.red_slet_oplysning(bigint)'::regprocedure,
     'public.red_slet_person(bigint)'::regprocedure,
     'public.red_slet_person_preview(bigint)'::regprocedure,
@@ -9304,11 +9306,11 @@ END $$;
 -- END-VERIFY r37s3
 
 -- BEGIN-VERIFY r37s8
--- ===== Review 37 S8: gæster og medlemmer læser kun læserens kolonner på story og feed_pin; gæster også på media =====
--- anon har ingen tabelret på de tre tabeller; authenticated har ingen på story/feed_pin og kun SELECT på media
--- (redaktionens medieliste læser original_filnavn/sha256 — kendt rest, #397). Kolonneretterne er PRÆCIS
--- læserlisten (kun SELECT; listen her er bevidst skrevet uafhængigt af db-rls.sql); de interne kolonner er skjult,
--- media.storage_path er en bevidst undtagelse. Udøves også som rolle anon.
+-- ===== Review 37 S8 + R37S8-1: gæster, medlemmer og redaktion læser kun læserens kolonner på story, feed_pin og media =====
+-- Hverken anon eller authenticated har tabelret på de tre tabeller. Kolonneretterne er PRÆCIS læserlisten for begge
+-- roller (kun SELECT; listen her er bevidst skrevet uafhængigt af db-rls.sql); de interne kolonner er skjult,
+-- media.storage_path er en bevidst undtagelse. Redaktionen læser media.original_filnavn/sha256 gennem de rolle-gatede
+-- RPC'er (R37S8-1, #397; verify-enheden r37c5a). Udøves som anon og som authenticated med redaktørprofil.
 DO $$
 DECLARE r record; v_fejl text := ''; v_state text;
 BEGIN
@@ -9319,6 +9321,8 @@ BEGIN
       ('feed_pin','oprettet_af')) v(t,c) LOOP
     IF has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
       v_fejl := v_fejl || format(' skjult-men-læsbar:%s.%s', r.t, r.c); END IF;
+    IF has_column_privilege('authenticated', format('public.%I', r.t), r.c, 'SELECT') THEN
+      v_fejl := v_fejl || format(' skjult-men-læsbar-for-authenticated:%s.%s', r.t, r.c); END IF;
   END LOOP;
   -- Eksakt mængde: kolonneretterne (alle typer) for anon og authenticated på de tre tabeller = præcis læserlisten.
   -- Fanger både en manglende læserkolonne (fx story.subjekt_type, som forsiden filtrerer på) og en ekstra ret.
@@ -9333,7 +9337,7 @@ BEGIN
       ('feed_pin','id'),('feed_pin','kort_noegle'),('feed_pin','handling'),('feed_pin','oprettet_naar')),
   forventet(l) AS (
     SELECT 'anon:'||t||'.'||c||':SELECT' FROM laeser
-    UNION ALL SELECT 'authenticated:'||t||'.'||c||':SELECT' FROM laeser WHERE t IN ('story','feed_pin')),
+    UNION ALL SELECT 'authenticated:'||t||'.'||c||':SELECT' FROM laeser),
   faktisk(l) AS (
     SELECT x.grantee::regrole::text||':'||c.relname||'.'||at.attname||':'||x.privilege_type
       FROM pg_attribute at JOIN pg_class c ON c.oid=at.attrelid, aclexplode(at.attacl) x
@@ -9343,16 +9347,15 @@ BEGIN
                                             ELSE ' uventet-kolonneret:'||f.l END, '' ORDER BY coalesce(e.l,f.l)), '')
     INTO v_fejl
     FROM forventet e FULL JOIN faktisk f ON e.l=f.l WHERE e.l IS NULL OR f.l IS NULL;
-  -- Tabelretter: præcis authenticated SELECT på media; intet andet for de to roller.
+  -- Tabelretter: ingen for de to roller (R37S8-1: authenticated har heller ikke længere tabelret på media).
   SELECT v_fejl || coalesce(string_agg(' uventet-tabelret:'||l, '' ORDER BY l), '')
     INTO v_fejl
     FROM (SELECT x.grantee::regrole::text||':'||c.relname||':'||x.privilege_type AS l
             FROM pg_class c, aclexplode(c.relacl) x
            WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass)
-             AND x.grantee IN ('anon'::regrole,'authenticated'::regrole)) s
-   WHERE l <> 'authenticated:media:SELECT';
-  IF NOT has_table_privilege('authenticated','public.media','SELECT') THEN
-    v_fejl := v_fejl || ' authenticated-mangler-select:media'; END IF;
+             AND x.grantee IN ('anon'::regrole,'authenticated'::regrole)) s;
+  IF has_table_privilege('authenticated','public.media','SELECT') THEN
+    v_fejl := v_fejl || ' authenticated-har-tabelret:media'; END IF;
   IF EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) x
               WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass) AND x.grantee = 0) THEN
     v_fejl := v_fejl || ' PUBLIC-ret'; END IF;
@@ -9376,9 +9379,36 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
   IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — anon læste story.* (%)', v_state; END IF;
   EXECUTE 'RESET ROLE';
+
+  -- R37S8-1: som authenticated MED redaktørprofil — læserens kolonner virker, original_filnavn/sha256 (også som filter)
+  -- og select * afvises på tabellen, mens den rolle-gatede RPC giver felterne.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO media(id,slags,titel,upload_status,original_filnavn,sha256)
+    VALUES (-937711,'foto','s8 redaktør','klar','Privat navn.jpg',repeat('8a',32));
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'FEJL: S8 — testen kører ikke som redaktør'; END IF;
+  PERFORM count(*) FROM (SELECT id, titel, storage_path, upload_status, byte_size FROM public.media) q;
+  FOR r IN SELECT * FROM (VALUES
+      ('SELECT original_filnavn FROM public.media'),('SELECT sha256 FROM public.media'),
+      ('SELECT id FROM public.media WHERE sha256 = repeat(''8a'',32)'),('SELECT * FROM public.media')) v(q) LOOP
+    BEGIN
+      EXECUTE 'SELECT count(*) FROM ('||r.q||') x';
+      v_state := 'ingen fejl';
+    EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+    IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — redaktøren læste direkte: % (%)', r.q, v_state; END IF;
+  END LOOP;
+  IF (SELECT original_filnavn FROM public.red_media_interne_felter(ARRAY[-937711]::bigint[])) IS DISTINCT FROM 'Privat navn.jpg'
+     OR (SELECT id FROM public.red_media_efter_sha(repeat('8a',32))) IS DISTINCT FROM -937711 THEN
+    RAISE EXCEPTION 'FEJL: S8 — redaktørens RPC-vej til original_filnavn/sha256 virker ikke'; END IF;
+  EXECUTE 'RESET ROLE';
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
-  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S8 — gæster og medlemmer læser kun læserens kolonner (gæster også på media)';
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S8 — gæster, medlemmer og redaktion læser kun læserens kolonner (interne mediefelter kun via RPC)';
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37s8
@@ -10155,6 +10185,120 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37p11-2
+
+-- BEGIN-VERIFY r37c5a
+-- ===== Review 37 R37S8-1 + R37B-3 (blok A): interne mediefelter kun via rolle-gatede RPC'er; familie- og stedbilleder =====
+-- red_media_interne_felter og red_media_efter_sha er SECURITY DEFINER, kun authenticated har EXECUTE (anon og PUBLIC
+-- ikke). Som authenticated med redaktørprofil: felterne flettes på id, dublettjekket finder rækken; for stort/NULL array og
+-- ugyldig sha afvises med 22023; som medlem »Kun redaktion«; som anon 42501. red_slet_medierelation_uden_evidens fjerner
+-- en evidensfri media → family- og media → place-relation og afviser stadig en ukanonisk relation.
+-- Medlem/redaktør/gæst for de to RPC'er i hele kaldermatricen: tests/sql/test-review37-c5-kaldere.sql.
+DO $$
+DECLARE v_msg text; v_state text; v_txt text; f text;
+BEGIN
+  FOREACH f IN ARRAY ARRAY['public.red_media_interne_felter(bigint[])','public.red_media_efter_sha(text)'] LOOP
+    IF has_function_privilege('anon', f, 'EXECUTE') THEN RAISE EXCEPTION 'FEJL: R37C5A — anon har EXECUTE på %', f; END IF;
+    IF NOT has_function_privilege('authenticated', f, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — authenticated mangler EXECUTE på %', f; END IF;
+    IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) x WHERE p.oid=f::regprocedure AND x.grantee=0) THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — PUBLIC har EXECUTE på %', f; END IF;
+    IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f::regprocedure) THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — % er ikke SECURITY DEFINER', f; END IF;
+  END LOOP;
+
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO media(id,slags,titel,upload_status,storage_path,original_filnavn,sha256) VALUES
+    (-937701,'foto','c5 familiebillede','klar','c5/-937701.jpg','Hans og Grethe 1950.jpg',repeat('c5',32)),
+    (-937702,'foto','c5 uden felter','fjernet',NULL,NULL,NULL);
+  INSERT INTO family(id,type) VALUES (-937701,'vielse');
+  INSERT INTO place(id,navn,type) VALUES (-937701,'C5-sogn','sogn');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-937701,'media',-937701,'family',-937701,'afbildet'),
+    (-937702,'media',-937701,'place',-937701,'afbildet'),
+    (-937703,'media',-937702,'place',-937701,'placeret_paa');
+
+  -- Som authenticated med redaktørprofil (klientens vej).
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  SELECT string_agg(id||'|'||coalesce(original_filnavn,'∅')||'|'||coalesce(sha256,'∅'), ' ' ORDER BY id) INTO v_txt
+    FROM public.red_media_interne_felter(ARRAY[-937702,-937701,-937799]::bigint[]);
+  IF v_txt IS DISTINCT FROM '-937702|∅|∅ -937701|Hans og Grethe 1950.jpg|'||repeat('c5',32) THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — red_media_interne_felter gav «%»', v_txt; END IF;
+  IF (SELECT count(*) FROM public.red_media_interne_felter(ARRAY[]::bigint[])) <> 0
+     -- 1000 ikke-eksisterende id'er (loftet præcis): kaldet skal lykkes (ingen 22023) og give 0 rækker.
+     OR (SELECT count(*) FROM public.red_media_interne_felter(ARRAY(SELECT -g FROM generate_series(1,1000) g)::bigint[])) <> 0 THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — tomt array eller 1000 id''er afvist'; END IF;
+  SELECT id||'|'||titel||'|'||upload_status||'|'||storage_path INTO v_txt FROM public.red_media_efter_sha(repeat('c5',32));
+  IF v_txt IS DISTINCT FROM '-937701|c5 familiebillede|klar|c5/-937701.jpg' THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — red_media_efter_sha gav «%»', v_txt; END IF;
+  IF EXISTS (SELECT 1 FROM public.red_media_efter_sha(repeat('0',64))) THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — red_media_efter_sha fandt en ukendt sha'; END IF;
+  FOREACH f IN ARRAY ARRAY['interne:1001','interne:null','sha:null','sha:'||upper(repeat('c5',32)),'sha:'||repeat('c5',31),
+                           'sha:'||repeat('c5',32)||'0','sha:'||repeat('g',64)] LOOP
+    v_state := NULL;
+    BEGIN
+      IF f = 'interne:1001' THEN PERFORM public.red_media_interne_felter(ARRAY(SELECT g FROM generate_series(1,1001) g)::bigint[]);
+      ELSIF f = 'interne:null' THEN PERFORM public.red_media_interne_felter(NULL);
+      ELSE PERFORM public.red_media_efter_sha(nullif(substr(f,5),'null')); END IF;
+    EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+    IF v_state IS DISTINCT FROM '22023' THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — % gav ikke 22023 (%)', left(f,20), coalesce(v_state,'succes'); END IF;
+  END LOOP;
+
+  -- R37B-3: evidensfri familie- og stedbilleder kan fjernes ved blød flet; en ukanonisk relation afvises stadig.
+  PERFORM red_slet_medierelation_uden_evidens(-937701); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_medierelation_uden_evidens(-937702); PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'RESET ROLE';
+  IF EXISTS (SELECT 1 FROM relation WHERE id IN (-937701,-937702)) THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — media → family/place blev ikke fjernet'; END IF;
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_msg := NULL;
+  BEGIN PERFORM red_slet_medierelation_uden_evidens(-937703); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_msg IS DISTINCT FROM 'Relation -937703 er ikke en kanonisk medie-afbildning' THEN
+    RAISE EXCEPTION 'FEJL: R37C5A — ukanonisk relation gav «%»', coalesce(v_msg,'(succes)'); END IF;
+  EXECUTE 'RESET ROLE';
+
+  -- Som medlem: »Kun redaktion«, også ved ugyldigt input (gaten står først).
+  UPDATE profiles SET rolle='medlem' WHERE id='00000000-0000-0000-0000-000000000001';
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  FOREACH f IN ARRAY ARRAY['interne','sha','interne-null'] LOOP
+    v_msg := NULL;
+    BEGIN
+      IF f = 'interne' THEN PERFORM public.red_media_interne_felter(ARRAY[-937701]::bigint[]);
+      ELSIF f = 'interne-null' THEN PERFORM public.red_media_interne_felter(NULL);
+      ELSE PERFORM public.red_media_efter_sha(repeat('c5',32)); END IF;
+    EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+    IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — medlem (%) gav «%»', f, coalesce(v_msg,'(succes)'); END IF;
+  END LOOP;
+  EXECUTE 'RESET ROLE';
+
+  -- Som anon (uden uid; SET ROLE alene ville arve redaktør-uid'en): ingen EXECUTE.
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  PERFORM set_config('request.jwt.claims','',true);
+  EXECUTE 'SET LOCAL ROLE anon';
+  FOREACH f IN ARRAY ARRAY['interne','sha'] LOOP
+    v_state := NULL;
+    BEGIN
+      IF f = 'interne' THEN PERFORM public.red_media_interne_felter(ARRAY[-937701]::bigint[]);
+      ELSE PERFORM public.red_media_efter_sha(repeat('c5',32)); END IF;
+    EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+    IF v_state IS DISTINCT FROM '42501' THEN
+      RAISE EXCEPTION 'FEJL: R37C5A — anon (%) gav %', f, coalesce(v_state,'succes'); END IF;
+  END LOOP;
+  EXECUTE 'RESET ROLE';
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: review37 R37C5A — interne mediefelter kun via rolle-gatede RPC''er; familie- og stedbilleder kan flettes';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37c5a
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

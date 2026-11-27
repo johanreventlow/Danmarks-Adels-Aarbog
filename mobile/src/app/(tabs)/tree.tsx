@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { buildBidirectionalColumns, byggFokusRaekker, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer, traeTitel } from '@daa/core';
-import { boernIBogensOrden, childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { boernIBogensOrden, childrenOf, parentsOf, routeToMe, sporLinje, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -382,7 +382,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
 
   const focusPerson = snapPath[snapDepth] ? model.byId[snapPath[snapDepth]] : null;
   const gen = snapDepth + 1;
-  const linje = focusPerson ? linjeByPerson[focusPerson.id]?.[0] ?? activeLinje : activeLinje;
+  const linje = sporLinje(focusPerson ? linjeByPerson[focusPerson.id] : undefined, activeLinje);
 
   return (
     <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
