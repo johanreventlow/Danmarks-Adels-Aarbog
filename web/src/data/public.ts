@@ -168,7 +168,8 @@ export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]):
   };
 }
 
-export type PersonOffice = { label: string; period: string };
+// rolle: rå relation.rolle (titelalgoritmen læser den; label er kun visning)
+export type PersonOffice = { label: string; period: string; rolle: string | null };
 export type PersonEstate = { id: string; navn: string; personId: string };
 // bioVersions: alle offentlige DAA-udgave-versioner af biografien, nyeste først (§7.18
 // versionsvælger). bio er altid = bioVersions[0]?.tekst (bagudkompatibel — mobile og øvrige
@@ -394,6 +395,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
         label: embedeLabel(r.rolle, orgNavn.get(String(r.objekt_id))) || `#${r.objekt_id}`,
         period: r.periode_raw ?? '',
+        rolle: r.rolle ?? null,
       })),
       (o) => `${o.label}|${o.period}`,
     );

@@ -188,10 +188,14 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 // familie i family_id-orden (ORDER BY family_id, jf. filens øvrige queries) — ikke en semantisk
 // "seneste ægteskab"-regel, men deterministisk, og proportionalt med det aktuelle behov (kun
 // gift-ind-titel-visning).
-async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
-  if (!personIds.length) return new Map();
-  const mine = await getAll<RawPartnerRow>(() =>
+//
+// Skilsmisse (spec 2026-11-27): en skilt familie giver ingen ægtefælle-overtagelse. `skilteFamilier === null` =
+// opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en skilt kvinde.
+async function fetchAegtefaelleIdById(personIds: number[], skilteFamilier: ReadonlySet<string> | null): Promise<Map<string, string>> {
+  if (skilteFamilier === null || !personIds.length) return new Map();
+  const mineAlle = await getAll<RawPartnerRow>(() =>
     supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
+  const mine = mineAlle.filter((m) => !skilteFamilier.has(String(m.family_id)));
   if (!mine.length) return new Map();
   const familyIds = [...new Set(mine.map((m) => m.family_id))];
   const alle = await getAll<RawPartnerRow>(() =>
@@ -213,10 +217,10 @@ async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, 
   return aegtefaelleIdById;
 }
 
-export async function fetchPresensNavneDele(ids: string[]): Promise<Record<string, PresensNavneDele>> {
+export async function fetchPresensNavneDele(ids: string[], skilteFamilier: ReadonlySet<string> | null): Promise<Record<string, PresensNavneDele>> {
   if (!ids.length) return {};
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
-  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, skilteFamilier);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([

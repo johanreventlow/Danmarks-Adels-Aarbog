@@ -45,6 +45,20 @@ vi.mock('../../supabase', () => ({ supabase: { from: (t: string) => query(t) } }
 const { fetchPresensNavneDele } = await import('../presens');
 
 test('fetchPresensNavneDele: kun den afklarede fødenavn-påstand bruges, og pigenavnet står ikke dobbelt', async () => {
-  const r = await fetchPresensNavneDele(['2']);
+  const r = await fetchPresensNavneDele(['2'], new Set());
   expect(r['2']).toEqual({ navn: 'Anna', titel: 'Grevinde', efternavn: 'Reventlow', fodt: 'Hansen', tilgiftet: true });
+});
+
+test('skilt familie: ingen tilgiftet titel (heller ikke med ukendt skilsmisseopslag)', async () => {
+  const skilt = await fetchPresensNavneDele(['2'], new Set(['10']));
+  expect(skilt['2'].tilgiftet).toBeUndefined();
+  expect(skilt['2'].titel).toBe('');
+  const ukendt = await fetchPresensNavneDele(['2'], null);
+  expect(ukendt['2'].tilgiftet).toBeUndefined();
+  expect(ukendt['2'].titel).toBe('');
+});
+
+test('en anden skilt familie rammer ikke ægteskabet', async () => {
+  const r = await fetchPresensNavneDele(['2'], new Set(['99']));
+  expect(r['2'].tilgiftet).toBe(true);
 });

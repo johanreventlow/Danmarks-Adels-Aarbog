@@ -264,8 +264,10 @@ export default function PresensView(props: {
 
   useEffect(() => {
     if (!alleIds.length) return;
-    fetchPresensNavneDele(alleIds).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
-  }, [alleIds]);
+    // Skilte familier (model.skilsmisser; null/manglende = ukendt → ingen ægtefælle-titel, fail-closed).
+    const skilte = model?.skilsmisser == null ? null : new Set(Object.keys(model.skilsmisser));
+    fetchPresensNavneDele(alleIds, skilte).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
+  }, [alleIds, model?.skilsmisser]);
 
   useEffect(() => {
     if (liste && fokusId) document.querySelector(`[data-person-id="${fokusId}"]`)?.scrollIntoView({ block: 'center' });
