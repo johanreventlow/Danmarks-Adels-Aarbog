@@ -87,6 +87,15 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
     return () => { aktuel = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- familieNoegle bærer aegteskaber's familie-id'er
   }, [familieNoegle]);
+  // Statuslinjen under årene (spec 2026-11-27): ét sted for titel, adelsnavn og ægteskabstitel. Hof-/rangtitler kommer
+  // fra titel-fakta og embedsroller, så de er først med, når detaljerne er hentet (null før). Folgesvend
+  // giver kun detaljen videre, når den er hentet for netop focusId. Før det tidlige return (hooks i fast rækkefølge).
+  const hofKilder = useMemo(() => detail
+    ? [
+        ...(detail.faktaInput?.rows ?? []).filter((r) => r.faktatype === 'titel' && r.chosen && r.conclusion_status === 'afklaret').map((r) => r.vaerdi_tekst),
+        ...detail.offices.map((o) => o.rolle),
+      ].filter((x): x is string => !!x)
+    : null, [detail]);
   const p = v.p;
   if (!p) return null;
   const kunI = kunIAeldreTekst(model, focusId);
@@ -107,14 +116,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   // Fuldt linjenavn i etiketten (»V. Den grevelige Linje af 1673, nr. 1«, projektejeren 2026-11-19).
   const nr = bogensNummer(model.sourcesBy, focusId, 'fuld');
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
-  // Statuslinjen under årene (spec 2026-11-27): ét sted for titel, adelsnavn og ægteskabstitel. Hof-/rangtitler kommer
-  // fra titel-fakta og embedsroller, så de er først med, når detaljerne er hentet (null før).
-  const hofKilder = useMemo(() => detail
-    ? [
-        ...(detail.faktaInput?.rows ?? []).filter((r) => r.faktatype === 'titel' && r.chosen && r.conclusion_status === 'afklaret').map((r) => r.vaerdi_tekst),
-        ...detail.offices.map((o) => o.rolle),
-      ].filter((x): x is string => !!x)
-    : null, [detail]);
   const statuslinje = byggStatuslinje(model, focusId, hofKilder);
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
   const skiltTekst = (spId: string) => { const sk = parSkilsmisse(model, focusId, spId); return sk ? fmtSkilt(sk, 'dag') : undefined; };

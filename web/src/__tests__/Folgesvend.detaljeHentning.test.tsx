@@ -52,8 +52,11 @@ vi.mock('../data/bookmarks', () => ({
   }),
 }));
 // Personsiden viser, om modellen har fået geo — beviset for, at geo-kæden faktisk er landet i testen.
+// Hver render noteres (focusId + detaljens bio), så testen kan se, om en anden persons detalje nåede siden.
+const personSideRenders = vi.hoisted(() => [] as { focusId: string; bio: string | null }[]);
 vi.mock('../components/PersonSide', () => ({
   PersonSide: (props: { focusId: string; model: { geo?: { maerke?: string } }; detail: { bio: string } | null }) => (
+    personSideRenders.push({ focusId: props.focusId, bio: props.detail?.bio ?? null }),
     <main>Personside {props.focusId}: {props.detail ? props.detail.bio : 'henter'} · {props.model.geo?.maerke === GEO_MAERKE ? 'geo landet' : 'uden geo'}</main>
   ),
 }));
@@ -86,6 +89,7 @@ function lavModel() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  personSideRenders.length = 0;
   locCache.v = null;
   mocks.currentSession.mockResolvedValue(null);
   mocks.fetchPersonDetail.mockResolvedValue(DETALJE);
@@ -155,4 +159,26 @@ test('dybt link /besiddelse/<id>: ejerrækken hentes præcis én gang gennem mod
   geoSvar.resolve({ placesById: {}, factsByPerson: {}, maerke: GEO_MAERKE });
   await screen.findByText('Besiddelse: ejere ok · geo landet');
   expect(mocks.fetchEstateOwners).toHaveBeenCalledTimes(1);
+});
+
+test('personskift: den forrige persons detalje når aldrig den nye persons side (heller ikke i én render)', async () => {
+  window.history.replaceState({}, '', '/person/1');
+  const base = buildModel({
+    persons: [
+      { id: '1', name: 'Testperson', born: null, died: 1900, years: '', title: '', bio: '', privat: false },
+      { id: '2', name: 'Anden person', born: null, died: 1900, years: '', title: '', bio: '', privat: false },
+    ],
+    unions: [],
+    parentChild: [],
+  });
+  mocks.loadModel.mockResolvedValue({ ...base, loadGeo: () => new Promise(() => {}) });
+  const { rerender } = render(<Folgesvend />);
+  await screen.findByText(/Personside 1: Hentet/);
+  // Person 2's detalje kommer aldrig: siden må vise »henter«, ikke person 1's detalje.
+  mocks.fetchPersonDetail.mockReturnValue(new Promise(() => {}));
+  window.history.replaceState({}, '', '/person/2');
+  rerender(<Folgesvend />);
+  await screen.findByText(/Personside 2: henter/);
+  const forkerte = personSideRenders.filter((r) => r.focusId === '2' && r.bio !== null);
+  expect(forkerte).toEqual([]);
 });
