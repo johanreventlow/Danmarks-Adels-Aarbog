@@ -449,6 +449,19 @@ default_janitor_db_ops <- function() {
   list(
     begin = DBI::dbBegin,
     execute = function(con, sql, params) DBI::dbExecute(con, sql, params = params),
+    # Review 37 E12: rapporten er et øjebliksbillede. Inden noget slettes, låses rækken og
+    # genprøves i databasen: stadig i media-bucket, stadig kladde/fejlet og stadig ældre end
+    # fristen. En upload, der blev færdig (klar) efter rapporten, slettes derfor aldrig.
+    lock_stranded = function(con, media_id, frist_dage) {
+      id <- normalize_bigint_id(media_id, "media-id ved genprøvning")
+      rows <- DBI::dbGetQuery(con, paste(
+        "SELECT id FROM media WHERE id = $1::bigint AND bucket = 'media'",
+        "AND upload_status IN ('kladde', 'fejlet')",
+        "AND created_at < now() - make_interval(days => $2::int)",
+        "FOR UPDATE"
+      ), params = list(id, as.integer(frist_dage)))
+      nrow(rows) == 1L
+    },
     delete_media = function(con, media_id) {
       id <- normalize_bigint_id(media_id, "media-id ved sletning")
       # RPostgres 1.4.10 reducerer serverfejl til simpleError og eksponerer ikke
@@ -473,7 +486,7 @@ default_janitor_db_ops <- function() {
 delete_stranded_media_row <- function(con, media_id, bucket, paths,
                                       relation_ids = numeric(), has_evidence = logical(),
                                       db_ops = default_janitor_db_ops(), storage_delete,
-                                      has_unexpected_relation = FALSE) {
+                                      has_unexpected_relation = FALSE, frist_dage = 7L) {
   if (length(bucket) != 1L || is.na(bucket) || bucket != MEDIA_JANITOR_BUCKET) {
     return(list(status = "manuel", detail = "fremmed bucket"))
   }
@@ -488,6 +501,11 @@ delete_stranded_media_row <- function(con, media_id, bucket, paths,
   committed <- FALSE
   db_ops$begin(con)
   tryCatch({
+    if (!isTRUE(db_ops$lock_stranded(con, media_id, frist_dage))) {
+      stop(structure(list(message = "ikke længere strandet (status eller alder ændret siden rapporten)",
+                          sqlstate = "MJ002"),
+                     class = c("media_janitor_manual", "error", "condition")))
+    }
     for (relation_id in relation_ids) {
       # Samme FK-orden som _delete_relation_evidence. Hvert DELETE er betinget af,
       # at HELE evidenssættet stadig er tomt; en samtidig evidensrække bliver derfor
@@ -558,6 +576,31 @@ delete_stranded_media_row <- function(con, media_id, bucket, paths,
     }
   }
   list(status = "slettet", detail = "DB og Storage slettet", paths = clean_paths)
+}
+
+# Review 37 E12: et forældreløst objekt fra rapporten genprøves mod databasen lige før
+# sletningen — er stien blevet registreret (media eller variant) siden, røres den ikke.
+orphan_still_unreferenced <- function(con, bucket, path) {
+  rows <- DBI::dbGetQuery(con, paste(
+    "SELECT (NOT EXISTS (SELECT 1 FROM media m WHERE m.bucket = $1 AND m.storage_path = $2)",
+    "AND NOT EXISTS (SELECT 1 FROM media_variant v JOIN media m ON m.id = v.media_id",
+    "WHERE m.bucket = $1 AND v.storage_path = $2)) AS fri"
+  ), params = list(bucket, path))
+  isTRUE(rows$fri[[1]])
+}
+
+delete_orphan_object <- function(bucket, path, is_unreferenced, storage_delete) {
+  unreferenced <- tryCatch(is_unreferenced(bucket, path), error = function(error) error)
+  if (inherits(unreferenced, "error")) {
+    return(list(status = "fejlet", detail = paste("genprøvning fejlede:", conditionMessage(unreferenced))))
+  }
+  if (!isTRUE(unreferenced)) {
+    return(list(status = "manuel", detail = "stien er registreret siden rapporten"))
+  }
+  tryCatch({
+    storage_delete(bucket, path)
+    list(status = "slettet")
+  }, error = function(error) list(status = "fejlet", detail = conditionMessage(error)))
 }
 
 storage_api_context <- function() {
@@ -779,6 +822,16 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
   }
   for (i in seq_len(nrow(findings$sha_candidates))) {
     item <- findings$sha_candidates[i, , drop = FALSE]
+    # Review 37 E12: rapporttilstand henter ingen filer. Hash og dublettjek sker først,
+    # når --backfill-sha er valgt (samme downloadvej, ingen ændret beslutningslogik).
+    if (!isTRUE(options$backfill_sha)) {
+      report <- rbind(report, build_report_row(
+        "d_sha_backfill", item$media_id, item$sti, item$created_at, now,
+        "backfill med --backfill-sha (filen hentes og dublettjekkes først da)",
+        bucket = item$bucket
+      ))
+      next
+    }
     result <- backfill_one_sha(
       item$media_id, item$bucket, item$sti, sha_known,
       storage_download, update_sha, do_update = FALSE
@@ -816,7 +869,8 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
         relation_block$expected_relation_ids,
         rel$has_evidence[rel$relation_id %in% relation_block$expected_relation_ids],
         storage_delete = storage_delete,
-        has_unexpected_relation = length(relation_block$unexpected_relation_ids) > 0L
+        has_unexpected_relation = length(relation_block$unexpected_relation_ids) > 0L,
+        frist_dage = options$frist_dage
       )
       if (!identical(result$status, "slettet")) {
         idx <- report$kategori == "a_strandet" & report$media_id == item$media_id[[1]]
@@ -832,13 +886,16 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
       result
     },
     delete_orphan = function(item) {
-      result <- tryCatch({
-        storage_delete(item$bucket[[1]], item$name[[1]])
-        list(status = "slettet")
-      }, error = function(error) list(status = "fejlet", detail = conditionMessage(error)))
+      result <- delete_orphan_object(
+        item$bucket[[1]], item$name[[1]],
+        is_unreferenced = function(bucket, path) orphan_still_unreferenced(con, bucket, path),
+        storage_delete = storage_delete
+      )
       idx <- report$kategori == "b_forældreløs" & report$sti == item$name[[1]]
       report$anbefalet_handling[idx] <<- if (identical(result$status, "slettet")) {
         "slettet"
+      } else if (identical(result$status, "manuel")) {
+        paste0("manuel afgørelse krævet: ", result$detail)
       } else {
         paste0("Storage retry krævet: ", result$detail)
       }

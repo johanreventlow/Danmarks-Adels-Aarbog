@@ -324,6 +324,7 @@ test_that("strandet rækkes DB-sletning følger FK-orden og HTTP sker efter comm
   events <- character()
   db_ops <- list(
     begin = function(con) events <<- c(events, "begin"),
+    lock_stranded = function(con, id, frist) TRUE,
     execute = function(con, sql, params) {
       token <- if (grepl("DELETE FROM citation", sql, fixed = TRUE)) "citation"
       else if (grepl("DELETE FROM conclusion", sql, fixed = TRUE)) "conclusion"
@@ -382,6 +383,7 @@ test_that("BIGINT-id'er over 2^53 bevares eksakt gennem destructive targets", {
   destructive_ids <- character()
   db_ops <- list(
     begin = function(con) NULL,
+    lock_stranded = function(con, id, frist) TRUE,
     execute = function(con, sql, params) {
       if (length(params)) destructive_ids <<- c(destructive_ids, as.character(params[[1]]))
       1L
@@ -486,6 +488,7 @@ test_that("kanonisk media→objekt afbildet tillades og slettes evidence-safe", 
     events <- character()
     db_ops <- list(
       begin = function(con) events <<- c(events, "begin"),
+      lock_stranded = function(con, id, frist) TRUE,
       execute = function(con, sql, params) {
         events <<- c(events, if (grepl("DELETE FROM relation", sql, fixed = TRUE)) {
           paste0("relation:", params[[1]])
@@ -566,6 +569,7 @@ test_that("SQLSTATE 23503 rollbackes pr række og Storage røres ikke", {
                   class = c("PqResultError", "error", "condition"))
   db_ops <- list(
     begin = function(con) events <<- c(events, "begin"),
+    lock_stranded = function(con, id, frist) TRUE,
     execute = function(con, sql, params) stop(fk),
     commit = function(con) events <<- c(events, "commit"),
     rollback = function(con) events <<- c(events, "rollback")
@@ -588,6 +592,7 @@ test_that("andre DB-fejl rollbackes og fejler højt", {
   events <- character()
   db_ops <- list(
     begin = function(con) events <<- c(events, "begin"),
+    lock_stranded = function(con, id, frist) TRUE,
     execute = function(con, sql, params) stop("boom"),
     commit = function(con) events <<- c(events, "commit"),
     rollback = function(con) events <<- c(events, "rollback")
@@ -603,6 +608,7 @@ test_that("andre DB-fejl rollbackes og fejler højt", {
 test_that("fejlet Storage-sletning maskerer ikke gennemført DB-sletning", {
   db_ops <- list(
     begin = function(con) NULL,
+    lock_stranded = function(con, id, frist) TRUE,
     execute = function(con, sql, params) 1L,
     commit = function(con) NULL,
     rollback = function(con) NULL
@@ -631,4 +637,70 @@ test_that("sha-download og hashing sker før den korte DB-opdatering", {
                              download, update, temp_path = tmp)
   expect_equal(events, c("download", "update"))
   expect_equal(result$action, "updated")
+})
+
+test_that("E12: en række, der ikke længere er strandet, slettes ikke (genprøvning under lås)", {
+  events <- character()
+  frist_set <- NULL
+  db_ops <- list(
+    begin = function(con) events <<- c(events, "begin"),
+    lock_stranded = function(con, id, frist) {
+      frist_set <<- frist
+      events <<- c(events, paste0("lock:", id))
+      FALSE
+    },
+    execute = function(con, sql, params) events <<- c(events, "execute"),
+    delete_media = function(con, id) events <<- c(events, "delete_media"),
+    commit = function(con) events <<- c(events, "commit"),
+    rollback = function(con) events <<- c(events, "rollback")
+  )
+  result <- delete_stranded_media_row(
+    NULL, 7L, "media", c("large/7", "thumb/7"), c(31L), c(FALSE), db_ops,
+    storage_delete = function(...) events <<- c(events, "storage"),
+    frist_dage = 14L
+  )
+  expect_equal(events, c("begin", "lock:7", "rollback"))
+  expect_equal(frist_set, 14L)
+  expect_equal(result$status, "manuel")
+  expect_match(result$detail, "ikke længere strandet")
+})
+
+test_that("E12: genprøvningen sker før første DELETE", {
+  events <- character()
+  db_ops <- list(
+    begin = function(con) events <<- c(events, "begin"),
+    lock_stranded = function(con, id, frist) { events <<- c(events, "lock"); TRUE },
+    execute = function(con, sql, params) { events <<- c(events, "delete"); 1L },
+    commit = function(con) events <<- c(events, "commit"),
+    rollback = function(con) events <<- c(events, "rollback")
+  )
+  delete_stranded_media_row(NULL, 7L, "media", "large/7", numeric(), logical(), db_ops,
+                            storage_delete = function(...) NULL)
+  expect_equal(events[1:3], c("begin", "lock", "delete"))
+})
+
+test_that("E12: standard-genprøvningen kræver media-bucket, kladde/fejlet, fristen og FOR UPDATE", {
+  body <- paste(deparse(default_janitor_db_ops()$lock_stranded), collapse = "\n")
+  expect_match(body, "bucket = 'media'", fixed = TRUE)
+  expect_match(body, "upload_status IN ('kladde', 'fejlet')", fixed = TRUE)
+  expect_match(body, "make_interval(days => $2::int)", fixed = TRUE)
+  expect_match(body, "FOR UPDATE", fixed = TRUE)
+})
+
+test_that("E12: forældreløst objekt genprøves og røres ikke, hvis stien er registreret", {
+  deleted <- character()
+  storage_delete <- function(bucket, paths) deleted <<- c(deleted, paths)
+
+  registreret <- delete_orphan_object("media", "large/x", function(b, p) FALSE, storage_delete)
+  expect_equal(registreret$status, "manuel")
+  expect_length(deleted, 0L)
+
+  fejl <- delete_orphan_object("media", "large/y", function(b, p) stop("db nede"), storage_delete)
+  expect_equal(fejl$status, "fejlet")
+  expect_match(fejl$detail, "genprøvning fejlede")
+  expect_length(deleted, 0L)
+
+  fri <- delete_orphan_object("media", "large/z", function(b, p) TRUE, storage_delete)
+  expect_equal(fri$status, "slettet")
+  expect_equal(deleted, "large/z")
 })
