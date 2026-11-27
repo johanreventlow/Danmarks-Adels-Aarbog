@@ -358,7 +358,7 @@ def periode_spaend(periode: str | None):
 
 def navn_ens(navn: str) -> str:
     """Navne, læseren ikke kan skelne: samme bogstaver uanset store/små, bindestregstype og mellemrum."""
-    s = unicodedata.normalize("NFC", navn or "").casefold()
+    s = unicodedata.normalize("NFC", navn or "").lower()  # .lower() som JavaScripts toLowerCase (arkets kopi)
     s = re.sub(r"[\u2010-\u2014\-]", "-", s)
     return re.sub(r"\s+", " ", s).strip()
 
@@ -1317,7 +1317,11 @@ fieldset.valg label{display:block;padding:4px 0;cursor:pointer}fieldset.valg lab
 .hfelter input,.hfelter textarea,.hfelter select{width:100%}.fejl{color:var(--fejl);font-weight:600}
 details summary{cursor:pointer;font-weight:600}code,kbd{font-size:.9em}
 .skjult{display:none}#kopiboks{width:100%;height:8em;display:none}
-.problem{margin:.2em 0 .5em}#aendret{display:none}#aendret.vis{display:block}
+.problem{margin:.2em 0 .5em}
+.konfliktboks{display:none;max-width:980px;margin:6px auto 0;background:var(--warn-bg);color:var(--fejl);
+border:2px solid var(--fejl);border-radius:8px;padding:4px 10px;max-height:40vh;overflow:auto}
+.konfliktboks.vis{display:block}.konfliktboks a{color:inherit;font-weight:600}
+.kort.konflikt{border:2px solid var(--fejl);box-shadow:0 0 0 2px var(--fejl) inset}#aendret{display:none}#aendret.vis{display:block}
 """
 
 
@@ -1430,10 +1434,85 @@ def _spoergsmaal_html(f, q, kilder: dict) -> str:
     return "".join(ud)
 
 
+JS_KONFLIKT = r"""
+function navnEns(s) {
+  return String(s || "").normalize("NFC").toLowerCase().replace(/[\u2010-\u2014-]/g, "-").replace(/\s+/g, " ").trim();
+}
+function har(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+// Ordret oversættelse af konflikter() i forslag.py (samme regel som --flet); testes mod Python med node.
+function konflikter(D, valg) {
+  var alt = D.alt, poster = D.poster, forvalg = D.forvalg;
+  function kode(pid) { return har(valg, pid) ? valg[pid].svar : (har(forvalg, pid) ? forvalg[pid] : null); }
+  var opsl = {}, erstattet = {};
+  Object.keys(poster).forEach(function (pid) {
+    var x = poster[pid], k = kode(pid);
+    if (x.type !== "S" || (k !== "ja" && k !== "delvis")) return;
+    var gl = k === "ja" ? x.grupper : x.grupper.filter(function (g) { return valg[pid].grupper.indexOf(g) >= 0; });
+    gl.slice(1).forEach(function (g) {
+      x.flyttes[g].forEach(function (m) { opsl[m] = poster[gl[0]].overlever; });
+      erstattet[g] = true;
+    });
+  });
+  var nyOm = {};
+  Object.keys(poster).forEach(function (pid) {
+    var x = poster[pid];
+    if (x.type === "N" && kode(pid) === "ja") Object.keys(x.noegler).forEach(function (k) { nyOm[x.noegler[k]] = x.faelles; });
+  });
+  var saet = {}, fra = {}, opret = {};
+  Object.keys(opsl).forEach(function (m) { fra[m] = true; });
+  Object.keys(alt).forEach(function (pid) {
+    var k = kode(pid);
+    if (k === null || k === undefined || !har(alt[pid], k)) return;
+    var a = alt[pid][k];
+    if (!erstattet[pid]) a.fra.forEach(function (f) { fra[f] = true; });
+    a.saet.forEach(function (r) { if (erstattet[pid] && har(opsl, r[0])) return; saet[r[0]] = [r[1], r[2]]; });
+    a.opret.forEach(function (r) { var n = har(nyOm, r[0]) ? nyOm[r[0]] : r[0]; if (!har(opret, n)) opret[n] = [r[1], r[2]]; });
+  });
+  var gAf = {};
+  Object.keys(poster).forEach(function (pid) {
+    var x = poster[pid]; if (x.type === "gruppe") x.medlemmer.forEach(function (m) { gAf[m] = pid; });
+  });
+  var sider = {}, noegler = [];
+  function tilfoej(navn, sl, hvem) {
+    var nk = navnEns(navn), k = nk + "\u0000" + (sl || "");
+    if (!har(sider, k)) { sider[k] = []; noegler.push([nk, sl || "", k]); }
+    sider[k].push([navn, hvem]);
+  }
+  Object.keys(saet).map(Number).sort(function (a, b) { return a - b; }).forEach(function (e) {
+    if (har(fra, e)) return;
+    tilfoej(saet[e][0], saet[e][1], har(gAf, e) ? gAf[e] : String(e));
+  });
+  Object.keys(opret).sort().forEach(function (n) {
+    var d = n.split(":");
+    tilfoej(opret[n][0], opret[n][1], d.length === 3 ? d[1] : n);
+  });
+  var sAf = {};
+  Object.keys(poster).forEach(function (q) {
+    var x = poster[q];
+    if (x.type !== "S" && x.type !== "N") return;
+    (x.grupper || Object.keys(x.noegler || {})).forEach(function (g) { (sAf[g] = sAf[g] || []).push(q); });
+  });
+  noegler.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0); });
+  var ud = [];
+  noegler.forEach(function (n) {
+    var liste = sider[n[2]];
+    if (liste.length < 2) return;
+    var hvem = liste.map(function (x) { return x[1]; }).filter(function (h, i, a) { return a.indexOf(h) === i; }).sort();
+    var spm = (sAf[hvem[0]] || []).filter(function (q) {
+      return hvem.every(function (h) { return (sAf[h] || []).indexOf(q) >= 0; }); }).sort();
+    ud.push({ navn: liste[0][0], slags: n[1] || null, antal: liste.length, hvem: hvem, spm: spm });
+  });
+  return ud;
+}
+"""
+
+
 JS = r"""
 (function () {
   "use strict";
   var META = JSON.parse(document.getElementById("meta").textContent);
+  var KD = JSON.parse(document.getElementById("konflikt").textContent);
+  var antalKonflikter = 0;
   // Nøglen følger kun dataene; hvert svar bærer postens fingeraftryk (data-valghash), så et nyt ark genbruger
   // svar for uændrede poster og spørger igen, hvor valgmulighederne er ændret.
   var NOEGLE = "471-svar:" + META.kilde_hash.estate + ":" + META.kilde_hash.relation;
@@ -1519,6 +1598,57 @@ JS = r"""
       b.classList.add("vis");
     }
   }
+  function sideValg() {
+    var v = {};
+    beslut.forEach(function (k) {
+      var s = valgt(k.id);
+      if (!s) return;
+      v[k.id] = { svar: s };
+      if (s === "delvis") v[k.id].grupper = delvisValgt(k.id);
+    });
+    return v;
+  }
+  function visKonflikter() {
+    var ks = konflikter(KD, sideValg()), boks = q("#konflikter");
+    antalKonflikter = ks.length;
+    Array.prototype.forEach.call(document.querySelectorAll(".kort.konflikt"), function (k) { k.classList.remove("konflikt"); });
+    boks.textContent = "";
+    boks.classList.toggle("vis", ks.length > 0);
+    if (!ks.length) return;
+    var d = document.createElement("details"), sm = document.createElement("summary");
+    sm.textContent = ks.length + " navnekonflikt" + (ks.length > 1 ? "er" : "") +
+      " — to sider med samme navn kan læseren ikke skelne (fletningen afviser dem)";
+    d.appendChild(sm);
+    var ul = document.createElement("ul");
+    function lnk(id, tekst) { var a = document.createElement("a"); a.href = "#" + id; a.textContent = tekst; return a; }
+    function navn(id) { return id.charAt(0) === "G" ? "gruppe " + id.slice(1) : id; }
+    ks.forEach(function (k) {
+      var li = document.createElement("li");
+      k.hvem.forEach(function (h, i) {
+        if (i) li.appendChild(document.createTextNode(i === k.hvem.length - 1 ? " og " : ", "));
+        li.appendChild(lnk(h, navn(h)));
+        var kort = document.getElementById(h); if (kort) kort.classList.add("konflikt");
+      });
+      if (k.hvem.length === 1) {
+        li.appendChild(document.createTextNode(": " + k.antal + " sider vil hedde »" + k.navn + "« — vælg »læg sammen«"));
+      } else {
+        li.appendChild(document.createTextNode(" vil begge hedde »" + k.navn + "« — "));
+        if (k.spm.length) {
+          li.appendChild(document.createTextNode("svar ja i "));
+          k.spm.forEach(function (s, i) { if (i) li.appendChild(document.createTextNode(", ")); li.appendChild(lnk(s, s)); });
+          li.appendChild(document.createTextNode(", eller "));
+        }
+        li.appendChild(document.createTextNode("vælg et andet navn (eller »uden kopier«) i en af grupperne"));
+      }
+      ul.appendChild(li);
+    });
+    d.appendChild(ul);
+    boks.appendChild(d);
+  }
+  function konfliktOk() {
+    return !antalKonflikter || window.confirm("Svarene har " + antalKonflikter + " navnekonflikt" +
+      (antalKonflikter > 1 ? "er" : "") + " — fletningen vil afvise dem. Gem alligevel?");
+  }
   function opdater(uden_gem) {
     var skal = beslut.filter(function (k) { return k.getAttribute("data-skal") === "1"; });
     var n = 0;
@@ -1539,6 +1669,7 @@ JS = r"""
       }
     });
     q("#taeller").textContent = n + " af " + skal.length + " besvaret";
+    visKonflikter();
     q(".bar i").style.width = (skal.length ? 100 * n / skal.length : 100) + "%";
     if (!uden_gem) gem();
   }
@@ -1576,6 +1707,7 @@ JS = r"""
     saetAktiv(naeste);
   }
   function download() {
+    if (!konfliktOk()) return;
     var tekst = JSON.stringify(svar(), null, 1);
     var a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([tekst], { type: "application/json" }));
@@ -1583,6 +1715,7 @@ JS = r"""
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
   function kopier() {
+    if (!konfliktOk()) return;
     var tekst = JSON.stringify(svar(), null, 1), boks = q("#kopiboks");
     function reserve() {
       boks.style.display = "block"; boks.value = tekst; boks.select();
@@ -1665,11 +1798,13 @@ def render_html(f, meta: dict) -> str:
         "<meta name=viewport content='width=device-width,initial-scale=1'><title>Godser forslagsark</title>"
         f"<style>{CSS}</style></head><body>",
         f"<script type=application/json id=meta>{meta_json}</script>",
+        "<script type=application/json id=konflikt>" +
+        json.dumps(konfliktdata(plan), ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/") + "</script>",
         "<header class=top><div class=indre><strong>Godser #471</strong>"
         "<div class=bar><i></i></div><span id=taeller></span>"
         "<button id=naeste class=primaer title='Tast n'>Næste ubesvarede</button>"
         "<button id=gem>Gem svar</button><button id=kopier>Kopiér svar</button>"
-        "<span id=gemt class=muted></span></div>"
+        "<span id=gemt class=muted></span></div><div id=konflikter class=konfliktboks></div>"
         "<div class='indre filtre'><span class=muted>Vis:</span>"
         "<label><input type=radio name=filter value=skal checked> Skal afgøres</label>"
         "<label><input type=radio name=filter value=forslag> Forslag</label>"
@@ -1714,7 +1849,7 @@ def render_html(f, meta: dict) -> str:
         f"<div class=afsnit><h2>Forslag ({len(aendr)})</h2>", *(_gruppe_html(f, g) for g in aendr), "</div>",
         f"<div class=afsnit><h2>Enkle rækker ({len(enkel)})</h2>"
         "<p class=muted>Navnet beholdes; kun arten sættes.</p>", *(_gruppe_html(f, g) for g in enkel), "</div>",
-        f"</main><script>{JS}</script></body></html>",
+        f"</main><script>{JS_KONFLIKT}{JS}</script></body></html>",
     ]
     return "\n".join(dele)
 
@@ -1725,6 +1860,85 @@ class FletFejl(PlanFejl):
     def __init__(self, fejl: list):
         self.fejl = fejl
         super().__init__("svarene kan ikke flettes:\n- " + "\n- ".join(fejl))
+
+
+def konfliktdata(plan: dict) -> dict:
+    """Det, der skal til for at beregne sidernes navne ud fra svarene — indlejres i arket (JS_KONFLIKT)."""
+    alt = {}
+    for pid, alts in plan["alternativer"].items():
+        alt[pid] = {k: {"saet": [[o["estate"], o["navn"], o["slags"]] for o in a.get("saet", [])],
+                        "opret": [[o["noegle"], o["navn"], o["slags"]] for o in a.get("opret", [])],
+                        "fra": [o["fra"] for o in a.get("sammenlaeg", [])]}
+                    for k, a in alts.items()}
+    return {"alt": alt, "forvalg": plan["forvalg"], "poster": plan["poster"]}
+
+
+def konflikter(d: dict, valg: dict) -> list:
+    """Sider, der ville få samme navn og slags (læseren kan ikke skelne dem). Samme regel som --flet; arkets
+    JavaScript (JS_KONFLIKT) er en ordret oversættelse og testes mod denne. valg: {post: {"svar": …[, "grupper"]}}."""
+    alt, poster, forvalg = d["alt"], d["poster"], d["forvalg"]
+
+    def kode(pid):
+        v = valg.get(pid)
+        return v["svar"] if v else forvalg.get(pid)
+    opsl, erstattet = {}, set()
+    for pid, x in poster.items():
+        if x["type"] != "S" or kode(pid) not in ("ja", "delvis"):
+            continue
+        gl = x["grupper"] if kode(pid) == "ja" else [g for g in x["grupper"] if g in valg[pid]["grupper"]]
+        for g in gl[1:]:
+            for m in x["flyttes"][g]:
+                opsl[m] = poster[gl[0]]["overlever"]
+            erstattet.add(g)
+    ny_om = {n: x["faelles"] for pid, x in poster.items() if x["type"] == "N" and kode(pid) == "ja"
+             for n in x["noegler"].values()}
+    saet, fra, opret = {}, set(opsl), {}
+    for pid, alts in alt.items():
+        k = kode(pid)
+        if k is None or k not in alts:
+            continue
+        a = alts[k]
+        if pid not in erstattet:
+            fra.update(a["fra"])
+        for e, navn, sl in a["saet"]:
+            if pid in erstattet and e in opsl:
+                continue
+            saet[e] = (navn, sl)
+        for n, navn, sl in a["opret"]:
+            opret.setdefault(ny_om.get(n, n), (navn, sl))
+    g_af = {m: pid for pid, x in poster.items() if x["type"] == "gruppe" for m in x["medlemmer"]}
+    sider = {}
+    for e in sorted(saet):
+        if e in fra:
+            continue
+        navn, sl = saet[e]
+        sider.setdefault((navn_ens(navn), sl or ""), []).append((navn, g_af.get(e, str(e))))
+    for n in sorted(opret):
+        navn, sl = opret[n]
+        sider.setdefault((navn_ens(navn), sl or ""), []).append((navn, n.split(":")[1] if n.count(":") == 2 else n))
+    s_af = {}
+    for q, x in poster.items():
+        if x["type"] in ("S", "N"):
+            for g in (x.get("grupper") or list(x.get("noegler", {}))):
+                s_af.setdefault(g, []).append(q)
+    ud = []
+    for (nv, sl), liste in sorted(sider.items()):
+        if len(liste) < 2:
+            continue
+        hvem = sorted({h for _, h in liste})
+        spm = sorted(q for q in s_af.get(hvem[0], []) if all(q in s_af.get(h, []) for h in hvem))
+        ud.append({"navn": liste[0][0], "slags": sl or None, "antal": len(liste), "hvem": hvem, "spm": spm})
+    return ud
+
+
+def konflikt_tekst(k: dict) -> str:
+    sl = ART_ETIKET.get(k["slags"], k["slags"])
+    if len(k["hvem"]) == 1:
+        return (f"{k['hvem'][0]}: rækkerne holdes adskilt, men {k['antal']} af dem ville vise »{k['navn']}« ({sl}) — "
+                f"to sider med samme navn kan læseren ikke skelne; vælg »læg sammen« i {k['hvem'][0]}")
+    return (f"{' og '.join(k['hvem'])} ville begge vise »{k['navn']}« ({sl}) — to sider med samme navn kan læseren "
+            f"ikke skelne: " + (f"svar ja i {', '.join(k['spm'])}, eller " if k["spm"] else "") +
+            "vælg et andet navn (eller »uden kopier«) i en af grupperne")
 
 
 def _gruppe_af_estate(poster: dict) -> dict:
@@ -1887,34 +2101,8 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
     ops["hoerer_under"] = [o for o in ops["hoerer_under"]
                            if hu_set[(o["gaard"], o["majorat"], o["periode"], o["source"])] is o]
 
-    # Navnekollision: to overlevende sider med samme navn og slags kan læseren ikke skelne.
-    g_af = _gruppe_af_estate(poster)
-    sider = {}
-    for o in ops["saet"]:
-        sider.setdefault((navn_ens(o["navn"]), o["slags"]), []).append((o["navn"], g_af.get(o["estate"],
-                                                                                            str(o["gruppe"]))))
-    for o in ops["opret"]:
-        sider.setdefault((navn_ens(o["navn"]), o["slags"]), []).append(
-            (o["navn"], o["noegle"].split(":")[1] if o["noegle"].count(":") == 2 else o["noegle"]))
-    s_af = {}
-    for q, x in poster.items():
-        if x["type"] in ("S", "N"):
-            for g in (x.get("grupper") or list(x.get("noegler", {}))):
-                s_af.setdefault(g, set()).add(q)
-    for (_nv, sl), liste in sider.items():
-        if len(liste) < 2:
-            continue
-        hvem = sorted({h for _, h in liste})
-        if len(hvem) == 1:
-            fejl.append(f"{hvem[0]}: rækkerne holdes adskilt, men {len(liste)} af dem ville vise »{liste[0][0]}« "
-                        f"({ART_ETIKET.get(sl, sl)}) — to sider med samme navn kan læseren ikke skelne; vælg »læg "
-                        f"sammen« i {hvem[0]}")
-            continue
-        spm = sorted(set.intersection(*[s_af.get(h, set()) for h in hvem]))
-        fejl.append(f"{' og '.join(hvem)} ville begge vise »{liste[0][0]}« ({ART_ETIKET.get(sl, sl)}) — to sider "
-                    f"med samme navn kan læseren ikke skelne: " +
-                    (f"svar ja i {', '.join(spm)}, eller " if spm else "") +
-                    "vælg et andet navn (eller »uden kopier«) i en af grupperne")
+    # Navnekollision: to overlevende sider med samme navn og slags kan læseren ikke skelne (delt regel med arket).
+    fejl.extend(konflikt_tekst(k) for k in konflikter(konfliktdata(forslag_plan), valg))
     if fejl:
         raise FletFejl(fejl)
     svar_sha = hashlib.sha256(svar_bytes if svar_bytes is not None else

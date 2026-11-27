@@ -941,3 +941,113 @@ def test_n_nej_siger_hvornaar_det_virker():
     f = forslag.byg_forslag(data([(1, "Holm med Aalstrup"), (2, "Gram med Aalstrup i Salling")]))
     assert len(f.nye) == 1
     assert f.nye[0].alternativer["nej"].tekst.startswith("Nej, forskellige gårde — virker kun, hvis")
+
+
+# ---------- arket viser navnekonflikter, mens man svarer (JS = Python) ----------
+
+import random as _random
+import shutil as _shutil
+import subprocess as _subprocess
+
+
+def _tilfaeldige_valg(p, n, frø=0):
+    rng = _random.Random(frø)
+    ud = []
+    for _ in range(n):
+        v = {}
+        for pid, alts in p["alternativer"].items():
+            if pid not in p["aabne"] and rng.random() < 0.6:
+                continue
+            k = rng.choice(list(alts))
+            if k == "delvis":
+                gl = p["poster"][pid]["grupper"]
+                v[pid] = {"svar": "delvis", "grupper": rng.sample(gl, rng.randint(2, len(gl)))}
+            else:
+                v[pid] = {"svar": k}
+        ud.append(v)
+    return ud
+
+
+def _reparerede_svar(p, n, frø=3):
+    """Svarsæt, der kan godkendes: S/N ja, H nej, tilfældige ikke-adskilte gruppevalg; grupper i konflikt
+    sættes tilbage til forslaget (eller første valg), til reglen ikke finder flere."""
+    d = forslag.konfliktdata(p)
+    ud = []
+    for i in range(n):
+        rng = _random.Random(frø * 1000 + i)
+        svar = {}
+        for pid, alts in p["alternativer"].items():
+            if pid[0] in "SN":
+                svar[pid] = "ja"
+            elif pid[0] == "H":
+                svar[pid] = {"svar": "nej"}
+            elif pid in p["aabne"] or rng.random() < 0.5:
+                svar[pid] = rng.choice([k for k, a in alts.items() if not a.get("adskilt")])
+        for _ in range(6):
+            ks = forslag.konflikter(d, {k: (v if isinstance(v, dict) else {"svar": v}) for k, v in svar.items()})
+            if not ks:
+                break
+            for k in ks:
+                for h in k["hvem"]:
+                    if h.startswith("G"):
+                        svar[h] = p["forvalg"].get(h) or list(p["alternativer"][h])[0]
+        ud.append(svar)
+    return ud
+
+
+def _planer_til_test():
+    planer = [_forslag()[1]]
+    rigtig = HER / "plan.forslag.json"
+    if rigtig.exists():
+        planer.append(_json.loads(rigtig.read_text(encoding="utf-8")))
+    return planer
+
+
+@pytest.mark.skipif(not _shutil.which("node"), reason="node findes ikke på maskinen")
+def test_arkets_konfliktberegning_er_den_samme_som_fletningens(tmp_path):
+    for p in _planer_til_test():
+        d = forslag.konfliktdata(p)
+        valg = _tilfaeldige_valg(p, 150) + [{}] + [
+            {k: (v if isinstance(v, dict) else {"svar": v}) for k, v in s.items()} for s in _reparerede_svar(p, 30)]
+        py = [forslag.konflikter(d, v) for v in valg]
+        js_fil = tmp_path / "k.js"
+        js_fil.write_text(forslag.JS_KONFLIKT + "\nconst D = " + _json.dumps(d, ensure_ascii=False) +
+                          ";\nconst V = " + _json.dumps(valg, ensure_ascii=False) +
+                          ";\nprocess.stdout.write(JSON.stringify(V.map(v => konflikter(D, v))));\n", encoding="utf-8")
+        ud = _subprocess.run(["node", str(js_fil)], capture_output=True, text=True, check=True).stdout
+        assert _json.loads(ud) == _json.loads(_json.dumps(py, ensure_ascii=False))
+        assert any(py)  # testen rammer faktisk konflikter
+
+
+def test_konfliktreglen_passer_med_den_faerdige_plan():
+    """Hvor regel og plan er enige: ingen konflikt ⇒ planen har ingen to sider med samme navn og slags."""
+    for p in _planer_til_test():
+        sha = forslag.plan_sha(p)
+        d = forslag.konfliktdata(p)
+        godkendt = 0
+        tilf = []
+        for v in _tilfaeldige_valg(p, 200, frø=7):
+            s_ = {pid: (x if x["svar"] == "delvis" else x["svar"]) for pid, x in v.items() if pid[0] != "H"}
+            s_.update({pid: {"svar": "nej"} for pid in p["aabne"] if pid[0] == "H"})
+            tilf.append(s_)
+        for svar in tilf + _reparerede_svar(p, 40):
+            valg = {pid: (x if isinstance(x, dict) else {"svar": x}) for pid, x in svar.items()}
+            try:
+                plan, _ = forslag.flet(p, sha, {"version": 1, "kilde_hash": p["kilde_hash"],
+                                                "plan_forslag_sha256": sha, "svar": svar})
+            except forslag.FletFejl:
+                continue
+            # Godkendt plan ⇒ reglen fandt ingen konflikt, og planen har ingen to sider med samme navn og slags.
+            assert not forslag.konflikter(d, valg)
+            navne = [(forslag.navn_ens(o["navn"]), o["slags"]) for o in plan["saet"] + plan["opret"]]
+            assert len(navne) == len(set(navne))
+            godkendt += 1
+        assert godkendt >= 40  # mindst de reparerede svarsæt godkendes
+
+
+def test_arket_har_konfliktdata_og_advarer_ved_gem():
+    f, p, sha = _forslag()
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH, "plan_sha": sha})
+    d = _json.loads(re.search(r"<script type=application/json id=konflikt>(.*?)</script>", html).group(1))
+    assert d == _json.loads(_json.dumps(forslag.konfliktdata(p), ensure_ascii=False))
+    assert "id=konflikter" in html and "fletningen vil afvise dem" in html and "function konflikter(" in html
