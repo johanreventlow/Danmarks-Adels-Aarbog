@@ -107,7 +107,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", required=True)
     parser.add_argument("--pdf", required=True)
-    parser.add_argument("--baseline-dir", default="data/extracted-2026-06-18")
+    parser.add_argument("--baseline-dir", default="work/extracted-2026-06-18")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
