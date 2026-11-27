@@ -2,7 +2,7 @@
 # eller med en forælder født <= 1880). Udskriver kun tællinger.
 import json, glob, re, os, sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-SRC = os.path.join(ROOT, 'data', 'extracted-2026-06-18')
+SRC = os.path.join(ROOT, 'work', 'extracted-2026-06-18')  # gitignoreret lokal kopi (levende-data, invariant 8)
 OUT = os.path.join(ROOT, 'tmp', 'designtour', 'fixture.json')
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 CUT = 1930

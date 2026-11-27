@@ -77,3 +77,7 @@ tmp/
 
 # Log-output fra tests/ci/*.sh (lokalt og i CI)
 ci-out/
+
+# LLM-udtræk fra DAA 2018-20 (591 opslag, ~57 med levende personer) — må ikke ligge i det offentlige repo
+# (invariant 8). Lokal kopi: work/extracted-2026-06-18/ (work/ er allerede ignoreret).
+data/extracted-2026-06-18/
