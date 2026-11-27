@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, byggBogNr, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, byggBogNr, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO, slaegtsrodensNavn } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -167,6 +167,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     bogNrBy: byggBogNr(extIds, collapsed.canonicalIdById, byggErStamtavle(lineageRows, schemes)),
     parentsUnknownByPerson,
     adelsnavne: await adelsnavneP,
+    // Slægtsrodens navn (»Reventlow«) til statuslinjens »gift … af …« for ingifte uden linjens adelsnavn — som mobilen.
+    slaegtsnavn: slaegtsrodensNavn(lineageRows),
     skilsmisser: await skilsmisserP,
     loadGeo: async (): Promise<Geo> => {
       // Geo-lag: godser m. sted (allerede hentet ovenfor), steder m. koordinater, geo-bærende
