@@ -74,6 +74,7 @@ Web og mobil taler **direkte** med Supabase med den offentlige anon-nøgle, så 
 - **Web håndhæver en CSP** (`web/vercel.json`, review 37 C3): en ny ekstern kilde (kortfliser, billeder, scripts, API) skal på den relevante liste (`img-src`, `connect-src` …), ellers blokerer browseren den lydløst i prod — dev-serveren bruger ikke `vercel.json`, så lokale tests og e2e fanger det ikke. Gælder fx C12's egen kortkilde. Links (`<a href>`) er ikke berørt.
 - **Ingen crawlbare uendelige URL-rum** i web (filtre/søgning som query-parametre); `web/public/robots.txt` forbliver `Disallow: /`, indtil review 37 C10 er genbesøgt.
 - **Før offentlig tilmelding åbnes:** Supabase Auth's captcha (Turnstile) på oprettelse, login og nulstilling af adgangskode.
+- **Før en redaktør nummer to får adgang:** ret #397 R37B-6 (projektejeren 27/11). Fortryd og almindelige writere (fx `red_set_konklusion`) kan deadlocke (40P01, reproduceret lokalt); rettelsesvejen er, at writerne tager fortryd/slet-låsen delt som slette-RPC'erne (D9). Med én redaktør kan det ikke ske.
 
 ## Levende dokumentation (status/backlog bor IKKE her)
 
