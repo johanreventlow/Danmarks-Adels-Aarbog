@@ -5,13 +5,18 @@
 -- alle med date_raw 'skilt'). Udgaven = source på den valgte påstands citation; den slås op på source.udgave
 -- ('DAA 2018-20' / 'DAA 1939'), aldrig på et fast id.
 -- Partnere: family_member rolle 'partner'. Kun partnere, der er partner i PRÆCIS ÉN familie med et skilsmisse-fakta, tæller.
+-- Flere ægteskaber: har BLOT ÉN af familiens partnere mere end én partner-familie i alt (et andet ægteskab, skilt eller
+--   ej), skrives intet for familien -> udfaldet 'flere_aegteskaber' (listes). En biografi kan nævne parrets egen skilsmisse
+--   uden dato og senere et andet ægteskabs daterede skilsmisse; den dato må ikke tages.
 -- Tekst: narrative (person, source = udgaven) på de tællende partnere; mønstret
---   (?:skilt|ægteskabet (?:er )?opløst|ægteskabet ophævet)\s+(<dag måned år>|<år>)   (store/små bogstaver ligegyldigt)
+--   (?:\m(?:fra)?skilt|ægteskabet\s+(?:er\s+)?(?:opløst|ophævet))\s+(<dag måned år>|<år>)   (store/små bogstaver
+--   ligegyldigt; \m = ordstart, så »adskilt« ikke tæller, men »fraskilt« gør)
 -- Fortolkning: »12. okt. 1901« -> date_min = date_max = dagen (måned = de tre første bogstaver: jan feb mar apr maj jun
 --   jul aug sep okt nov dec); »1901« -> 1901-01-01..1901-12-31. date_raw = den fundne tekst ordret. Ukendt måned eller
 --   ugyldig dag -> udfaldet 'ukendt_maaned'.
 -- Skriver kun ved: præcis ÉN distinkt fortolket dato (på tværs af begge partnere), og hvis vielsen har en dato
---   (afklaret valgt påstand), er den nye date_min >= vielsens date_min (ellers 'foer_vielse').
+--   (afklaret valgt påstand), slutter skilsmissen ikke før vielsen: date_max >= vielsens date_min (ellers 'foer_vielse');
+--   et rent årstal i vielsens eget år tæller altså som efter vielsen.
 -- Skrivevej: red_upsert_fakta('family', fam, 'skilsmisse', NULL, dmin, dmax, NULL, raw, 'Dansk Adels Aarbog <udgave>, biografien')
 --   -> ny påstand + fritekst-citation, og den afklarede konklusion peges om; den gamle »skilt«-påstand bliver stående
 --   (invariant 1). Et navngivet ændringssæt åbnes først (kun hvis der skal skrives); alle skrivninger lander i det og
@@ -65,12 +70,14 @@ WHERE f.subjekt_type = 'family' AND f.faktatype = 'skilsmisse';
 CREATE TEMP TABLE skil_kand ON COMMIT DROP AS
 SELECT * FROM skil_alle WHERE paastand_id IS NOT NULL AND paastand_dmin IS NULL;
 
--- Hvor mange skilte familier hver partner indgår i.
+-- Hvor mange skilte familier og hvor mange partner-familier i alt hver partner indgår i.
 CREATE TEMP TABLE skil_partner ON COMMIT DROP AS
 SELECT fm.family_id AS fam_id, fm.person_id,
        (SELECT count(DISTINCT x.fam_id) FROM skil_alle x
           JOIN family_member y ON y.family_id = x.fam_id AND y.rolle = 'partner'
-         WHERE y.person_id = fm.person_id) AS n_skilte
+         WHERE y.person_id = fm.person_id) AS n_skilte,
+       (SELECT count(DISTINCT y.family_id) FROM family_member y
+         WHERE y.person_id = fm.person_id AND y.rolle = 'partner') AS n_familier
 FROM family_member fm
 WHERE fm.rolle = 'partner' AND fm.family_id IN (SELECT fam_id FROM skil_kand);
 
@@ -91,7 +98,7 @@ FROM (
   JOIN skil_udgave u ON u.fam_id = p.fam_id
   JOIN narrative n ON n.subjekt_type = 'person' AND n.subjekt_id = p.person_id AND n.source_id = u.source_id
   CROSS JOIN LATERAL regexp_matches(n.tekst,
-    '(?:skilt|ægteskabet (?:er )?opløst|ægteskabet ophævet)\s+(\d{1,2}\.?\s*[A-Za-zæøåÆØÅ]+\.?\s+\d{4}|\d{4})', 'gi') AS m
+    '(?:\m(?:fra)?skilt|ægteskabet\s+(?:er\s+)?(?:opløst|ophævet))\s+(\d{1,2}\.?\s*[A-Za-zæøåÆØÅ]+\.?\s+\d{4}|\d{4})', 'gi') AS m
   WHERE p.n_skilte = 1
 ) t;
 
@@ -115,8 +122,8 @@ BEGIN
           END IF;
         END IF;
       END IF;
-    EXCEPTION WHEN others THEN
-      NULL;  -- ugyldig dag/år: forbliver gyldig = false -> 'ukendt_maaned'
+    EXCEPTION WHEN datetime_field_overflow OR numeric_value_out_of_range OR invalid_datetime_format THEN
+      NULL;  -- ugyldig dag/år: forbliver gyldig = false -> 'ukendt_maaned' (andre fejl stopper kørslen)
     END;
   END LOOP;
 END $fortolk$;
@@ -124,8 +131,9 @@ END $fortolk$;
 -- Udfald pr. kandidat-familie, beregnet før nogen skrivning.
 CREATE TEMP TABLE skil_udfald ON COMMIT DROP AS
 WITH agg AS (
-  SELECT k.fam_id, k.n_fakta,
+  SELECT k.fam_id, k.fact_id, k.paastand_id, k.n_fakta,
     (SELECT count(*) FROM skil_partner p WHERE p.fam_id = k.fam_id) AS n_partner,
+    (SELECT count(*) FROM skil_partner p WHERE p.fam_id = k.fam_id AND p.n_familier > 1) AS n_flere_aegteskaber,
     (SELECT count(*) FROM skil_partner p WHERE p.fam_id = k.fam_id AND p.n_skilte = 1) AS n_ok,
     (SELECT count(*) FROM skil_partner p
        JOIN skil_udgave u ON u.fam_id = p.fam_id
@@ -144,15 +152,16 @@ WITH agg AS (
       WHERE vf.subjekt_type = 'family' AND vf.subjekt_id = k.fam_id AND vf.faktatype = 'vielse') AS vielse_dmin
   FROM skil_kand k
 )
-SELECT fam_id,
+SELECT fam_id, fact_id, paastand_id,
        CASE
          WHEN n_fakta > 1 THEN 'flere_fakta'
          WHEN n_ok = 0 AND n_partner > 0 THEN 'flere_skilte_familier'
+         WHEN n_flere_aegteskaber > 0 THEN 'flere_aegteskaber'
          WHEN n_ok = 0 OR n_narr = 0 THEN 'ingen_biografi'
          WHEN n_fund = 0 THEN 'uden_dato'
          WHEN n_ukendt > 0 THEN 'ukendt_maaned'
          WHEN n_dist > 1 THEN 'flertydig'
-         WHEN vielse_dmin IS NOT NULL AND dmin < vielse_dmin THEN 'foer_vielse'
+         WHEN vielse_dmin IS NOT NULL AND dmax < vielse_dmin THEN 'foer_vielse'
          ELSE 'skrevet'
        END AS udfald,
        dmin, dmax, raw,
@@ -173,22 +182,20 @@ BEGIN
   END IF;
 END $skriv$;
 
--- Kontrol: hver 'skrevet' familie har nu en valgt, afklaret påstand med præcis den fortolkede dato; ingen anden
--- kandidat er rørt (deres valgte påstand har stadig ingen date_min).
+-- Kontrol: hver 'skrevet' kandidat-fakta har nu en valgt, afklaret påstand med præcis den fortolkede dato; hver uskrevet
+-- kandidat-fakta har stadig præcis den valgte, afklarede påstand, det havde før (intet rørt).
 DO $kontrol$ DECLARE v_fejl int; v_for_meget int; BEGIN
   SELECT count(*) INTO v_fejl FROM skil_udfald u
    WHERE u.udfald = 'skrevet' AND NOT EXISTS (
-     SELECT 1 FROM fact f
-       JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id AND c.status = 'afklaret'
+     SELECT 1 FROM conclusion c
        JOIN assertion a ON a.id = c.valgt_assertion_id
-      WHERE f.subjekt_type = 'family' AND f.subjekt_id = u.fam_id AND f.faktatype = 'skilsmisse'
+      WHERE c.target_type = 'fact' AND c.target_id = u.fact_id AND c.status = 'afklaret'
         AND a.date_min IS NOT DISTINCT FROM u.dmin AND a.date_max IS NOT DISTINCT FROM u.dmax AND a.date_min IS NOT NULL);
   SELECT count(*) INTO v_for_meget FROM skil_udfald u
-   WHERE u.udfald <> 'skrevet' AND EXISTS (
-     SELECT 1 FROM fact f
-       JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id
-       JOIN assertion a ON a.id = c.valgt_assertion_id
-      WHERE f.subjekt_type = 'family' AND f.subjekt_id = u.fam_id AND f.faktatype = 'skilsmisse' AND a.date_min IS NOT NULL);
+   WHERE u.udfald <> 'skrevet' AND NOT EXISTS (
+     SELECT 1 FROM conclusion c
+      WHERE c.target_type = 'fact' AND c.target_id = u.fact_id AND c.status = 'afklaret'
+        AND c.valgt_assertion_id = u.paastand_id);
   IF v_fejl <> 0 OR v_for_meget <> 0 THEN
     RAISE EXCEPTION 'SKILSMISSE_FEJL: % skrevne familier uden forventet dato, % uskrevne rørt', v_fejl, v_for_meget;
   END IF;
@@ -202,6 +209,7 @@ SELECT jsonb_pretty(jsonb_build_object(
   'uden_dato', count(*) FILTER (WHERE udfald = 'uden_dato'),
   'ingen_biografi', count(*) FILTER (WHERE udfald = 'ingen_biografi'),
   'flere_skilte_familier', count(*) FILTER (WHERE udfald = 'flere_skilte_familier'),
+  'flere_aegteskaber', count(*) FILTER (WHERE udfald = 'flere_aegteskaber'),
   'foer_vielse', count(*) FILTER (WHERE udfald = 'foer_vielse'),
   'ukendt_maaned', count(*) FILTER (WHERE udfald = 'ukendt_maaned'),
   'flere_fakta', count(*) FILTER (WHERE udfald = 'flere_fakta'),
@@ -212,6 +220,7 @@ SELECT jsonb_pretty(jsonb_build_object(
     'uden_dato', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'uden_dato'), '[]'),
     'ingen_biografi', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'ingen_biografi'), '[]'),
     'flere_skilte_familier', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'flere_skilte_familier'), '[]'),
+    'flere_aegteskaber', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'flere_aegteskaber'), '[]'),
     'foer_vielse', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'foer_vielse'), '[]'),
     'ukendt_maaned', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'ukendt_maaned'), '[]'),
     'flere_fakta', coalesce(jsonb_agg(fam_id ORDER BY fam_id) FILTER (WHERE udfald = 'flere_fakta'), '[]'))

@@ -29,6 +29,14 @@ q -c "INSERT INTO source(slags,udgave) SELECT 'DAA-udgave', u FROM (VALUES ('DAA
 #  D 9304 (2018-20): vielse 1950-01-01, skilt 4. maj 1940 -> foer_vielse
 #  E 9305 (2018-20): ingen biografi
 #  F 9306 + 9307 (2018-20): samme to partnere (9211, 9212) i begge -> flere_skilte_familier (begge)
+#  G 9308 (1939): »Ægteskabet  er opløst 7 Mar. 1920« (dobbelt mellemrum, dag uden punktum) -> skrevet 1920-03-07
+#  H 9309 (2018-20): »Fraskilt 9. juni 1774« (fuldt månedsnavn) -> skrevet 1774-06-09
+#  I 9310 (2018-20): »skilt 1774, gift 2. gang 1776« -> skrevet 1774 (hele året; »gift« er ikke et fund)
+#  J 9311 (2018-20): »Adskilt 1920« -> uden_dato (»skilt« midt i et ord tæller ikke)
+#  K 9312 (2018-20): partner 1 har også et andet ægteskab (familie 9399, uden skilsmisse); biografien nævner det andet
+#    ægteskabs daterede skilsmisse -> flere_aegteskaber (ikke skrevet)
+#  L 9313 (2018-20): vielse 1900-06-01, »skilt 1900« (rent år i vielsens år) -> skrevet 1900 (ikke foer_vielse)
+#  M 9314 (2018-20): »skilt 31. feb. 1900« (ugyldig dag) -> ukendt_maaned
 q <<'SQL'
 CREATE TEMP TABLE spec(fam int, udg text, p1 int, p2 int, vielse date, bio text, bio_udg text);
 INSERT INTO spec VALUES
@@ -38,10 +46,21 @@ INSERT INTO spec VALUES
  (9304,'DAA 2018-20',9207,9208,'1950-01-01','Gift 1950, skilt 4. maj 1940.','DAA 2018-20'),
  (9305,'DAA 2018-20',9209,9210,NULL,NULL,NULL),
  (9306,'DAA 2018-20',9211,9212,NULL,'Skilt 1. jan. 1990.','DAA 2018-20'),
- (9307,'DAA 2018-20',9211,9212,NULL,NULL,NULL);
+ (9307,'DAA 2018-20',9211,9212,NULL,NULL,NULL),
+ (9308,'DAA 1939',9213,9214,NULL,'Ægteskabet  er opløst 7 Mar. 1920.','DAA 1939'),
+ (9309,'DAA 2018-20',9215,9216,NULL,'Fraskilt 9. juni 1774.','DAA 2018-20'),
+ (9310,'DAA 2018-20',9217,9218,NULL,'Gift 1770 med X, skilt 1774, gift 2. gang 1776 med Y.','DAA 2018-20'),
+ (9311,'DAA 2018-20',9219,9220,NULL,'Adskilt 1920.','DAA 2018-20'),
+ (9312,'DAA 2018-20',9221,9222,NULL,'Skilt; gift 2. gang med Y, der var skilt 5. maj 1930.','DAA 2018-20'),
+ (9313,'DAA 2018-20',9223,9224,'1900-06-01','Gift 1. juni 1900 med X, skilt 1900.','DAA 2018-20'),
+ (9314,'DAA 2018-20',9225,9226,NULL,'Skilt 31. feb. 1900.','DAA 2018-20');
 INSERT INTO person(id,levende,koen) SELECT DISTINCT p, false, NULL FROM (SELECT p1 p FROM spec UNION SELECT p2 FROM spec) x;
 INSERT INTO family(id) SELECT fam FROM spec;
 INSERT INTO family_member(family_id,person_id,rolle) SELECT fam,p1,'partner' FROM spec UNION ALL SELECT fam,p2,'partner' FROM spec;
+-- K's partner 1 (9221) har også et andet, ikke-skilt ægteskab med 9299.
+INSERT INTO person(id,levende,koen) VALUES (9299,false,NULL);
+INSERT INTO family(id) VALUES (9399);
+INSERT INTO family_member(family_id,person_id,rolle) VALUES (9399,9221,'partner'),(9399,9299,'partner');
 DO $d$ DECLARE s record; v_f bigint; v_a bigint; v_src bigint; BEGIN
   FOR s IN SELECT * FROM spec ORDER BY fam LOOP
     SELECT id INTO v_src FROM source WHERE udgave = s.udg ORDER BY id LIMIT 1;
@@ -66,7 +85,7 @@ END $d$;
 SQL
 snap() { a "SELECT string_agg(f.subjekt_id||':'||c.valgt_assertion_id||':'||coalesce(a.date_min::text,'-'), ',' ORDER BY f.subjekt_id)
   FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id
-  WHERE f.faktatype='skilsmisse' AND f.subjekt_id BETWEEN 9301 AND 9307"; }
+  WHERE f.faktatype='skilsmisse' AND f.subjekt_id BETWEEN 9301 AND 9314"; }
 fore=$(snap)
 antal_pa=$(a "SELECT count(*) FROM assertion")
 run() { env -u PGOPTIONS psql -X -v ON_ERROR_STOP=1 -d "$db" -v redaktoer_uid=$uid "$@" -f docs/runbooks/2026-11-27-skilsmissedatoer.sql; }
@@ -84,17 +103,22 @@ dato() { a "SELECT a.date_min||'..'||a.date_max||'|'||a.date_raw FROM fact f JOI
   JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.faktatype='skilsmisse' AND f.subjekt_id=$1"; }
 [ "$(dato 9301)" = "1901-10-12..1901-10-12|12. okt. 1901" ] || fail "A forkert: $(dato 9301)"
 [ "$(dato 9302)" = "1921-01-01..1921-12-31|1921" ] || fail "B forkert: $(dato 9302)"
-for f in 9303 9304 9305 9306 9307; do
+[ "$(dato 9308)" = "1920-03-07..1920-03-07|7 Mar. 1920" ] || fail "G forkert: $(dato 9308)"
+[ "$(dato 9309)" = "1774-06-09..1774-06-09|9. juni 1774" ] || fail "H forkert: $(dato 9309)"
+[ "$(dato 9310)" = "1774-01-01..1774-12-31|1774" ] || fail "I forkert: $(dato 9310)"
+[ "$(dato 9313)" = "1900-01-01..1900-12-31|1900" ] || fail "L forkert: $(dato 9313)"
+for f in 9303 9304 9305 9306 9307 9311 9312 9314; do
   [ "$(a "SELECT a.date_min IS NULL FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.faktatype='skilsmisse' AND f.subjekt_id=$f")" = t ] || fail "familie $f skulle ikke være skrevet"
 done
 # Den gamle påstand findes stadig (invariant 1) for A og B.
 [ "$(a "SELECT count(*) FROM assertion a JOIN fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.faktatype='skilsmisse' AND f.subjekt_id IN (9301,9302) AND a.date_raw='skilt' AND a.date_min IS NULL")" = 2 ] || fail "gamle påstande mangler"
 [ "$(a "SELECT count(*) FROM change_set WHERE operation='red_upsert_fakta'")" = 1 ] || fail "forventede ét ændringssæt"
 cs=$(a "SELECT max(id) FROM change_set WHERE operation='red_upsert_fakta'")
-[ "$(a "SELECT summary FROM change_set WHERE id=$cs")" = "Skilsmissedatoer fra biografierne (2 familier)" ] || fail "forkert ændringssæt-label"
+[ "$(a "SELECT summary FROM change_set WHERE id=$cs")" = "Skilsmissedatoer fra biografierne (6 familier)" ] || fail "forkert ændringssæt-label"
 efter=$(snap)
 # Idempotent: ny kørsel skriver 0 (A og B er ikke længere kandidater).
-run -v skriv=1 > $tmpd/igen 2>&1; grep -q '"skrevet": 0' $tmpd/igen || fail "gentagelse skulle skrive 0"
+run -v skriv=1 > $tmpd/igen 2>&1 || { cat $tmpd/igen; fail "gentagelsen fejlede"; }
+grep -q '"skrevet": 0' $tmpd/igen || fail "gentagelse skulle skrive 0"
 [ "$(snap)" = "$efter" ] || fail "gentagelsen ændrede data"
 [ "$(a "SELECT count(*) FROM change_set WHERE operation='red_upsert_fakta'")" = 1 ] || fail "gentagelsen åbnede et ændringssæt"
 # Fortryd: gendanner den gamle valgte påstand.
@@ -102,11 +126,12 @@ q -c "SELECT set_config('request.jwt.claim.sub','$uid',false)" -c "SELECT red_fo
 [ "$(snap)" = "$fore" ] || fail "fortryd gendannede ikke de gamle valgte påstande: $(snap)"
 # Rapporten (fra skrivekørslen): kun antal og id'er.
 rep=$(tr -d ' \n+' < $tmpd/skriv)
-for k in '"kandidater":7' '"skrevet":2' '"flertydig":1' '"uden_dato":0' '"ingen_biografi":1' '"flere_skilte_familier":2' '"foer_vielse":1' \
-  '"ukendt_maaned":0' '"flere_fakta":0' '"skrevet_familier":[9301,9302]' '"flertydig":[9303]' '"ingen_biografi":[9305]' \
-  '"flere_skilte_familier":[9306,9307]' '"foer_vielse":[9304]'; do
+for k in '"kandidater":14' '"skrevet":6' '"flertydig":1' '"uden_dato":1' '"ingen_biografi":1' '"flere_skilte_familier":2' \
+  '"flere_aegteskaber":1' '"foer_vielse":1' '"ukendt_maaned":1' '"flere_fakta":0' \
+  '"skrevet_familier":[9301,9302,9308,9309,9310,9313]' '"flertydig":[9303]' '"uden_dato":[9311]' '"ingen_biografi":[9305]' \
+  '"flere_skilte_familier":[9306,9307]' '"flere_aegteskaber":[9312]' '"foer_vielse":[9304]' '"ukendt_maaned":[9314]'; do
   case "$rep" in *"$k"*) ;; *) fail "rapporten mangler $k";; esac
 done
-case "$rep" in *1901*|*1921*|*okt.*) fail "rapporten lækker dato/tekst";; esac
-echo "SKIL_TEST_OK: prøve uændret; skriv satte A=1901-10-12 og B=1921; 4+2 på listen; gentagelse 0; fortryd gendannede"
+case "$rep" in *1901*|*1921*|*1920*|*1774*|*1900*|*1930*|*okt.*|*Jan.*|*august*) fail "rapporten lækker dato/tekst";; esac
+echo "SKIL_TEST_OK: prøve uændret; skriv satte A, B, G, H, I og L; 6+2 på listen; gentagelse 0; fortryd gendannede"
 dropdb "$db"
