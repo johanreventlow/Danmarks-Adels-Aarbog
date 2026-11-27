@@ -234,3 +234,12 @@ test('"Se fuld profil"-linket kalder onPick med personens id, ikke onToggle', ()
   fireEvent.click(screen.getByText('→ Se fuld profil'));
   expect(onPick).toHaveBeenCalledWith('A');
 });
+
+test('skilt partner: »g. m. X, skilt 1901«', () => {
+  const g: PresensGren = {
+    ...gren,
+    ankerBlok: { id: 'A', levende: true, forbindelsesled: false, partnere: [{ id: 'P', levende: true, skilsmisse: { dateMin: '1901-10-12', dateMax: '1901-12-31' } }], boern: [], usikker: false, krydsReference: false },
+  };
+  render(<PresensGrenSektion gren={g} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByText(', skilt 1901')).toBeTruthy();
+});

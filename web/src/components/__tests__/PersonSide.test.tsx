@@ -99,30 +99,41 @@ const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
 });
 
 describe('PersonSide', () => {
-  it('»I Aarbogen«: bogens formelle navneform for en efterkommer; ikke for stifteren eller uden regler', () => {
+  it('statuslinjen: én linje under årene med titel og adelsnavn; »I Aarbogen« og den gamle titellinje er væk', () => {
     const kV = 'slaegt:1:lineage:5:scheme:canonical';
     const m = {
       ...model,
-      byId: {
-        ...model.byId,
-        '392': { ...model.byId['392'], title: 'Greve', fornavne: 'Conrad' },
-        '501': { ...model.byId['501'], title: 'Greve', fornavne: 'Christian' },
-      },
+      byId: { ...model.byId, '501': { ...model.byId['501'], title: 'Greve', koen: 'mand' } },
       lineage: { byPerson: { '392': [kV], '501': [kV] }, list: [{ linje: kV, count: 2, headId: '392', navn: 'V' }], navn: {} },
       adelsnavne: { '5': 'af Reventlow' },
     } as unknown as Model;
     const r1 = render(<PersonSide {...props({ model: m, focusId: '501' })} />);
-    expect(screen.getByText('I Aarbogen')).toBeTruthy();
-    expect(screen.getByText('Christian greve af Reventlow')).toBeTruthy();
+    expect(screen.getByText('Greve af Reventlow')).toBeTruthy();
+    expect(screen.queryByText('I Aarbogen')).toBeNull();
+    expect(screen.queryByText('Greve')).toBeNull(); // titlen står kun i statuslinjen
     r1.unmount();
-    // Conrad er linjens stifter: hans navn (»de Reventlow«) kommer fra hans eget patent — ingen regelform.
-    const r2 = render(<PersonSide {...props({ model: m })} />);
+    // Uden titel: ingen statuslinje.
+    render(<PersonSide {...props({ model: m })} />);
     expect(screen.queryByText('I Aarbogen')).toBeNull();
-    r2.unmount();
-    // Uden regler (data ikke hentet/ikke i prod endnu): siden er som før.
-    render(<PersonSide {...props({ model: { ...m, adelsnavne: undefined } as unknown as Model, focusId: '501' })} />);
-    expect(screen.queryByText('I Aarbogen')).toBeNull();
-    expect(screen.queryByText(/greve af Reventlow/)).toBeNull();
+    expect(screen.queryByText(/af Reventlow$/)).toBeNull();
+  });
+
+  it('hof-/rangtitel fra titel-fakta kommer først, når detaljerne er hentet', () => {
+    const m = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], koen: 'mand' } } } as unknown as Model;
+    const d = detalje({ faktaInput: faktaInput([row({ faktatype: 'titel', vaerdi_tekst: 'Kammerherre' })]) });
+    const { unmount } = render(<PersonSide {...props({ model: m, detail: null })} />);
+    expect(screen.queryByText('Kammerherre')).toBeNull();
+    unmount();
+    render(<PersonSide {...props({ model: m, detail: d })} />);
+    // Fakta-listen nævner også titlen; statuslinjen er den fede bordeaux-linje.
+    expect(screen.getAllByText('Kammerherre').some((e) => e.tagName === 'P' && e.style.fontWeight === '600')).toBe(true);
+  });
+
+  it('skilt ægteskab: vielse og skilsmisse efter ægtefællens år', () => {
+    const m = { ...model, skilsmisser: { '1': { dateMin: '1901-10-12', dateMax: '1901-10-12' } } } as unknown as Model;
+    vielser.svar = { '1': '⚭ 3. maj 1890' };
+    render(<PersonSide {...props({ model: m })} />);
+    return screen.findByText(/⚭ 2\. aug\. 2008, skilt 15\. jan\. 2020/).then((el) => expect(el).toBeTruthy());
   });
 
   it('floruit vises som Nævnes; uden år ingen årslinje', () => {

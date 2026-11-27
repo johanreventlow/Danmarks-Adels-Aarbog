@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { T } from '../theme';
 import { radius } from '@daa/theme';
 import { Link } from '../Link';
+import { traeTitel } from '@daa/core';
 import { personPath } from '../data/nav';
 import type { Model } from '../data/types';
 import { byggFokusRaekker, type FokusRelation, type FokusSoeskende } from '../data/fokusTrae';
@@ -59,7 +60,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
         <span style={{ ...etiketStil, color: T.bordeaux }}>I fokus{smal && linje ? ` · ${linje}` : ''}</span>
         <span style={{ fontFamily: T.serif, fontSize: smal ? 23 : 22, fontWeight: 600, lineHeight: 1.1, color: T.ink }}>{f.name}</span>
         {f.years && <span style={aarStil}>{f.years}</span>}
-        {f.title && <span style={{ fontSize: 13, color: T.bordeaux }}>{f.title}</span>}
+        {traeTitel(model, focusId) && <span style={{ fontSize: 13, color: T.bordeaux }}>{traeTitel(model, focusId)}</span>}
         {!smal && <Link href={personPath(focusId)} style={{ marginTop: 4, fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Åbn personsiden</Link>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
@@ -161,7 +162,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
               {i > 0 && <span aria-hidden="true" style={{ marginRight: 8 }}>·</span>}
               ⚭ {a.aegtefaelleId
                 ? <Link href={personHref(a.aegtefaelleId)} onNavigate={() => onPick(a.aegtefaelleId!)} style={{ color: T.bordeaux }}>{a.navn}</Link>
-                : a.navn}
+                : a.navn}{a.skilt ? ', skilt' : ''}
             </span>
           )) : <span style={{ fontStyle: 'normal', fontFamily: T.sans, fontSize: 13.5, color: T.inkMuted }}>Intet ægteskab angivet i bogen</span>}
         </p>

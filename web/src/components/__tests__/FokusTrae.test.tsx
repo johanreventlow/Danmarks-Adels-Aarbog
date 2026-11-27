@@ -113,3 +113,21 @@ describe('FokusTrae (smal, mobiltegningen)', () => {
     expect(screen.getByText('Barn8')).toBeTruthy();
   });
 });
+
+describe('FokusTrae: egen titel og skilsmisse', () => {
+  const beke = buildModel({
+    persons: [{ ...P('B', 'Beke', 'kvinde'), title: 'Komtesse' }, { ...P('M', 'Mand', 'mand'), title: 'Lensgreve' }],
+    unions: [{ id: 'fu1', p1: 'M', p2: 'B', p2_name: null, year: null }],
+    parentChild: [],
+  }) as unknown as Model;
+
+  it('fokuskortet viser traeTitel (Komtesse), og »Gift«-rækken siger »skilt« ved et opløst ægteskab', () => {
+    const r = render(<FokusTrae model={beke} focusId="B" onPick={vi.fn()} onFocus={vi.fn()} hasBookmark={() => false} onToggleBookmark={vi.fn()} smal={false} />);
+    expect(screen.getByText('Komtesse')).toBeTruthy();
+    expect(screen.queryByText(/, skilt/)).toBeNull();
+    r.unmount();
+    const skilt = { ...beke, skilsmisser: { u1: { dateMin: null, dateMax: null } } } as unknown as Model;
+    render(<FokusTrae model={skilt} focusId="B" onPick={vi.fn()} onFocus={vi.fn()} hasBookmark={() => false} onToggleBookmark={vi.fn()} smal={false} />);
+    expect(screen.getByText(/, skilt/)).toBeTruthy();
+  });
+});

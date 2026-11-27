@@ -1,7 +1,7 @@
 // Præsensliste-læsefladen (spec 2026-07-22 §6). Redaktion-gated i v1: klient-gaten er UX —
 // RLS er sikkerhedsgrænsen (§8). Beregningen er en ren projektion; ingen skrivninger.
 import { useEffect, useMemo, useState } from 'react';
-import { buildPresensListe, kanoniserPresensGrundlag, groupByLinje, samlIds } from '@daa/core';
+import { buildPresensListe, fmtSkilt, kanoniserPresensGrundlag, groupByLinje, samlIds } from '@daa/core';
 import type { Model, PresensGren, PresensListe, PresensNode, PresensLinjeGruppe } from '@daa/core';
 import {
   fetchPresensGrundlag, fetchPresensNavneDele, formatAnkerNavn, formatAndetNavn,
@@ -124,6 +124,7 @@ export function PresensGrenSektion(props: {
             <span aria-hidden style={{ fontSize: 10 }}>{erAaben(p.id) ? '▾ ' : '▸ '}</span>
             <span>{navnAf(p.id)}</span>
           </span>
+          {p.skilsmisse && <span style={{ color: T.inkMuted, fontSize: 14.5 }}>{`, ${fmtSkilt(p.skilsmisse, 'aar')}`}</span>}
         </span>
       ))}
       {erAaben(n.id) && renderFoldud(n.id)}
