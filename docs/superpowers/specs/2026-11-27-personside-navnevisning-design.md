@@ -187,11 +187,14 @@ ukendt, vises ingen »skilt«, men **ingen gift-del i statuslinjen og ingen over
 **Datoerne (prod-skrivning):** alle 20 påstande har i dag `date_raw = 'skilt'` og ingen `date_min`/`date_max` —
 importen tabte datoen. 2018-20's råtekst har ca. 18 omtaler af »skilt«, heraf 17 med dato (målt 27/11 i
 `work/raw_full.txt`), så alle skilsmisser kom med; kun datoerne mangler.
-- Et deterministisk script (SQL/regex, **ingen model**: nogle tekster handler om levende) finder »skilt <dato>« i
-  partnernes 2018-20-biografi i `narrative`. **Kun entydige fund skrives:** partneren har præcis én skilt familie,
-  biografierne giver præcis én dato, og datoen ligger ikke før vielsen (så en ægtefælles tidligere skilsmisse ikke
-  tages). Resten → redaktørlisten i `~/.private/`. Målt 27/11 (kun antal): 14 af 20 familier har en 2018-20-biografi
-  i `narrative`; 10 entydige, 2 flertydige, 2 uden dato i teksten, 6 uden biografi → 10 på redaktørlisten.
+- Et deterministisk script (SQL/regex, **ingen model**: nogle tekster handler om levende) finder datoen i partnernes
+  biografi i `narrative` **fra den udgave, skilsmisse-påstanden citerer** (2018-20: »skilt <dato>«; 1939 også
+  »ægteskabet opløst/ophævet <dato>« og datoer uden punktum som »7 Mar. 1920«). **Kun entydige fund skrives:**
+  partneren har præcis én skilt familie, biografierne giver præcis én dato, og datoen ligger ikke før vielsen (så en
+  ægtefælles tidligere skilsmisse ikke tages). Resten → redaktørlisten i `~/.private/`.
+  Målt 27/11 (kun antal): 14 skilsmisser citerer 2018-20 og 6 citerer 1939 (1939's råtekst har ca. 6 omtaler, så
+  1939's skilsmisser kom også med). Alle 20 har en biografi i egen udgave; 14 entydige (10 + 4), 2 flertydige, 4 uden
+  dato i teksten → ca. 6 på redaktørlisten, før vielses-tjekket.
 - Skrivevej: `red_upsert_fakta('family', id, 'skilsmisse', NULL, date_min, date_max, NULL, date_raw, kilde_fritekst)`
   — en **ny påstand** med afklaret konklusion; den gamle (»skilt«) bevares (invariant 1). Kilden er fritekst, der
   nævner »Dansk Adels Aarbog 2018-20« (`red_upsert_fakta` sætter `source_id` NULL, kendt begrænsning #389).
