@@ -29,12 +29,23 @@ describe('skilsmisse', () => {
     expect(fmtSkilt(s, 'ord')).toBe('skilt');
     expect(fmtSkilt({ dateMin: '1901-01-01', dateMax: '1901-12-31' }, 'dag')).toBe('skilt 1901');
     expect(fmtSkilt({ dateMin: '2019-01-01', dateMax: '1901-12-31' }, 'aar')).toBe('skilt');
+    expect(fmtSkilt({ dateMin: 'xx', dateMax: 'xx' }, 'dag')).toBe('skilt');
     expect(fmtSkilt({ dateMin: null, dateMax: null }, 'dag')).toBe('skilt');
   });
   it('parSkilsmisse: skilt hvis bare én af parrets familier har skilsmissen (samme_som-kopi)', () => {
     const model = { ...basis, skilsmisser: { '350': { dateMin: null, dateMax: null } } };
     expect(parSkilsmisse(model, 'a', 'b')).toEqual({ dateMin: null, dateMax: null });
     expect(parSkilsmisse(model, 'b', 'a')).toEqual({ dateMin: null, dateMax: null });
+  });
+  it('parSkilsmisse: foldet alias-partner i unionen findes via kanoniske id er', () => {
+    const model = {
+      ...basis, canonicalIdById: { a1939: 'a' },
+      indexes: { ...basis.indexes, unionById: { ...basis.indexes.unionById,
+        f351: { id: 'f351', p1: 'b', p2: 'a1939', p2_name: null, year: null } } },
+      skilsmisser: { '351': { dateMin: '2001-05-01', dateMax: '2001-05-01' } },
+    };
+    expect(parSkilsmisse(model, 'a', 'b')).toEqual({ dateMin: '2001-05-01', dateMax: '2001-05-01' });
+    expect(parSkilsmisse(model, 'a1939', 'b')).toEqual({ dateMin: '2001-05-01', dateMax: '2001-05-01' });
   });
   it('parSkilsmisse: null når ingen familie er skilt; undefined når skilsmisser er null eller mangler', () => {
     expect(parSkilsmisse({ ...basis, skilsmisser: { '350': { dateMin: null, dateMax: null } } }, 'a', 'c')).toBeNull();

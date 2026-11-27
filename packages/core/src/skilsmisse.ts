@@ -32,9 +32,15 @@ export function byggSkilsmisser(
 export function parSkilsmisse(model: Model, a: string, b: string): Skilsmisse | null | undefined {
   const s = model.skilsmisser;
   if (s == null) return undefined;
+  // unionById bærer id'er før samme_som-foldning; sammenlign på kanoniske id'er.
+  const canon = (id: string) => model.canonicalIdById?.[id] ?? id;
+  const ca = canon(a);
+  const cb = canon(b);
   for (const u of Object.values(model.indexes.unionById)) {
-    if (!u.id.startsWith('f')) continue;
-    const par = (u.p1 === a && u.p2 === b) || (u.p1 === b && u.p2 === a);
+    if (!u.id.startsWith('f') || u.p2 == null) continue;
+    const p1 = canon(u.p1);
+    const p2 = canon(u.p2);
+    const par = (p1 === ca && p2 === cb) || (p1 === cb && p2 === ca);
     const hit = par ? s[u.id.slice(1)] : undefined;
     if (hit) return hit;
   }
