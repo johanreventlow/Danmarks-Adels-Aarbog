@@ -55,6 +55,7 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
 | Ingift, komtesse, gift lensgreve af V-linjen | Komtesse, gift lensgrevinde af Reventlow |
 | Ingift uden egen titel, gift greve af IV-linjen | Gift grevinde de Reventlou |
 | Ingift komtesse, gift mand uden adelstitel | Komtesse |
+| Født komtesse, gift greve fra anden slægt (titel kendt) | Komtesse af Reventlow, gift grevinde Ahlefeldt-Laurvig |
 | Ingen titler overhovedet | (ingen statuslinje) |
 
 **Delene:**
@@ -75,10 +76,14 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
   `skilsmisse`-fakta og mandens `title` er en adelstitel med en feminin form (`feminiserTitel`, i dag i
   `web/src/data/presens.ts` — flyttes til `packages/core`). Højeste rang vinder ved flere (lensgrevinde > grevinde >
   friherreinde/baronesse). Mandens adelsnavn = `personensAdelsnavn(mandens id, …)`; uden det bruges mandens
-  slægtsnavn uden partikel (»gift friherreinde Reventlow«) — *builderens/min beslutning, se Åbne punkter*.
-  Gift-delen udelades, hvis kvinden selv har en linje i slægten (en født Reventlow gift med en Reventlow-greve er
-  allerede dækket af egen titel) — *min beslutning*.
-- **Hof-/rangtitel** = algoritmen (næste afsnit). Højst én.
+  **slægtsnavn uden partikel** (»gift grevinde Ahlefeldt-Laurvig«) — projektejeren 27/11. Slægtsnavnet er mandens
+  `visning_efternavn`, ellers hans afklarede `fødenavn`-faktum; kendes intet slægtsnavn, udelades hele gift-delen.
+  Gift-delen gælder **alle kvinder**, også født Reventlow (»Komtesse af Reventlow, gift grevinde
+  Ahlefeldt-Laurvig«) — projektejeren 27/11.
+  *Målt 27/11:* ingen ingift mand har en adelstitel som faktum (deres titler står i prosaen og vielsesteksterne). Født
+  Reventlow-kvinder gift uden for slægten får derfor ingen gift-del med dagens data; reglen står klar, til mændenes
+  titler er hentet ud.
+- **Hof-/rangtitel** = algoritmen (næste afsnit). Højst én. Kun mænd i denne leverance (se Skal løses senere).
 
 ## Titelalgoritmen
 Kilde: personens afklarede `titel`-fakta (personsidens `faktaInput.rows`) og embedernes rolle (`detail.offices`; mobil
@@ -172,10 +177,12 @@ familier med en adelig partner. Fejl i opslaget → ingen gift-del (fail-closed)
   dækker det nye skilsmisse-opslag i begge apps.
 - Typografi for statuslinjen (genbrug den nuværende bordeaux-titellinje).
 
-## Åbne punkter til projektejeren
-- **Kvinders egne hof-/embedstitler** (Bekes »dekanesse, lektor«) er ikke målt. Forslag: algoritmens titel vises kun
-  for mænd i første omgang.
-- **Mand uden adelsnavn-regel** (fx friherre i en linje uden regel): »gift friherreinde Reventlow« (slægtsnavn uden
-  partikel) eller kun »gift friherreinde«?
-- **Den ene ingifte med titlen »grevinde« som eget faktum**: kan være en ægteskabstitel registreret som egen. Sættes på
+## Skal løses senere (noteret 27/11)
+- **Kvinders egne hof-/embedstitler** (Bekes »dekanesse, lektor«) skal ultimativt med i statuslinjen
+  (projektejeren 27/11), men algoritmen er kun målt på mænd. I denne leverance får **kun mænd** algoritmens titel.
+  Kræver: måling på kvinder (fx mod »med …«-overskrifter og vielser) og en kvindelig titelliste. Funktionen tager
+  `koen` som input, så udvidelsen ikke ændrer signaturen.
+- **Ingifte mænds adelstitler** findes kun i prosa/vielsestekster; uden dem får født Reventlow-kvinder gift uden for
+  slægten ingen gift-del (se Statuslinjen).
+- **Den ene ingifte med »grevinde« som eget faktum**: kan være en ægteskabstitel registreret som egen. Står på
   redaktørlisten.
