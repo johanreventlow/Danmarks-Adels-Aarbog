@@ -129,6 +129,12 @@ jobs:
       - name: web · build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build -w web
+      # Review 37 C5: lint. Fejl stopper altid; advarsler har et loft (målt 27/11: 10, alle
+      # react-hooks/exhaustive-deps — de rettes kun med test, fordi en ændret afhængighedsliste ændrer
+      # adfærd). Sænk loftet, når én rettes; hæv det aldrig uden en begrundelse her.
+      - name: web · lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint -w web -- --max-warnings 10
       - name: web · PostgREST-gate (node:test)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node --test web/scripts/verify-public-rpcs.test.mjs
