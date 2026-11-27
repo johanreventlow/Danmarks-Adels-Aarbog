@@ -12,15 +12,15 @@
 -- som genbruger transaktionens aktive sæt (schema.sql: begin_change_set, `app.change_set_id`) -> ALLE skrivninger
 -- lander i ÉT ændringssæt, som kan fortrydes samlet med red_fortryd_change_set(<id>). Sættets id udskrives.
 --
--- Output: kun antal og person-id'er (aldrig navne). Redaktørlisten = id'erne under »IKKE_SAT«.
+-- Output: én jsonb (koen_rapport) med antal og person-id'er (aldrig navne). Redaktørlisten = `ikke_sat`.
 --
 -- Kørsel via psql (projektejerens shell; aktøren gives som variabel og står aldrig i filen):
 --   psql "$DSN" -v redaktoer_uid=<uuid> -f docs/runbooks/2026-11-27-koen-ingifte.sql            -- prøve: ROLLBACK
 --   psql "$DSN" -v redaktoer_uid=<uuid> -v skriv=1 -f docs/runbooks/2026-11-27-koen-ingifte.sql -- skriv: COMMIT
--- Kørsel via Supabase MCP execute_sql (ingen psql-meta-kommandoer): indsæt teksten mellem »BEGIN-MARKØR« og
--- »SLUT-MARKØR«; erstat aktørlinjen (markeret AKTØRLINJE) med
+-- Kørsel via Supabase MCP execute_sql (returnerer kun rækkerne fra ÉT resultatgivende udsagn; NOTICE returneres ikke):
+--   indsæt teksten mellem »BEGIN-MARKØR« og »SLUT-MARKØR«, erstat aktørlinjen (markeret AKTØRLINJE) med
 --   SELECT set_config('request.jwt.claim.sub', '<uuid>', true) IS NOT NULL AS aktoer_sat;
--- og slut med ROLLBACK (prøve) eller COMMIT (skriv) i stedet for den psql-betingede blok i bunden.
+--   og tilføj til sidst `ROLLBACK;` (prøve) eller `COMMIT;` (skriv). Rapporten er ÉN jsonb i det sidste SELECT.
 -- Idempotent: efter en skrivning er kandidaterne ikke længere NULL, så en gentagelse sætter 0.
 \set ON_ERROR_STOP on
 \if :{?skriv}
@@ -49,7 +49,7 @@ WITH modpart AS (
   SELECT DISTINCT a.person_id AS kandidat_id, b.person_id AS modpart_id
   FROM family_member a
   JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
-  WHERE a.rolle = 'partner'
+  WHERE a.rolle = 'partner' AND a.person_id IN (SELECT id FROM person WHERE koen IS NULL)
 ), agg AS (
   SELECT m.kandidat_id,
          count(*) AS n_modpart,
@@ -71,34 +71,19 @@ FROM person p
 LEFT JOIN agg a ON a.kandidat_id = p.id
 WHERE p.koen IS NULL;
 
--- Før skrivning (alle tal er antal personer med tomt køn).
-SELECT udfald, count(*) AS antal FROM koen_maal GROUP BY udfald ORDER BY udfald;
-
--- Skrivning: ét red_set_koen-kald pr. afdød kandidat med entydigt udfald; alle i ét ændringssæt.
+-- Skrivning: ét red_set_koen-kald pr. afdød kandidat med entydigt udfald. Ét navngivet ændringssæt åbnes først
+-- (kun hvis der er noget at skrive); red_set_koen genbruger det.
 DO $skriv$
-DECLARE m record; v_n int := 0;
+DECLARE m record; v_n int;
 BEGIN
-  FOR m IN SELECT person_id, udfald FROM koen_maal WHERE udfald IN ('kvinde','mand') ORDER BY person_id LOOP
-    PERFORM red_set_koen(m.person_id, m.udfald);
-    v_n := v_n + 1;
-  END LOOP;
-  RAISE NOTICE 'KOEN_SKREVET: % personer', v_n;
+  SELECT count(*) INTO v_n FROM koen_maal WHERE udfald IN ('kvinde','mand');
+  IF v_n > 0 THEN
+    PERFORM begin_change_set('red_set_koen', format('Køn for ingifte efter ægteskabsreglen (%s personer)', v_n), NULL, NULL);
+    FOR m IN SELECT person_id, udfald FROM koen_maal WHERE udfald IN ('kvinde','mand') ORDER BY person_id LOOP
+      PERFORM red_set_koen(m.person_id, m.udfald);
+    END LOOP;
+  END IF;
 END $skriv$;
-
--- Resultat (antal pr. udfald i kategorierne fra specen) og ændringssættet.
-SELECT
-  count(*) FILTER (WHERE udfald = 'kvinde')            AS sat_kvinde,
-  count(*) FILTER (WHERE udfald = 'mand')              AS sat_mand,
-  count(*) FILTER (WHERE udfald = 'levende')           AS levende_sprunget_over,
-  count(*) FILTER (WHERE udfald = 'ingen_aegtefaelle') AS ingen_aegtefaelle,
-  count(*) FILTER (WHERE udfald = 'modpart_ukendt')    AS modpart_ukendt_koen,
-  count(*) FILTER (WHERE udfald = 'blandet')           AS blandet
-FROM koen_maal;
-SELECT nullif(current_setting('app.change_set_id', true), '') AS aendringssaet_id;
-
--- Redaktørlisten: id'er (ingen navne) på dem, der ikke blev sat.
-SELECT 'IKKE_SAT' AS liste, udfald, person_id FROM koen_maal
-WHERE udfald NOT IN ('kvinde','mand') ORDER BY udfald, person_id;
 
 -- Kontrol: hver person med entydigt udfald har nu præcis det køn; ingen er sat uden for reglen.
 DO $kontrol$ DECLARE v_fejl int; v_for_meget int; BEGIN
@@ -109,8 +94,23 @@ DO $kontrol$ DECLARE v_fejl int; v_for_meget int; BEGIN
   IF v_fejl <> 0 OR v_for_meget <> 0 THEN
     RAISE EXCEPTION 'KOEN_FEJL: % kandidater uden forventet køn, % uden for reglen sat', v_fejl, v_for_meget;
   END IF;
-  RAISE NOTICE 'KOEN_OK: alle kandidater med entydigt udfald er sat, ingen andre er rørt';
 END $kontrol$;
+
+-- Rapport: ÉN jsonb (kun antal og id'er, aldrig navne). Sidste udsagn før COMMIT/ROLLBACK.
+SELECT jsonb_pretty(jsonb_build_object(
+  'sat_kvinde', count(*) FILTER (WHERE udfald = 'kvinde'),
+  'sat_mand', count(*) FILTER (WHERE udfald = 'mand'),
+  'levende_sprunget_over', count(*) FILTER (WHERE udfald = 'levende'),
+  'ingen_aegtefaelle', count(*) FILTER (WHERE udfald = 'ingen_aegtefaelle'),
+  'modpart_ukendt_koen', count(*) FILTER (WHERE udfald = 'modpart_ukendt'),
+  'blandet', count(*) FILTER (WHERE udfald = 'blandet'),
+  'change_set_id', nullif(current_setting('app.change_set_id', true), ''),
+  'ikke_sat', jsonb_build_object(
+    'levende', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'levende'), '[]'),
+    'ingen_aegtefaelle', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'ingen_aegtefaelle'), '[]'),
+    'modpart_ukendt', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'modpart_ukendt'), '[]'),
+    'blandet', coalesce(jsonb_agg(person_id ORDER BY person_id) FILTER (WHERE udfald = 'blandet'), '[]'))
+)) AS koen_rapport FROM koen_maal;
 -- ===== SLUT-MARKØR (ren SQL) =====
 
 \if :skriv
