@@ -529,6 +529,26 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 59. Køn for ingifte og skilsmissedatoer — DATA i prod (2026-11-27)
+
+**Grundlag:** PR #514 (personsidens statuslinje og skilsmisse), spec `docs/superpowers/specs/2026-11-27-personside-navnevisning-design.md`,
+`docs/decisions.md` 2026-11-27. Kørt via Supabase-MCP efter projektejerens udtrykkelige ja, **før** merge (ingen DDL;
+rækkefølgen er ligegyldig for koden). Runbookenes krop (mellem markørerne) med aktørlinjen erstattet af opslag på den ene
+`profiles.rolle='redaktion'`; prøve (ROLLBACK) først, så skrivning.
+
+- **Backup:** `~/.private/navnevisning/daa-prod-pre-koen-20261127115746.dump` og `…-pre-skilsmisse-20261127132033.dump`
+  (pg_dump -Fc, 21 MB, 0600, 0 fejllinjer).
+- **Køn** (`docs/runbooks/2026-11-27-koen-ingifte.sql`): ændringssæt **4863** »Køn for ingifte efter ægteskabsreglen (614
+  personer)«: 305 kvinde + 309 mand via `red_set_koen`. Tomt køn 659 → 45 (22 levende, 21 uden ægtefælle, 2 med ægtefælle
+  uden køn) — redaktørliste (kun id'er) i `~/.private/navnevisning/redaktoerliste-koen.txt`.
+- **Skilsmissedatoer** (`docs/runbooks/2026-11-27-skilsmissedatoer.sql`): ændringssæt **4864** »Skilsmissedatoer fra
+  biografierne (7 familier)« via `red_upsert_fakta` (ny påstand, fritekst-kilde; den gamle »skilt« bevaret). Ikke
+  skrevet (13): 10 med flere ægteskaber (vagt mod et andet ægteskabs dato), 2 flertydige, 1 uden dato —
+  `~/.private/navnevisning/redaktoerliste-skilsmisse.txt`.
+- **Efter:** 20 skilsmisse-fakta (7 med dato, 27 påstande); anon ser 0 levende, 15 skilsmisse-fakta (uændret); security
+  advisors som før (ingen nye).
+- **Fortryd:** `red_fortryd_change_set(4864)` og/eller `red_fortryd_change_set(4863)`.
+
 ## 58. Review 37 ceremoni 5 (R37S8-1 + R37B-3): mediernes interne felter kun for redaktionen, flet af familie- og stedbilleder — LIVE i prod (2026-11-26/27)
 
 **Grundlag:** PR #509 (CI grøn i alle 10 jobs på `7e1771c9`; merget `77eb01b9` mellem blok A og B). Privat runner
