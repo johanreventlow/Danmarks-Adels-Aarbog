@@ -37,7 +37,7 @@ describe('pruneUndertrae — bogens s.15-beskæring', () => {
     const m2 = buildModel(db2);
     const node = pruneUndertrae(m2, { E: true }, 'X');
     expect(node).not.toBeNull();
-    expect(node!.partnere).toEqual([{ id: 'E', levende: true }]);
+    expect(node!.partnere).toEqual([{ id: 'E', levende: true, skilsmisse: null }]);
   });
 
   test('svag konfidens på kanten markerer barnet usikkert', () => {
@@ -122,6 +122,20 @@ describe('buildPresensListe — klatring og grupper', () => {
     const g = buildPresensListe(m2, [anker('ANKER')], { ANKER: true, E2: true }).grene[0];
     expect(g.grupper.map((x) => x.overskrift)).toEqual(['Fars enke']);
     expect(g.grupper[0].roedder[0].id).toBe('E2');
+  });
+
+  test('skilt levende ægtefælle til afdød far står ikke i enke-gruppen', () => {
+    const db2: Db = {
+      persons: [mk('Far', 'mand'), mk('Mor', 'kvinde'), mk('E2', 'kvinde'), mk('ANKER', 'mand')],
+      unions: [
+        { id: 'f1', p1: 'Far', p2: 'Mor', p2_name: null, year: null },
+        { id: 'f2', p1: 'Far', p2: 'E2', p2_name: null, year: null },
+      ],
+      parentChild: [pc('ANKER', 'Far', 'f1'), pc('ANKER', 'Mor', 'f1')],
+    };
+    const m2 = { ...buildModel(db2), skilsmisser: { '2': { dateMin: null, dateMax: null } } };
+    const g = buildPresensListe(m2, [anker('ANKER')], { ANKER: true, E2: true }).grene[0];
+    expect(g.grupper.map((x) => x.overskrift)).toEqual([]);
   });
 
   test('anker-partitionering: sidegren med eget anker springes over', () => {
@@ -392,5 +406,29 @@ describe('groupByLinje', () => {
   test('linje-overhoved uden gren-nummer (gren=null) grupperes for sig selv', () => {
     const grupperet = groupByLinje([gren(anker('I', null, 'Z'))]);
     expect(grupperet).toEqual([{ linje: 'I', grene: [gren(anker('I', null, 'Z'))] }]);
+  });
+});
+
+describe('skilsmisse i præsenslisten', () => {
+  // X(død) gift med E(levende, skilt) — ingen børn.
+  const db: Db = {
+    persons: [mk('X', 'mand'), mk('E', 'kvinde')],
+    unions: [{ id: 'f7', p1: 'X', p2: 'E', p2_name: null, year: null }],
+    parentChild: [],
+  };
+  const skilt = { dateMin: '1901-10-12', dateMax: '1901-10-12' };
+  test('partneren bærer skilsmissen; skilt levende partner giver ingen efterlevendePartner-node', () => {
+    const m = { ...buildModel(db), skilsmisser: { '7': skilt } };
+    expect(pruneUndertrae(m, { E: true }, 'X')).toBeNull();
+  });
+  test('skilsmisse sat på PresensPartner når en node består af anden grund', () => {
+    const m = { ...buildModel(db), skilsmisser: { '7': skilt } };
+    const node = pruneUndertrae(m, { X: true, E: true }, 'X');
+    expect(node!.partnere).toEqual([{ id: 'E', levende: true, skilsmisse: skilt }]);
+  });
+  test('ukendt skilsmisse (null) ændrer intet', () => {
+    const m = { ...buildModel(db), skilsmisser: null };
+    const node = pruneUndertrae(m, { E: true }, 'X');
+    expect(node!.partnere).toEqual([{ id: 'E', levende: true, skilsmisse: null }]);
   });
 });

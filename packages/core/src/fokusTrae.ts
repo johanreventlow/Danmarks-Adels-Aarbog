@@ -18,11 +18,12 @@ import type { Model, ModelPerson } from './types';
 import { childrenOf, parentsOf } from './modelTraversering';
 import { konfTekst } from './konfTekst';
 import { sorterBoernEfterBogen } from './bogensOrden';
+import { parSkilsmisse } from './skilsmisse';
 
 export type FokusRelation = { person: ModelPerson; konf: string };
 export type FokusForaelder = FokusRelation & { rolle: 'Far' | 'Mor' | 'Forælder' };
 export type FokusSoeskende = FokusRelation & { halv: boolean; iFokus: boolean };
-export type FokusAegteskab = { unionId: string | null; aegtefaelleId: string | null; navn: string };
+export type FokusAegteskab = { unionId: string | null; aegtefaelleId: string | null; navn: string; skilt: boolean };
 export type FokusBoerneGruppe = { aegteskab: FokusAegteskab | null; boern: FokusRelation[] };
 export type FokusRaekker = {
   foraeldre: FokusForaelder[];
@@ -94,6 +95,7 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
 
   // Ægteskaber: fra unionerne (med id), ellers spousesBy; samme ægtefælle er ét ægteskab.
   const aegteskaber: FokusAegteskab[] = [];
+  const erSkilt = (aegtefaelleId: string | null) => aegtefaelleId != null && !!parSkilsmisse(model, focusId, aegtefaelleId);
   const findAegteskab = (aegtefaelleId: string | null, navn: string) =>
     aegteskaber.find((a) => (aegtefaelleId ? a.aegtefaelleId === aegtefaelleId : !a.aegtefaelleId && a.navn === navn));
   const unioner = Object.values(model.indexes.unionById ?? {}).filter((u) => canon(u.p1) === focusId || (u.p2 != null && canon(u.p2) === focusId));
@@ -104,12 +106,12 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
     if (!anden && !u.p2_name) continue;
     const navn = (anden && model.byId[anden]?.name) || u.p2_name || 'Ægtefælle uden navn';
     const id = anden && model.byId[anden] ? anden : null;
-    if (!findAegteskab(id, navn)) aegteskaber.push({ unionId: u.id, aegtefaelleId: id, navn });
+    if (!findAegteskab(id, navn)) aegteskaber.push({ unionId: u.id, aegtefaelleId: id, navn, skilt: erSkilt(id) });
   }
   if (aegteskaber.length === 0) {
     for (const s of model.indexes.spousesBy[focusId] ?? []) {
       if (!s.name && !s.id) continue;
-      if (!findAegteskab(s.id, s.name)) aegteskaber.push({ unionId: null, aegtefaelleId: s.id, navn: s.name || 'Ægtefælle uden navn' });
+      if (!findAegteskab(s.id, s.name)) aegteskaber.push({ unionId: null, aegtefaelleId: s.id, navn: s.name || 'Ægtefælle uden navn', skilt: erSkilt(s.id) });
     }
   }
 

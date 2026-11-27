@@ -9,6 +9,9 @@ describe('faktaVisning (flyttet fra web PersonFakta, batch 7)', () => {
     expect(['fødsel', 'dåb', 'død', 'begravelse', 'floruit', 'embede'].map(faktaTypeNavn))
       .toEqual(['Født', 'Døbt', 'Død', 'Begravet', 'Nævnt', 'Embede']);
   });
+  it('navn hedder Fornavne', () => {
+    expect(faktaTypeNavn('navn')).toBe('Fornavne');
+  });
   it('notetekst for enighed og uenighed', () => {
     expect(udgaveNoteTekst({ art: 'enig', udgave: U10 })).toBe('✓ også i DAA 1939');
     expect(udgaveNoteTekst({ art: 'skriver', udgave: U10, vaerdier: ['1701', 'ca. 1700'] })).toBe('DAA 1939 skriver: 1701; ca. 1700');

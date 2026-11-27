@@ -72,3 +72,12 @@ describe('vielsesDatoerPrFamilie', () => {
     expect(ud).toEqual({ '100': '⚭ 18. nov. 1670' });
   });
 });
+
+describe('byggFokusRaekker: skilt', () => {
+  const skilt = { ...model, skilsmisser: { '1': { dateMin: null, dateMax: null } } };
+  it('skilt-flag pr. ægteskab; false uden skilsmisse og ved ukendt (null)', () => {
+    expect(byggFokusRaekker(skilt, 'F')!.aegteskaber.map((a) => a.skilt)).toEqual([true, false]);
+    expect(byggFokusRaekker({ ...model, skilsmisser: {} }, 'F')!.aegteskaber.map((a) => a.skilt)).toEqual([false, false]);
+    expect(byggFokusRaekker({ ...model, skilsmisser: null }, 'F')!.aegteskaber.map((a) => a.skilt)).toEqual([false, false]);
+  });
+});
