@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-27 — Billedernes filnavn og fingeraftryk er kun for redaktionen
+
+Medlemmer kunne teknisk læse det originale filnavn og fingeraftrykket (sha256) på alle billeder, fordi redaktionens
+medieliste og dublettjek hentede dem direkte. Nu henter redaktionen dem gennem to funktioner, der kun svarer en redaktør,
+og medlemmer ser de samme billedfelter som gæster. Ingen mærker forskel i dag (prod har 0 medlemmer). Samme ændring lader
+redaktøren flette billeder, der hænger på en familie eller et sted, ikke kun på godser, våben og linjer. I prod
+2026-11-26/27 (`database-current-state.md` §58, #397).
+
 ## 2026-11-26 — Redaktøren kan rette, om en person er levende
 
 Før kunne »levende« kun vælges, når en person blev oprettet. Nu har person-editoren knappen »Levende«: at markere en
