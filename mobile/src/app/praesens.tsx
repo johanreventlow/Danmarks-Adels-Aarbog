@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   buildPresensListe,
+  fmtSkilt,
   groupByLinje,
   kanoniserPresensGrundlag,
   samlIds,
@@ -93,6 +94,7 @@ function PraesensNodeView({
               {navnAf(partner.id)}
             </Body>
           </Pressable>
+          {partner.skilsmisse ? <Body size={12} color={Colors.inkMuted}>{`, ${fmtSkilt(partner.skilsmisse, 'aar')}`}</Body> : null}
         </View>
       ))}
 
@@ -341,11 +343,12 @@ export default function PraesensScreen() {
     if (!alleIds.length) {
       return () => { aktiv = false; };
     }
-    fetchPresensNavneDele(alleIds)
+    // Skilte familier (model.skilsmisser; null/manglende = ukendt → ingen ægtefælle-titel, fail-closed).
+    fetchPresensNavneDele(alleIds, model?.skilsmisser == null ? null : new Set(Object.keys(model.skilsmisser)))
       .then((resultat) => { if (aktiv) setNavneDele(resultat); })
       .catch(() => { if (aktiv) setNavneDele({}); });
     return () => { aktiv = false; };
-  }, [alleIds]);
+  }, [alleIds, model?.skilsmisser]);
 
   const fallbackNavn = (id: string) => model?.byId[id]?.name ?? `person ${id}`;
   const navnAf = (id: string) => formatAndetNavn(navneDele[id], fallbackNavn(id));

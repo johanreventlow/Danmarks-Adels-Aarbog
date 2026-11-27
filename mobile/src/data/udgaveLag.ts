@@ -10,7 +10,7 @@ import type { RawExtId, RawSource } from './types';
 
 export type UdgaveLag = Required<Pick<Model, 'lineage' | 'sourcesBy' | 'linjeRaekkerBy' | 'udgaver' | 'udgaveForPersonRaekke' | 'bogNrBy'>>
   // Valgfri (plan 2026-11-26): linjernes adelsnavn og slægtsrodens navn til bogens formelle navneform; seedet har dem ikke.
-  & Pick<Model, 'adelsnavne' | 'slaegtsnavn'>;
+  & Pick<Model, 'adelsnavne' | 'slaegtsnavn' | 'skilsmisser'>;
 
 export const TOMT_SKEMA: LineageSchemeRows = { schemes: [], entries: [], mappings: [] };
 

@@ -11,7 +11,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildBidirectionalColumns, byggFokusRaekker, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer } from '@daa/core';
+import { buildBidirectionalColumns, byggFokusRaekker, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer, traeTitel } from '@daa/core';
 import { boernIBogensOrden, childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
@@ -100,7 +100,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
       <CenterKicker text="Denne generation ◂ ▸" style={{ marginVertical: 8 }} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 11, paddingHorizontal: 2, paddingBottom: 6 }}>
         {view.siblings.map((s) => (
-          <SiblingCard key={s.id} person={s} childCount={childrenOf(model, s.id).length} kunI={kunIAeldreTekst(model, s.id)?.maerke} selected={s.id === view.focus!.id} onFocus={() => setFocus(s.id)} onOpen={() => router.push(`/person/${s.id}`)} />
+          <SiblingCard key={s.id} person={s} childCount={childrenOf(model, s.id).length} kunI={kunIAeldreTekst(model, s.id)?.maerke} titel={traeTitel(model, s.id)} selected={s.id === view.focus!.id} onFocus={() => setFocus(s.id)} onOpen={() => router.push(`/person/${s.id}`)} />
         ))}
       </ScrollView>
       {/* Ægteskaber og børn pr. ægteskab fra @daa/core's byggFokusRaekker — samme rækker som personskærmen og web's
@@ -108,7 +108,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
           (bogens rækkefølge); børn uden kendt ægteskab samles under »Ægteskab ikke angivet« med bogens forbehold. */}
       {fam?.aegteskaber.length ? (
         <Serif size={15} italic color={Colors.inkMuted} style={{ textAlign: 'center', marginTop: 10, fontFamily: Fonts.serifItalic }}>
-          {fam.aegteskaber.map((a) => `⚭ ${a.navn}`).join('  ·  ')}
+          {fam.aegteskaber.map((a) => `⚭ ${a.navn}${a.skilt ? ', skilt' : ''}`).join('  ·  ')}
         </Serif>
       ) : null}
       {fam?.antalBoern ? (
@@ -438,7 +438,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                             {p.years ? <Mono size={9} color={Colors.inkMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
                           </View>
                         </View>
-                        {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
+                        {traeTitel(model, id) ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{traeTitel(model, id)}</BtnLabel> : null}
                       </Pressable>
                     );
                   })}
@@ -517,14 +517,14 @@ function Connector({ height, style }: { height: number; style?: object }) {
   return <View style={[styles.connector, { height }, style]} />;
 }
 
-function SiblingCard({ person, childCount, kunI, selected, onFocus, onOpen }: { person: ModelPerson; childCount: number; kunI?: string; selected: boolean; onFocus: () => void; onOpen: () => void }) {
+function SiblingCard({ person, childCount, kunI, titel, selected, onFocus, onOpen }: { person: ModelPerson; childCount: number; kunI?: string; titel: string | null; selected: boolean; onFocus: () => void; onOpen: () => void }) {
   return (
     <Pressable onPress={onFocus} style={[styles.sibCard, selected ? styles.sibCardSelected : styles.sibCardIdle]}>
       {selected ? <Mono size={8} color={Colors.bordeaux} style={{ position: 'absolute', top: 11, right: 12, letterSpacing: 0.8 }}>I FOKUS</Mono> : null}
       <View style={styles.sibAvatar}><Serif size={26} color={Colors.bordeaux}>{initial(person.name)}</Serif></View>
       <Serif size={23} style={{ marginTop: 12, lineHeight: 24 }}>{person.name}</Serif>
       {person.years ? <Mono size={10.5} color={Colors.inkMuted} style={{ marginTop: 4 }}>{person.years}</Mono> : null}
-      {person.title ? <BtnLabel size={12} color={Colors.bordeaux} style={{ marginTop: 6, fontFamily: Fonts.sansMedium }}>{person.title}</BtnLabel> : null}
+      {titel ? <BtnLabel size={12} color={Colors.bordeaux} style={{ marginTop: 6, fontFamily: Fonts.sansMedium }}>{titel}</BtnLabel> : null}
       {kunI ? <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6, letterSpacing: 0.6, textTransform: 'uppercase' }}>{kunI}</Mono> : null}
       {childCount ? <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 8 }}>↓ {childCount} {childCount === 1 ? 'barn' : 'børn'}</Mono> : null}
       {selected ? <Pressable onPress={onOpen} style={styles.openBtn}><BtnLabel size={12} color={Colors.inkOnInverse}>Åbn profil ›</BtnLabel></Pressable> : null}

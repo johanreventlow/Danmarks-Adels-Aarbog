@@ -107,6 +107,7 @@ export function buildAux(
         label,
         period: per,
         _y: parseYear(r.periode_raw) || 9999,
+        rolle: r.rolle ?? null,
       });
     }
   });

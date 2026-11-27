@@ -19,7 +19,7 @@ import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import {
-  byggFokusRaekker, faktaTypeNavn, formelNavneform, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, personensAdelsnavn, slaegtskabsKontekst, udgaveNoteTekst,
+  byggFokusRaekker, byggStatuslinje, faktaTypeNavn, fmtSkilt, parSkilsmisse, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, slaegtskabsKontekst, udgaveNoteTekst,
 } from '@daa/core';
 import type { BioSourceVersion, UdgaveFaktaVisning } from '@daa/core';
 import { barnErAktivt } from '../../data/familieBlok';
@@ -137,11 +137,17 @@ export default function PersonScreen() {
   const spouses = spousesOf(model, person.id);
   const vielseBySpouse = vielser?.personId === person.id ? vielseForAegtefaeller(model.indexes, person.id, vielser.byFam) : {};
   const kunI = kunIAeldreTekst(model, person.id);
-  // Bogens formelle navneform (»Johan Martin greve af Reventlow«; plan 2026-11-26) — samme regel som web: linjens
-  // adelsnavn via den kanoniske linjemodel, ingen for stifteren, kun med adelstitel.
-  const formelNavn = model.lineage && model.adelsnavne
-    ? formelNavneform({ fornavne: person.fornavne, titel: person.title, adelsnavn: personensAdelsnavn(person.id, model.lineage, model.adelsnavne), slaegtsnavn: model.slaegtsnavn })
+  // Statuslinjen under årene (spec 2026-11-27): ét sted for titel, adelsnavn og ægteskabstitel. Hof-/rangtitler kommer
+  // fra afklarede titel-fakta og embedsroller, så de er først med, når personens fakta er hentet (null før).
+  const personFakta = fakta?.personId === person.id ? fakta.input : null;
+  const hofKilder = personFakta
+    ? [
+        ...personFakta.rows.filter((r) => r.faktatype === 'titel' && r.chosen && r.conclusion_status === 'afklaret').map((r) => r.vaerdi_tekst),
+        ...(aux?.officesBy[person.id] ?? []).map((o) => o.rolle),
+      ].filter((x): x is string => !!x)
     : null;
+  const statuslinje = byggStatuslinje(model, person.id, hofKilder);
+  const skiltTekst = (spId: string) => { const sk = parSkilsmisse(model, person.id, spId); return sk ? fmtSkilt(sk, 'dag') : undefined; };
   const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
   // Udgavevælger (én chip pr. udgave, standard = nyeste udgave med en post), linjerne i den valgte udgave, B6-noter
@@ -205,18 +211,8 @@ export default function PersonScreen() {
                   <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{navn}</Mono>
                 </View>
               ))}
-              {person.title ? (
-                <View style={[styles.badge, { backgroundColor: Colors.bordeauxFillLight2, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.16)' }]}>
-                  <BtnLabel size={11.5} color={Colors.bordeaux}>{person.title}</BtnLabel>
-                </View>
-              ) : null}
             </View>
-            {formelNavn ? (
-              <View style={{ marginTop: 9 }}>
-                <Kicker color={Colors.inkMuted}>I Aarbogen</Kicker>
-                <Serif size={16} style={{ marginTop: 2, lineHeight: 16 * 1.3 }}>{formelNavn}</Serif>
-              </View>
-            ) : null}
+            {statuslinje ? <BtnLabel size={13} color={Colors.bordeaux} style={{ marginTop: 9, fontFamily: Fonts.sansMedium }}>{statuslinje}</BtnLabel> : null}
             {v.vaelger.form !== 'ingen' ? (
               <View style={styles.udgaveRow} accessibilityRole="radiogroup" accessibilityLabel="Udgave">
                 {v.vaelger.chips.map((c, i) => (
@@ -299,7 +295,7 @@ export default function PersonScreen() {
           <Section title="Gift med">
             {spouses.map((sp, i) => (
               <PersonRaekke key={(sp.id ?? sp.name) + i} navn={sp.name}
-                aar={sp.id ? model.byId[sp.id]?.years : undefined} vielse={sp.id ? vielseBySpouse[sp.id] : undefined}
+                aar={sp.id ? model.byId[sp.id]?.years : undefined} vielse={sp.id ? vielseBySpouse[sp.id] : undefined} skilt={sp.id ? skiltTekst(sp.id) : undefined}
                 onPress={sp.id ? () => router.push(`/person/${sp.id}`) : undefined} />
             ))}
           </Section>
@@ -473,10 +469,10 @@ function FaktaListe({ visning }: { visning: UdgaveFaktaVisning }) {
 // Én person i familieblokken (som web's PersonLink): navnet som link (grå tekst uden link, når barnet kun står i en
 // anden udgave end den valgte), så år og ⚭-dato adskilt med komma — så vielsen ikke læses som ægtefællens livsdato —
 // og usikkert slægtskab med ordet (invariant 7) og »Kun i …«-mærket.
-function PersonRaekke({ navn, aar, vielse, konf, kunI, onPress }: {
-  navn: string; aar?: string; vielse?: string; konf?: string; kunI?: string; onPress?: () => void;
+function PersonRaekke({ navn, aar, vielse, skilt, konf, kunI, onPress }: {
+  navn: string; aar?: string; vielse?: string; skilt?: string; konf?: string; kunI?: string; onPress?: () => void;
 }) {
-  const detaljer = [aar, vielse].filter(Boolean).join(', ');
+  const detaljer = [aar, vielse, skilt].filter(Boolean).join(', ');
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'link' : 'text'} style={styles.personRaekke}>
       <Serif size={17} color={onPress ? Colors.bordeaux : Colors.inkMuted}>{navn}{onPress ? ' ›' : ''}</Serif>

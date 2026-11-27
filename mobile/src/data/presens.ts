@@ -178,12 +178,15 @@ async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]
   return (await fetchFaktaVaerdier('titel', personIds)).filter((t) => erAdelsTitel(t.vaerdi_tekst));
 }
 
-async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
-  if (!supabase || !personIds.length) return new Map();
+// Skilsmisse (spec 2026-11-27): en skilt familie giver ingen ægtefælle-overtagelse. `skilteFamilier === null` =
+// opslaget fejlede (ukendt) → tom map, fail-closed: hellere ingen tilgiftet titel end en til en skilt kvinde.
+async function fetchAegtefaelleIdById(personIds: number[], skilteFamilier: ReadonlySet<string> | null): Promise<Map<string, string>> {
+  if (!supabase || skilteFamilier === null || !personIds.length) return new Map();
   const sb = supabase;
-  const mine = await getAll<RawPartnerRow>(() =>
+  const mineAlle = await getAll<RawPartnerRow>(() =>
     sb.from('family_member').select('family_id,person_id')
       .eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
+  const mine = mineAlle.filter((m) => !skilteFamilier.has(String(m.family_id)));
   if (!mine.length) return new Map();
   const familyIds = [...new Set(mine.map((m) => m.family_id))];
   const alle = await getAll<RawPartnerRow>(() =>
@@ -208,11 +211,12 @@ async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, 
 
 export async function fetchPresensNavneDele(
   ids: string[],
+  skilteFamilier: ReadonlySet<string> | null,
 ): Promise<Record<string, PresensNavneDele>> {
   if (!supabase || !ids.length) return {};
   const sb = supabase;
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
-  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds, skilteFamilier);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([

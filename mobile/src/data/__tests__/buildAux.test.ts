@@ -185,3 +185,11 @@ test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder
   expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
   expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
 });
+
+test('buildAux: embeder bærer den rå rolle (statuslinjens hof-titler læser den)', () => {
+  const aux = buildAux({ ...base,
+    orgs: [{ id: 4, navn: 'Hoffet', slags: 'myndighed' }] as never,
+    relations: [{ subjekt_type: 'person', subjekt_id: 9, objekt_type: 'organisation', objekt_id: 4, rolle: 'Hofjægermester', periode_raw: '1900' }] as never,
+  });
+  expect(aux.officesBy['9'][0]).toMatchObject({ label: 'Hofjægermester, Hoffet', rolle: 'Hofjægermester' });
+});
