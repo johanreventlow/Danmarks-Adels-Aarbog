@@ -77,8 +77,10 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
   skilsmisse-indekset (se Skilsmisse) og mandens `title` er en adelstitel med en feminin form (`feminiserTitel`, i dag i
   `web/src/data/presens.ts` — flyttes til `packages/core`). Højeste rang vinder ved flere (lensgrevinde > grevinde >
   friherreinde/baronesse). Mandens adelsnavn = `personensAdelsnavn(mandens id, …)`; uden det bruges mandens
-  **slægtsnavn uden partikel** (»gift grevinde Ahlefeldt-Laurvig«) — projektejeren 27/11. Slægtsnavnet er mandens
-  `visning_efternavn`, ellers hans afklarede `fødenavn`-faktum; kendes intet slægtsnavn, udelades hele gift-delen.
+  **slægtsnavn uden partikel** (»gift grevinde Ahlefeldt-Laurvig«) — projektejeren 27/11. Slægtsnavnet er slægtens
+  navn (`model.slaegtsnavn`), når manden har en linje i slægten; ellers udelades hele gift-delen i denne leverance.
+  (Mænd uden linje har i dag ingen adelstitel som faktum, så intet går tabt; deres slægtsnavn — fx via
+  `fødenavn` — følger med, når deres titler hentes ud, jf. Skal løses senere.)
   Gift-delen gælder **alle kvinder**, også født Reventlow (»Komtesse af Reventlow, gift grevinde
   Ahlefeldt-Laurvig«) — projektejeren 27/11.
   *Målt 27/11:* ingen ingift mand har en adelstitel som faktum (deres titler står i prosaen og vielsesteksterne). Født
@@ -110,7 +112,10 @@ en titel personen ikke havde, ca. hver femte uden overskrift får en titel.
    kammerjunker, foged — plus stigernes øvrige trin (sekondløjtnant, justitsråd, jagtjunker, overhofjægermester).
    Et ord uden for listen giver ingen titel (fail-closed).
 
-Titel-fakta og embedsroller er ligestillede input (som i målingen); begge normaliseres ens. Levende personer ses kun
+Titel-fakta og embedsroller er ligestillede input (som i målingen); begge normaliseres ens. Embedet skal give
+algoritmen sin **rå rolle**, ikke etiketten »rolle · organisation«: `PersonOffice` (web) og `OfficeRef` (mobil) får
+feltet `rolle`. Målt 27/11: ingen født kvinde har en titel, der er den feminine form af sin mands titel, så reglen om
+ægteskabstitler flytter ingen fødselstitel i dag. Levende personer ses kun
 af redaktører, som har detaljerne, så de får samme behandling.
 
 Algoritmen er en ren funktion i `packages/core` med målescriptets tilfælde som tests. Statuslinjen vises med adelsdelen
@@ -164,21 +169,35 @@ Udløser: en levende, skilt person vises i dag som gift alle steder.
 Uden dato står blot »skilt«. Den skilte ægtefælle bliver stående (forælder til børnene, og bogen nævner hende/ham).
 Personsiden viser hele datoen; træet intet år (pladsen); præsenslisten kun året (listens korte form).
 
-**Data i appen:** 20 skilsmisse-fakta i prod (alle på `family`, afklarede, alle med en levende partner). De hentes
-**én gang i modellen** (som `adelsnavne`: fact → afklaret conclusion → assertion) til et indeks
-familie-id → `{ dato: string | null }`, som personside, træ, præsensliste og statuslinje deler. Gæster ser ikke
-levende, og `entitet_offentlig` skjuler familier med en levende partner, så kun redaktører får rækkerne — som i dag
-for selve ægteskabet. Fejl i opslaget → ingen »skilt« og ingen gift-del-ændring (tolerant, som `adelsnavne`).
+**Data i appen:** 20 skilsmisse-fakta i prod, alle på `family` og afklarede. Målt 27/11 som anon: 15 er offentlige
+(afdøde par), 4 er skjult (begge partnere levende) og 1 er skjult af `family_offentlig` af anden grund;
+anon ser 15. De hentes **én gang i modellen** (som `adelsnavne`: fact → afklaret conclusion → assertion) til et
+indeks familie-id → skilsmisse, som personside, træ, præsensliste og statuslinje deler.
+**Fejl i opslaget er fail-closed** (rettet efter review): opslaget giver `null` (ukendt), ikke `{}`. Mens det er
+ukendt, vises ingen »skilt«, men **ingen gift-del i statuslinjen og ingen overtaget ægtefælle-titel i præsenslisten**
+— en skilt kvinde må aldrig fremstå som gift, fordi et opslag fejlede.
+
+**Præsenslisten har tre steder, der behandler en ægtefælle som gift** (alle tre retter sig efter indekset):
+1. »· g. m. X« → »· g. m. X, skilt 1901«.
+2. Navnet: en ingift kvinde vises med mandens titel og efternavn (`mapPresensNavneDele` via `aegtefaelleIdById`,
+   web og mobil). En skilt ægtefælle springes over, så hun står under sit eget navn.
+3. Enke-gruppen (»Enke efter afdød blodforfader«, `presensListe.ts`) og `efterlevendePartner`: en levende, skilt
+   ægtefælle er ikke enke og tæller ikke som efterlevende — *min beslutning*.
 
 **Datoerne (prod-skrivning):** alle 20 påstande har i dag `date_raw = 'skilt'` og ingen `date_min`/`date_max` —
 importen tabte datoen. 2018-20's råtekst har ca. 18 omtaler af »skilt«, heraf 17 med dato (målt 27/11 i
 `work/raw_full.txt`), så alle skilsmisser kom med; kun datoerne mangler.
-- Et deterministisk script (SQL/regex, **ingen model**: teksterne handler om levende) finder »skilt <dato>« i den
-  skilte persons biografi i databasen. **Kun entydige fund skrives:** personen har præcis én skilt familie og
-  biografien præcis én »skilt <dato>«. Resten → redaktørlisten i `~/.private/`.
-- Skrives som en **ny påstand** med 2018-20 som kilde og konklusionen flyttet til den (invariant 1: den gamle påstand
-  bevares). `date_raw` = bogens tekst (»12. okt. 1901«), `date_min`/`date_max` udfyldt efter den eksisterende
-  dato-fortolkning. Mekanismen (fx `red_upsert_fakta` eller OCR-rettelsens vej) vælges i planen.
+- Et deterministisk script (SQL/regex, **ingen model**: nogle tekster handler om levende) finder »skilt <dato>« i
+  partnernes 2018-20-biografi i `narrative`. **Kun entydige fund skrives:** partneren har præcis én skilt familie,
+  biografierne giver præcis én dato, og datoen ligger ikke før vielsen (så en ægtefælles tidligere skilsmisse ikke
+  tages). Resten → redaktørlisten i `~/.private/`. Målt 27/11 (kun antal): 14 af 20 familier har en 2018-20-biografi
+  i `narrative`; 10 entydige, 2 flertydige, 2 uden dato i teksten, 6 uden biografi → 10 på redaktørlisten.
+- Skrivevej: `red_upsert_fakta('family', id, 'skilsmisse', NULL, date_min, date_max, NULL, date_raw, kilde_fritekst)`
+  — en **ny påstand** med afklaret konklusion; den gamle (»skilt«) bevares (invariant 1). Kilden er fritekst, der
+  nævner »Dansk Adels Aarbog 2018-20« (`red_upsert_fakta` sætter `source_id` NULL, kendt begrænsning #389).
+  OCR-rettelsens veje passer ikke: `red_ret_ocr_paastand` tager kun personfakta, og `red_ret_paastand` kræver et
+  fortolkningsforslag. `date_raw` = bogens tekst (»12. okt. 1901« / »2020«); `date_min`/`date_max` = dagen eller
+  året.
 - Runbook som køn-rettelsen: prøvekørsel som standard, ét ændringssæt, kan fortrydes, backup før, kørt via MCP efter
   projektejerens ja. **Output er kun antal** — datoer og navne vises aldrig i chat eller repo.
 
