@@ -673,7 +673,7 @@ def test_kort_navn_er_forslag_kun_naar_det_er_utvetydigt():
     assert gruppe_med(f, 361).alternativer[gruppe_med(f, 361).forvalg].ops["saet"][0]["navn"] == "Kollerup"
     assert gruppe_med(f, 158).alternativer["A"].ops["saet"][0]["navn"] == "Ober‑Ellguth"
     g = gruppe_med(f, 253)
-    assert g.forvalg is None and any(a.ops["saet"][0]["navn"] == "Forpagter af Gjelskov i Fyen"
+    assert g.forvalg is None and any(a.ops["saet"][0]["navn"] == "Forpagter af Gjelskov"
                                      for a in g.alternativer.values())
 
 
@@ -844,7 +844,7 @@ def test_s_delvis_laegger_kun_de_valgte_sammen():
 
 def test_og_liste_kort_navn_beholder_hele_listen():
     n = forslag.parse_navn("Eskær, Astrup og Skivehus i Nørre H. (1735-50)")
-    assert forslag.kort_navn(n) == "Eskær, Astrup og Skivehus i Nørre H."
+    assert forslag.kort_navn(n) == "Eskær, Astrup og Skivehus"
 
 
 @pytest.mark.parametrize("h", [{"svar": "ja", "citat": ["liste"], "kilde": 1},
@@ -895,3 +895,49 @@ def test_l3_to_nye_gaarde_under_samme_majorat_faar_hvert_sit_billede():
 def test_l5_autosave_gemmer_ikke_uroerte_forslag():
     js = forslag.JS
     assert 'k.getAttribute("data-skal") !== "1" && v === k.getAttribute("data-forvalg")' in js
+
+
+
+# ---------- projektejerens navneregel 27/11: »det skal bare være godset« ----------
+
+@pytest.mark.parametrize("navn, kort", [
+    ("Aschau ved Altenhof (1782)", "Aschau"),
+    ("Tovskov i Sommersted Sogn (købt før 1476)", "Tovskov"),
+    ("Kongsgaard i Hamborg (forlenet 1510)", "Kongsgaard"),
+    ("Steensgaard i Fyen (ejede 1472)", "Steensgaard"),
+    ("Nørre-Gyldenbjerg ved Nakskov (til)", "Nørre-Gyldenbjerg"),
+    ("Wennberga i Brostorp i Frosta Herred", "Wennberga"),
+    ("til Rudbjerggaard, Maribo Amt (1891)", "Rudbjerggaard"),
+    ("Ober\u2011Ellguth ved X", "Ober\u2011Ellguth"),
+    ("Gaarz (Oldenburg Sogn)", "Gaarz"),
+    ("gård i Bistingsmåla", "gård i Bistingsmåla"),
+    ("det Reventlowske hus i Amaliegade", "det Reventlowske hus i Amaliegade"),
+    ("Ballegaard og Bøgskov i Sundeved", "Ballegaard og Bøgskov"),
+    ("Grevskabet Christianssæde (1775)", "Grevskabet Christianssæde"),
+])
+def test_godsets_navn_uden_stedtilfoejelse(navn, kort):
+    assert forslag.kort_navn(forslag.parse_navn(navn)) == kort
+
+
+def test_stedtilfoejelse_giver_forslag_naar_utvetydigt_og_tvivl_ved_kollision():
+    f = forslag.byg_forslag(data([(406, "Aschau ved Altenhof (1782)"), (333, "Stubbe i Riseby S. (1722)")]))
+    for eid, navn in ((406, "Aschau"), (333, "Stubbe")):
+        g = gruppe_med(f, eid)
+        assert g.forvalg and g.alternativer[g.forvalg].ops["saet"][0]["navn"] == navn
+    f = forslag.byg_forslag(data([(146, "Aschau", 6), (406, "Aschau ved Altenhof (1782)")]))
+    g = gruppe_med(f, 406)
+    assert g.forvalg is None and any("også navnet på gruppe" in t for t in g.tvivl)
+
+
+def test_ny_gaard_fra_liste_faar_godsets_navn_og_teksten_viser_ikke_noeglen():
+    f = forslag.byg_forslag(data([(213, "Ballegaard og Bøgskov i Sundeved")]))
+    g = gruppe_med(f, 213)
+    delt = next(a for a in g.alternativer.values() if a.ops["opret"])
+    assert [o["navn"] for o in delt.ops["opret"]] == ["Bøgskov"]
+    assert "Bøgskov (ny side)" in delt.tekst and ":Bøgskov" not in delt.tekst
+
+
+def test_n_nej_siger_hvornaar_det_virker():
+    f = forslag.byg_forslag(data([(1, "Holm med Aalstrup"), (2, "Gram med Aalstrup i Salling")]))
+    assert len(f.nye) == 1
+    assert f.nye[0].alternativer["nej"].tekst.startswith("Nej, forskellige gårde — virker kun, hvis")

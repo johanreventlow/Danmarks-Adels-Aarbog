@@ -153,6 +153,12 @@
    "gruppe": 25
   },
   {
+   "estate": 384,
+   "navn": "Bistingsmåla",
+   "slags": "gård",
+   "gruppe": 26
+  },
+  {
    "estate": 421,
    "navn": "Bjørnholm",
    "slags": "gård",
@@ -417,12 +423,6 @@
    "gruppe": 80
   },
   {
-   "estate": 409,
-   "navn": "Falkenberg ved Slesvig",
-   "slags": "gård",
-   "gruppe": 81
-  },
-  {
    "estate": 10,
    "navn": "Farenstedgaard",
    "slags": "gård",
@@ -520,7 +520,7 @@
   },
   {
    "estate": 264,
-   "navn": "Glibstrup Gaard i Andst Sogn",
+   "navn": "Glibstrup Gaard",
    "slags": "gård",
    "gruppe": 108
   },
@@ -601,12 +601,6 @@
    "navn": "Grünholz",
    "slags": "gård",
    "gruppe": 126
-  },
-  {
-   "estate": 308,
-   "navn": "Grünholz ved Slesvig",
-   "slags": "gård",
-   "gruppe": 127
   },
   {
    "estate": 28,
@@ -981,6 +975,12 @@
    "gruppe": 204
   },
   {
+   "estate": 401,
+   "navn": "Nørre-Gyldenbjerg",
+   "slags": "gård",
+   "gruppe": 205
+  },
+  {
    "estate": 158,
    "navn": "Ober‑Ellguth",
    "slags": "gård",
@@ -1009,6 +1009,12 @@
    "navn": "Pederstrup",
    "slags": "gård",
    "gruppe": 213
+  },
+  {
+   "estate": 316,
+   "navn": "Philipsburg",
+   "slags": "gård",
+   "gruppe": 215
   },
   {
    "estate": 181,
@@ -1081,6 +1087,12 @@
    "navn": "Rudbjerggaard",
    "slags": "gård",
    "gruppe": 230
+  },
+  {
+   "estate": 355,
+   "navn": "Sandberg",
+   "slags": "gård",
+   "gruppe": 232
   },
   {
    "estate": 169,
@@ -1222,7 +1234,7 @@
   },
   {
    "estate": 272,
-   "navn": "Stelböck i Selent Sogn",
+   "navn": "Stelböck",
    "slags": "gård",
    "gruppe": 261
   },
@@ -1413,12 +1425,6 @@
    "gruppe": 297
   },
   {
-   "estate": 292,
-   "navn": "Waschbuk i Hansühn Sogn",
-   "slags": "gård",
-   "gruppe": 298
-  },
-  {
    "estate": 56,
    "navn": "Waterneverstorf",
    "slags": "gård",
@@ -1447,6 +1453,12 @@
    "navn": "Wendischen Zülow",
    "slags": "gård",
    "gruppe": 304
+  },
+  {
+   "estate": 390,
+   "navn": "Wennberga",
+   "slags": "gård",
+   "gruppe": 305
   },
   {
    "estate": 5,
@@ -2124,7 +2136,6 @@
   "G11",
   "G12",
   "G18",
-  "G26",
   "G31",
   "G48",
   "G57",
@@ -2135,6 +2146,7 @@
   "G71",
   "G75",
   "G78",
+  "G81",
   "G83",
   "G86",
   "G88",
@@ -2150,6 +2162,7 @@
   "G115",
   "G116",
   "G119",
+  "G127",
   "G133",
   "G137",
   "G141",
@@ -2165,17 +2178,14 @@
   "G186",
   "G189",
   "G201",
-  "G205",
   "G206",
   "G209",
   "G210",
   "G214",
-  "G215",
   "G217",
   "G222",
   "G225",
   "G231",
-  "G232",
   "G238",
   "G247",
   "G251",
@@ -2186,8 +2196,8 @@
   "G277",
   "G282",
   "G286",
+  "G298",
   "G300",
-  "G305",
   "H1",
   "H2",
   "H3",
@@ -2269,6 +2279,7 @@
   "G23": "A",
   "G24": "A",
   "G25": "A",
+  "G26": "A",
   "G27": "A",
   "G28": "A",
   "G29": "A",
@@ -2313,7 +2324,6 @@
   "G77": "A",
   "G79": "A",
   "G80": "A",
-  "G81": "A",
   "G82": "A",
   "G84": "A",
   "G85": "A",
@@ -2344,7 +2354,6 @@
   "G124": "A",
   "G125": "A",
   "G126": "A",
-  "G127": "A",
   "G128": "A",
   "G129": "A",
   "G130": "A",
@@ -2407,11 +2416,13 @@
   "G202": "A",
   "G203": "A",
   "G204": "A",
+  "G205": "A",
   "G207": "A",
   "G208": "A",
   "G211": "A",
   "G212": "A",
   "G213": "A",
+  "G215": "A",
   "G216": "A",
   "G218": "A",
   "G219": "A",
@@ -2424,6 +2435,7 @@
   "G228": "A",
   "G229": "A",
   "G230": "A",
+  "G232": "A",
   "G233": "A",
   "G234": "A",
   "G235": "A",
@@ -2479,12 +2491,12 @@
   "G295": "A",
   "G296": "A",
   "G297": "A",
-  "G298": "A",
   "G299": "A",
   "G301": "A",
   "G302": "A",
   "G303": "A",
   "G304": "A",
+  "G305": "A",
   "G306": "A",
   "G307": "A",
   "G308": "A",
@@ -2818,12 +2830,12 @@
   },
   "G8": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Aschau ved Altenhof (1782)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Aschau« · slags: gård · bogens fulde tekst (»Aschau ved Altenhof (1782)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 406,
-      "navn": "Aschau ved Altenhof (1782)",
+      "navn": "Aschau",
       "slags": "gård",
       "gruppe": 8
      }
@@ -2834,12 +2846,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Aschau ved Altenhof« · slags: gård · bogens fulde tekst (»Aschau ved Altenhof (1782)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Aschau ved Altenhof (1782)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 406,
-      "navn": "Aschau ved Altenhof",
+      "navn": "Aschau ved Altenhof (1782)",
       "slags": "gård",
       "gruppe": 8
      }
@@ -2888,7 +2900,7 @@
   },
   "G11": {
    "A": {
-    "tekst": "Del op: Ballegaard / Bøgskov er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov«) gemmes ved ejerforholdene · ejerforholdet står også på: G11:Bøgskov (ny side)",
+    "tekst": "Del op: Ballegaard / Bøgskov er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov«) gemmes ved ejerforholdene · ejerforholdet står også på: Bøgskov (ny side)",
     "opret": [
      {
       "noegle": "ny:G11:Bøgskov",
@@ -2936,7 +2948,7 @@
   },
   "G12": {
    "A": {
-    "tekst": "Del op: Ballegaard / Bøgskov i Sundeved er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov i Sundeved«) gemmes ved ejerforholdene · ejerforholdet står også på: G12:Bøgskov (ny side)",
+    "tekst": "Del op: Ballegaard / Bøgskov i Sundeved er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov i Sundeved«) gemmes ved ejerforholdene · ejerforholdet står også på: Bøgskov (ny side)",
     "opret": [
      {
       "noegle": "ny:G12:Bøgskov",
@@ -2972,6 +2984,22 @@
      {
       "estate": 393,
       "navn": "Ballegaard og Bøgskov i Sundeved",
+      "slags": "gård",
+      "gruppe": 12
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Behold som én side med det korte navn. Siden viser: »Ballegaard og Bøgskov« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov i Sundeved«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 393,
+      "navn": "Ballegaard og Bøgskov",
       "slags": "gård",
       "gruppe": 12
      }
@@ -3466,12 +3494,12 @@
   },
   "G26": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »til Bistingsmåla i Mønsterås« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Bistingsmåla« · slags: gård · bogens fulde tekst (»til Bistingsmåla i Mønsterås«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 384,
-      "navn": "til Bistingsmåla i Mønsterås",
+      "navn": "Bistingsmåla",
       "slags": "gård",
       "gruppe": 26
      }
@@ -3482,12 +3510,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Bistingsmåla i Mønsterås« · slags: gård · bogens fulde tekst (»til Bistingsmåla i Mønsterås«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »til Bistingsmåla i Mønsterås« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 384,
-      "navn": "Bistingsmåla i Mønsterås",
+      "navn": "til Bistingsmåla i Mønsterås",
       "slags": "gård",
       "gruppe": 26
      }
@@ -3660,7 +3688,7 @@
   },
   "G32": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Brahetrolleborg« · slags: gård · 1 andre række (173) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G32:Sølyst (ny side), G32:Egneborg (ny side), G32:Høbbet (ny side), G32:Brændegaard (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Brahetrolleborg« · slags: gård · 1 andre række (173) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Sølyst (ny side), Egneborg (ny side), Høbbet (ny side), Brændegaard (ny side)",
     "opret": [
      {
       "noegle": "ny:G32:Sølyst",
@@ -4139,7 +4167,7 @@
   },
   "G48": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), G48:Aalstrup (ny side), G48:Frihedsminde (ny side)",
+    "tekst": "Kort navn. Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), Aalstrup (ny side), Frihedsminde (ny side)",
     "opret": [
      {
       "noegle": "ny:G48:Aalstrup",
@@ -4187,7 +4215,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Christianssæde med Pederstrup, Aalstrup og Frihedsminde« · slags: gård · ejerforholdet står også på: Pederstrup (række 367), G48:Aalstrup (ny side), G48:Frihedsminde (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Christianssæde med Pederstrup, Aalstrup og Frihedsminde« · slags: gård · ejerforholdet står også på: Pederstrup (række 367), Aalstrup (ny side), Frihedsminde (ny side)",
     "opret": [
      {
       "noegle": "ny:G48:Aalstrup",
@@ -4235,7 +4263,7 @@
     "flyt": []
    },
    "C": {
-    "tekst": "Kort navn, men »Aalstrup« er gården Astrup (række 139, gruppe 10). Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), Astrup (række 139), G48:Frihedsminde (ny side)",
+    "tekst": "Kort navn, men »Aalstrup« er gården Astrup (række 139, gruppe 10). Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), Astrup (række 139), Frihedsminde (ny side)",
     "opret": [
      {
       "noegle": "ny:G48:Frihedsminde",
@@ -5246,12 +5274,12 @@
     "flyt": []
    },
    "C": {
-    "tekst": "Behold som én side med det korte navn. Siden viser: »Eskær, Astrup og Skivehus i Nørre H.« · slags: gård · bogens fulde tekst (»Eskær, Astrup og Skivehus i Nørre H. (1735-50)«) gemmes ved ejerforholdene",
+    "tekst": "Behold som én side med det korte navn. Siden viser: »Eskær, Astrup og Skivehus« · slags: gård · bogens fulde tekst (»Eskær, Astrup og Skivehus i Nørre H. (1735-50)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 338,
-      "navn": "Eskær, Astrup og Skivehus i Nørre H.",
+      "navn": "Eskær, Astrup og Skivehus",
       "slags": "gård",
       "gruppe": 78
      }
@@ -5300,7 +5328,23 @@
   },
   "G81": {
    "A": {
-    "tekst": "Navnet er i orden. Siden viser: »Falkenberg ved Slesvig« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Falkenberg« · slags: gård · bogens fulde tekst (»Falkenberg ved Slesvig«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 409,
+      "navn": "Falkenberg",
+      "slags": "gård",
+      "gruppe": 81
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Falkenberg ved Slesvig« · slags: gård",
     "opret": [],
     "saet": [
      {
@@ -5336,12 +5380,12 @@
   },
   "G83": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Farenstedgaard ved Slesvig (1754–63)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Farenstedgaard« · slags: gård · bogens fulde tekst (»Farenstedgaard ved Slesvig (1754–63)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 312,
-      "navn": "Farenstedgaard ved Slesvig (1754–63)",
+      "navn": "Farenstedgaard",
       "slags": "gård",
       "gruppe": 83
      }
@@ -5352,12 +5396,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Farenstedgaard ved Slesvig« · slags: gård · bogens fulde tekst (»Farenstedgaard ved Slesvig (1754–63)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Farenstedgaard ved Slesvig (1754–63)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 312,
-      "navn": "Farenstedgaard ved Slesvig",
+      "navn": "Farenstedgaard ved Slesvig (1754–63)",
       "slags": "gård",
       "gruppe": 83
      }
@@ -5695,12 +5739,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Forpagter af Gjelskov i Fyen« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Forpagter af Gjelskov i Fyen (1670)«) gemmes ved ejerforholdene",
+    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Forpagter af Gjelskov« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Forpagter af Gjelskov i Fyen (1670)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 253,
-      "navn": "Forpagter af Gjelskov i Fyen",
+      "navn": "Forpagter af Gjelskov",
       "slags": null,
       "gruppe": 91
      }
@@ -5727,12 +5771,12 @@
     "flyt": []
    },
    "D": {
-    "tekst": "Kort navn. Siden viser: »Forpagter af Gjelskov i Fyen« · slags: gård · bogens fulde tekst (»Forpagter af Gjelskov i Fyen (1670)«) gemmes ved ejerforholdene",
+    "tekst": "Kort navn. Siden viser: »Forpagter af Gjelskov« · slags: gård · bogens fulde tekst (»Forpagter af Gjelskov i Fyen (1670)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 253,
-      "navn": "Forpagter af Gjelskov i Fyen",
+      "navn": "Forpagter af Gjelskov",
       "slags": "gård",
       "gruppe": 91
      }
@@ -6063,7 +6107,7 @@
   },
   "G100": {
    "A": {
-    "tekst": "Del op: Gaarz / Kaden er hver sin gård. Siden viser: »Gaarz« (gruppe 99) — denne række lægges ind i den, og bogens fulde tekst gemmes ved ejerforholdet · ejerforholdet står også på: G100:Kaden (ny side)",
+    "tekst": "Del op: Gaarz / Kaden er hver sin gård. Siden viser: »Gaarz« (gruppe 99) — denne række lægges ind i den, og bogens fulde tekst gemmes ved ejerforholdet · ejerforholdet står også på: Kaden (ny side)",
     "opret": [
      {
       "noegle": "ny:G100:Kaden",
@@ -6391,7 +6435,23 @@
   },
   "G108": {
    "A": {
-    "tekst": "Navnet er i orden. Siden viser: »Glibstrup Gaard i Andst Sogn« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Glibstrup Gaard« · slags: gård · bogens fulde tekst (»Glibstrup Gaard i Andst Sogn«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 264,
+      "navn": "Glibstrup Gaard",
+      "slags": "gård",
+      "gruppe": 108
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Glibstrup Gaard i Andst Sogn« · slags: gård",
     "opret": [],
     "saet": [
      {
@@ -6692,12 +6752,12 @@
   },
   "G116": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Gottesgabe ved Bredsted (bygget af ham 1688)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Gottesgabe« · slags: gård · bogens fulde tekst (»Gottesgabe ved Bredsted (bygget af ham 1688)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 322,
-      "navn": "Gottesgabe ved Bredsted (bygget af ham 1688)",
+      "navn": "Gottesgabe",
       "slags": "gård",
       "gruppe": 116
      }
@@ -6708,12 +6768,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Gottesgabe ved Bredsted« · slags: gård · bogens fulde tekst (»Gottesgabe ved Bredsted (bygget af ham 1688)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Gottesgabe ved Bredsted (bygget af ham 1688)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 322,
-      "navn": "Gottesgabe ved Bredsted",
+      "navn": "Gottesgabe ved Bredsted (bygget af ham 1688)",
       "slags": "gård",
       "gruppe": 116
      }
@@ -7331,7 +7391,23 @@
   },
   "G127": {
    "A": {
-    "tekst": "Navnet er i orden. Siden viser: »Grünholz ved Slesvig« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Grünholz« · slags: gård · bogens fulde tekst (»Grünholz ved Slesvig«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 308,
+      "navn": "Grünholz",
+      "slags": "gård",
+      "gruppe": 127
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Grünholz ved Slesvig« · slags: gård",
     "opret": [],
     "saet": [
      {
@@ -7468,12 +7544,12 @@
   },
   "G133": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Hemmelmark ved Ekernförde (1675-92)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Hemmelmark« · slags: gård · bogens fulde tekst (»Hemmelmark ved Ekernförde (1675-92)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 319,
-      "navn": "Hemmelmark ved Ekernförde (1675-92)",
+      "navn": "Hemmelmark",
       "slags": "gård",
       "gruppe": 133
      }
@@ -7484,12 +7560,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Hemmelmark ved Ekernförde« · slags: gård · bogens fulde tekst (»Hemmelmark ved Ekernförde (1675-92)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Hemmelmark ved Ekernförde (1675-92)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 319,
-      "navn": "Hemmelmark ved Ekernförde",
+      "navn": "Hemmelmark ved Ekernförde (1675-92)",
       "slags": "gård",
       "gruppe": 133
      }
@@ -7711,7 +7787,7 @@
   },
   "G141": {
    "A": {
-    "tekst": "Del op: Honnigsee / Barkau er hver sin gård. Siden viser: »Honnigsee« · slags: gård · bogens fulde tekst (»Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«) gemmes ved ejerforholdene · ejerforholdet står også på: G141:Barkau (ny side)",
+    "tekst": "Del op: Honnigsee / Barkau er hver sin gård. Siden viser: »Honnigsee« · slags: gård · bogens fulde tekst (»Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«) gemmes ved ejerforholdene · ejerforholdet står også på: Barkau (ny side)",
     "opret": [
      {
       "noegle": "ny:G141:Barkau",
@@ -8139,12 +8215,12 @@
     "flyt": []
    },
    "C": {
-    "tekst": "Behold som én side med det korte navn. Siden viser: »Jersbek og Stegen ved Oldesloe« · slags: gård · bogens fulde tekst (»Jersbek og Stegen ved Oldesloe (1840)«) gemmes ved ejerforholdene",
+    "tekst": "Behold som én side med det korte navn. Siden viser: »Jersbek og Stegen« · slags: gård · bogens fulde tekst (»Jersbek og Stegen ved Oldesloe (1840)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 411,
-      "navn": "Jersbek og Stegen ved Oldesloe",
+      "navn": "Jersbek og Stegen",
       "slags": "gård",
       "gruppe": 151
      }
@@ -8513,6 +8589,22 @@
   },
   "G165": {
    "A": {
+    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Kongsgaard« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 266,
+      "navn": "Kongsgaard",
+      "slags": null,
+      "gruppe": 165
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
     "tekst": "Behold navnet, som det står i databasen, men slags ikke angivet. Siden viser: »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)« · slags: ikke angivet (vi ved ikke, om det er en gård)",
     "opret": [],
     "saet": [
@@ -8528,29 +8620,13 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "B": {
-    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Kongsgaard i Hamborg« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«) gemmes ved ejerforholdene",
-    "opret": [],
-    "saet": [
-     {
-      "estate": 266,
-      "navn": "Kongsgaard i Hamborg",
-      "slags": null,
-      "gruppe": 165
-     }
-    ],
-    "sammenlaeg": [],
-    "kopier": [],
-    "hoerer_under": [],
-    "flyt": []
-   },
    "C": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Kongsgaard« · slags: gård · bogens fulde tekst (»Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 266,
-      "navn": "Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)",
+      "navn": "Kongsgaard",
       "slags": "gård",
       "gruppe": 165
      }
@@ -8561,12 +8637,12 @@
     "flyt": []
    },
    "D": {
-    "tekst": "Kort navn. Siden viser: »Kongsgaard i Hamborg« · slags: gård · bogens fulde tekst (»Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 266,
-      "navn": "Kongsgaard i Hamborg",
+      "navn": "Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)",
       "slags": "gård",
       "gruppe": 165
      }
@@ -8613,7 +8689,7 @@
   },
   "G167": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Koppel« · slags: gård · bogens fulde tekst (»Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«) gemmes ved ejerforholdene · ejerforholdet står også på: G167:Gross-Koppel (ny side), G167:Klein‑Koppel (ny side), G167:Etelsen (ny side), G167:Embsen (ny side), G167:Ruschbaden (ny side), G167:Nesehof (ny side)",
+    "tekst": "Kort navn. Siden viser: »Koppel« · slags: gård · bogens fulde tekst (»Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«) gemmes ved ejerforholdene · ejerforholdet står også på: Gross-Koppel (ny side), Klein‑Koppel (ny side), Etelsen (ny side), Embsen (ny side), Ruschbaden (ny side), Nesehof (ny side)",
     "opret": [
      {
       "noegle": "ny:G167:Gross-Koppel",
@@ -8703,7 +8779,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof« · slags: gård · ejerforholdet står også på: G167:Gross-Koppel (ny side), G167:Klein‑Koppel (ny side), G167:Etelsen (ny side), G167:Embsen (ny side), G167:Ruschbaden (ny side), G167:Nesehof (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof« · slags: gård · ejerforholdet står også på: Gross-Koppel (ny side), Klein‑Koppel (ny side), Etelsen (ny side), Embsen (ny side), Ruschbaden (ny side), Nesehof (ny side)",
     "opret": [
      {
       "noegle": "ny:G167:Gross-Koppel",
@@ -9441,7 +9517,7 @@
   },
   "G189": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G189:Filipsborg (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Filipsborg (ny side)",
     "opret": [
      {
       "noegle": "ny:G189:Filipsborg",
@@ -9878,12 +9954,12 @@
   },
   "G201": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Neuendorf ved Glückstadt (1835)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Neuendorf« · slags: gård · bogens fulde tekst (»Neuendorf ved Glückstadt (1835)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 412,
-      "navn": "Neuendorf ved Glückstadt (1835)",
+      "navn": "Neuendorf",
       "slags": "gård",
       "gruppe": 201
      }
@@ -9894,12 +9970,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Neuendorf ved Glückstadt« · slags: gård · bogens fulde tekst (»Neuendorf ved Glückstadt (1835)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Neuendorf ved Glückstadt (1835)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 412,
-      "navn": "Neuendorf ved Glückstadt",
+      "navn": "Neuendorf ved Glückstadt (1835)",
       "slags": "gård",
       "gruppe": 201
      }
@@ -9966,12 +10042,12 @@
   },
   "G205": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Nørre-Gyldenbjerg ved Nakskov (til)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Nørre-Gyldenbjerg« · slags: gård · bogens fulde tekst (»Nørre-Gyldenbjerg ved Nakskov (til)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 401,
-      "navn": "Nørre-Gyldenbjerg ved Nakskov (til)",
+      "navn": "Nørre-Gyldenbjerg",
       "slags": "gård",
       "gruppe": 205
      }
@@ -9982,12 +10058,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Nørre-Gyldenbjerg ved Nakskov« · slags: gård · bogens fulde tekst (»Nørre-Gyldenbjerg ved Nakskov (til)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Nørre-Gyldenbjerg ved Nakskov (til)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 401,
-      "navn": "Nørre-Gyldenbjerg ved Nakskov",
+      "navn": "Nørre-Gyldenbjerg ved Nakskov (til)",
       "slags": "gård",
       "gruppe": 205
      }
@@ -10099,7 +10175,7 @@
   },
   "G209": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Osterrade« · slags: gård · 1 andre række (140) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G209:Bovenau (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Osterrade« · slags: gård · 1 andre række (140) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Bovenau (ny side)",
     "opret": [
      {
       "noegle": "ny:G209:Bovenau",
@@ -10274,7 +10350,7 @@
   },
   "G213": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Pederstrup« · slags: gård · bogens fulde tekst (»Pederstrup med Skjelstofte (1725)«) gemmes ved ejerforholdene · ejerforholdet står også på: G213:Skjelstofte (ny side)",
+    "tekst": "Kort navn. Siden viser: »Pederstrup« · slags: gård · bogens fulde tekst (»Pederstrup med Skjelstofte (1725)«) gemmes ved ejerforholdene · ejerforholdet står også på: Skjelstofte (ny side)",
     "opret": [
      {
       "noegle": "ny:G213:Skjelstofte",
@@ -10304,7 +10380,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Pederstrup med Skjelstofte (1725)« · slags: gård · ejerforholdet står også på: G213:Skjelstofte (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Pederstrup med Skjelstofte (1725)« · slags: gård · ejerforholdet står også på: Skjelstofte (ny side)",
     "opret": [
      {
       "noegle": "ny:G213:Skjelstofte",
@@ -10418,12 +10494,12 @@
   },
   "G215": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Philipsburg i Angel (forpagtet 1700)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Philipsburg« · slags: gård · bogens fulde tekst (»Philipsburg i Angel (forpagtet 1700)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 316,
-      "navn": "Philipsburg i Angel (forpagtet 1700)",
+      "navn": "Philipsburg",
       "slags": "gård",
       "gruppe": 215
      }
@@ -10434,12 +10510,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Philipsburg i Angel« · slags: gård · bogens fulde tekst (»Philipsburg i Angel (forpagtet 1700)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Philipsburg i Angel (forpagtet 1700)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 316,
-      "navn": "Philipsburg i Angel",
+      "navn": "Philipsburg i Angel (forpagtet 1700)",
       "slags": "gård",
       "gruppe": 215
      }
@@ -11056,12 +11132,12 @@
   },
   "G232": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Sandberg i Sundeved (1673)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Sandberg« · slags: gård · bogens fulde tekst (»Sandberg i Sundeved (1673)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 355,
-      "navn": "Sandberg i Sundeved (1673)",
+      "navn": "Sandberg",
       "slags": "gård",
       "gruppe": 232
      }
@@ -11072,12 +11148,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Sandberg i Sundeved« · slags: gård · bogens fulde tekst (»Sandberg i Sundeved (1673)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Sandberg i Sundeved (1673)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 355,
-      "navn": "Sandberg i Sundeved",
+      "navn": "Sandberg i Sundeved (1673)",
       "slags": "gård",
       "gruppe": 232
      }
@@ -11483,7 +11559,7 @@
   },
   "G247": {
    "A": {
-    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
+    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: Gieschenhagen (ny side)",
     "opret": [
      {
       "noegle": "ny:G247:Gieschenhagen",
@@ -11513,7 +11589,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: ikke angivet (vi ved ikke, om det er en gård) · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
+    "tekst": "Behold navnet, som det står i databasen, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: ikke angivet (vi ved ikke, om det er en gård) · ejerforholdet står også på: Gieschenhagen (ny side)",
     "opret": [
      {
       "noegle": "ny:G247:Gieschenhagen",
@@ -11559,7 +11635,7 @@
     "flyt": []
    },
    "D": {
-    "tekst": "Kort navn. Siden viser: »Segeberg Kalkbjerg« · slags: gård · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
+    "tekst": "Kort navn. Siden viser: »Segeberg Kalkbjerg« · slags: gård · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: Gieschenhagen (ny side)",
     "opret": [
      {
       "noegle": "ny:G247:Gieschenhagen",
@@ -11589,7 +11665,7 @@
     "flyt": []
    },
    "E": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: gård · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: gård · ejerforholdet står også på: Gieschenhagen (ny side)",
     "opret": [
      {
       "noegle": "ny:G247:Gieschenhagen",
@@ -12018,12 +12094,12 @@
   },
   "G259": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Steensgaard i Fyen (ejede 1472)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Steensgaard« · slags: gård · bogens fulde tekst (»Steensgaard i Fyen (ejede 1472)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 259,
-      "navn": "Steensgaard i Fyen (ejede 1472)",
+      "navn": "Steensgaard",
       "slags": "gård",
       "gruppe": 259
      }
@@ -12034,12 +12110,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Steensgaard i Fyen« · slags: gård · bogens fulde tekst (»Steensgaard i Fyen (ejede 1472)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Steensgaard i Fyen (ejede 1472)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 259,
-      "navn": "Steensgaard i Fyen",
+      "navn": "Steensgaard i Fyen (ejede 1472)",
       "slags": "gård",
       "gruppe": 259
      }
@@ -12070,7 +12146,23 @@
   },
   "G261": {
    "A": {
-    "tekst": "Navnet er i orden. Siden viser: »Stelböck i Selent Sogn« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Stelböck« · slags: gård · bogens fulde tekst (»Stelböck i Selent Sogn«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 272,
+      "navn": "Stelböck",
+      "slags": "gård",
+      "gruppe": 261
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Stelböck i Selent Sogn« · slags: gård",
     "opret": [],
     "saet": [
      {
@@ -12218,12 +12310,12 @@
   },
   "G267": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Stubbe i Riseby S. (1722)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Stubbe« · slags: gård · bogens fulde tekst (»Stubbe i Riseby S. (1722)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 333,
-      "navn": "Stubbe i Riseby S. (1722)",
+      "navn": "Stubbe",
       "slags": "gård",
       "gruppe": 267
      }
@@ -12234,12 +12326,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Stubbe i Riseby S.« · slags: gård · bogens fulde tekst (»Stubbe i Riseby S. (1722)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Stubbe i Riseby S. (1722)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 333,
-      "navn": "Stubbe i Riseby S.",
+      "navn": "Stubbe i Riseby S. (1722)",
       "slags": "gård",
       "gruppe": 267
      }
@@ -12415,7 +12507,7 @@
   },
   "G271": {
    "A": {
-    "tekst": "Del op: Taastrup / Aalstrup er hver sin gård. Siden viser: »Taastrup« · slags: gård · bogens fulde tekst (»Taastrup og Aalstrup (1728)«) gemmes ved ejerforholdene · ejerforholdet står også på: G271:Aalstrup (ny side)",
+    "tekst": "Del op: Taastrup / Aalstrup er hver sin gård. Siden viser: »Taastrup« · slags: gård · bogens fulde tekst (»Taastrup og Aalstrup (1728)«) gemmes ved ejerforholdene · ejerforholdet står også på: Aalstrup (ny side)",
     "opret": [
      {
       "noegle": "ny:G271:Aalstrup",
@@ -12654,12 +12746,12 @@
   },
   "G277": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Tovskov« · slags: gård · bogens fulde tekst (»Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 260,
-      "navn": "Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))",
+      "navn": "Tovskov",
       "slags": "gård",
       "gruppe": 277
      }
@@ -12670,12 +12762,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Tovskov i Sommersted Sogn« · slags: gård · bogens fulde tekst (»Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 260,
-      "navn": "Tovskov i Sommersted Sogn",
+      "navn": "Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))",
       "slags": "gård",
       "gruppe": 277
      }
@@ -13330,7 +13422,23 @@
   },
   "G298": {
    "A": {
-    "tekst": "Navnet er i orden. Siden viser: »Waschbuk i Hansühn Sogn« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Waschbuk« · slags: gård · bogens fulde tekst (»Waschbuk i Hansühn Sogn«) gemmes ved ejerforholdene",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 292,
+      "navn": "Waschbuk",
+      "slags": "gård",
+      "gruppe": 298
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Waschbuk i Hansühn Sogn« · slags: gård",
     "opret": [],
     "saet": [
      {
@@ -13406,12 +13514,12 @@
   },
   "G300": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Waterneverstorf« · slags: gård · bogens fulde tekst (»Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 280,
-      "navn": "Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)",
+      "navn": "Waterneverstorf",
       "slags": "gård",
       "gruppe": 300
      }
@@ -13422,12 +13530,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Waterneverstorf ved Lütjenburg« · slags: gård · bogens fulde tekst (»Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 280,
-      "navn": "Waterneverstorf ved Lütjenburg",
+      "navn": "Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)",
       "slags": "gård",
       "gruppe": 300
      }
@@ -13528,12 +13636,12 @@
   },
   "G305": {
    "A": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »til Wennberga i Brostorp i Frosta Herred« · slags: gård",
+    "tekst": "Kort navn. Siden viser: »Wennberga« · slags: gård · bogens fulde tekst (»til Wennberga i Brostorp i Frosta Herred«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 390,
-      "navn": "til Wennberga i Brostorp i Frosta Herred",
+      "navn": "Wennberga",
       "slags": "gård",
       "gruppe": 305
      }
@@ -13544,12 +13652,12 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Kort navn. Siden viser: »Wennberga i Brostorp i Frosta Herred« · slags: gård · bogens fulde tekst (»til Wennberga i Brostorp i Frosta Herred«) gemmes ved ejerforholdene",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »til Wennberga i Brostorp i Frosta Herred« · slags: gård",
     "opret": [],
     "saet": [
      {
       "estate": 390,
-      "navn": "Wennberga i Brostorp i Frosta Herred",
+      "navn": "til Wennberga i Brostorp i Frosta Herred",
       "slags": "gård",
       "gruppe": 305
      }
@@ -15610,7 +15718,7 @@
     "flyt": []
    },
    "nej": {
-    "tekst": "Nej, forskellige. Hver gruppe opretter sin egen side »Aalstrup«",
+    "tekst": "Nej, forskellige gårde — virker kun, hvis én af grupperne fravælger kopien (»uden kopier«) eller vælger et andet mål, for to nye sider begge med navnet »Aalstrup« kan læseren ikke skelne",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -15630,7 +15738,7 @@
     "flyt": []
    },
    "nej": {
-    "tekst": "Nej, forskellige. Hver gruppe opretter sin egen side »Bøgskov«",
+    "tekst": "Nej, forskellige gårde — virker kun, hvis én af grupperne fravælger kopien (»uden kopier«) eller vælger et andet mål, for to nye sider begge med navnet »Bøgskov« kan læseren ikke skelne",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -15858,7 +15966,7 @@
     384
    ],
    "overlever": 384,
-   "kategori": "tvivl"
+   "kategori": "aendring"
   },
   "G27": {
    "type": "gruppe",
@@ -16310,7 +16418,7 @@
     409
    ],
    "overlever": 409,
-   "kategori": "enkel"
+   "kategori": "tvivl"
   },
   "G82": {
    "type": "gruppe",
@@ -16539,7 +16647,7 @@
     264
    ],
    "overlever": 264,
-   "kategori": "enkel"
+   "kategori": "aendring"
   },
   "G109": {
    "type": "gruppe",
@@ -16710,7 +16818,7 @@
     308
    ],
    "overlever": 308,
-   "kategori": "enkel"
+   "kategori": "tvivl"
   },
   "G128": {
    "type": "gruppe",
@@ -17351,7 +17459,7 @@
     401
    ],
    "overlever": 401,
-   "kategori": "tvivl"
+   "kategori": "aendring"
   },
   "G206": {
    "type": "gruppe",
@@ -17433,7 +17541,7 @@
     316
    ],
    "overlever": 316,
-   "kategori": "tvivl"
+   "kategori": "aendring"
   },
   "G216": {
    "type": "gruppe",
@@ -17578,7 +17686,7 @@
     355
    ],
    "overlever": 355,
-   "kategori": "tvivl"
+   "kategori": "aendring"
   },
   "G233": {
    "type": "gruppe",
@@ -17816,7 +17924,7 @@
     272
    ],
    "overlever": 272,
-   "kategori": "enkel"
+   "kategori": "aendring"
   },
   "G262": {
    "type": "gruppe",
@@ -18129,7 +18237,7 @@
     292
    ],
    "overlever": 292,
-   "kategori": "enkel"
+   "kategori": "tvivl"
   },
   "G299": {
    "type": "gruppe",
@@ -18187,7 +18295,7 @@
     390
    ],
    "overlever": 390,
-   "kategori": "tvivl"
+   "kategori": "aendring"
   },
   "G306": {
    "type": "gruppe",

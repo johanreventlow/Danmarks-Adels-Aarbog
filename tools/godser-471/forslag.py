@@ -363,13 +363,25 @@ def navn_ens(navn: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+_STEDHALE_RE = re.compile(r"\s+(?:ved|i|paa|på)\s+(?=[A-ZÆØÅÄÖÜ]).*$")
+
+
+def uden_stedhale(s: str) -> str:
+    """»Aschau ved Altenhof« → »Aschau«, »Tovskov i Sommersted Sogn« → »Tovskov«. Kun når det, der står foran, er et
+    navn (stort begyndelsesbogstav): »gård i Bistingsmåla« og »det Reventlowske hus i Amaliegade« røres ikke."""
+    if not s[:1].isupper():
+        return s
+    return _STEDHALE_RE.sub("", s).strip() or s
+
+
 def kort_navn(n: Navn) -> str:
-    """Godsets navn uden bogens tilføjelser: teksten før første parentes, komma eller tankestreg, uden »til«.
-    For »X med Y« og »Grevskaberne X og Y« er det X. Hårde bindestreger og stavemåde bevares (ingen aa→å)."""
+    """Godsets eget navn (projektejeren 27/11: »det skal bare være godset«): uden parentes, »til«, tilføjelse efter
+    komma/tankestreg og stedtilføjelse (»ved …«, »i …«). For »X med Y« og »Grevskaberne X og Y« er det X; for en
+    »og«-liste hele listen. Majoratets formord bevares; hårde bindestreger og stavemåde bevares (ingen aa→å)."""
     if n.liste in ("med", "flertal"):
-        return kanonisk_navn(n)
+        return uden_stedhale(kanonisk_navn(n))
     if n.liste == "og":
-        return n.hoved  # hele listen; aldrig kun første led
+        return uden_stedhale(n.kerne or n.hoved)  # hele listen; aldrig kun første led
     s = unicodedata.normalize("NFC", n.original).translate(_BINDESTREG).strip()
     s = re.sub(r"^til\s+", "", s, flags=re.I)
     s = re.split(r"\s*[(\[,]|\s+[—–]\s+", s, maxsplit=1)[0].strip()
@@ -377,7 +389,7 @@ def kort_navn(n: Navn) -> str:
     m = _FORMORD_RE.match(s)
     if m and n.art in MAJORAT:
         s = f"{FORMORD[n.art]} {m.group(3).strip()}"
-    return s or n.original
+    return uden_stedhale(s) or n.original
 
 
 def kort_entydigt(n: Navn, kort: str) -> bool:
@@ -634,7 +646,7 @@ def byg_forslag(data: dict) -> Forslag:
         if g:
             return (g.overlever, f"{ART_ETIKET[art]}en {g.navn} (række {g.overlever}, gruppe {g.nr})", None, None,
                     [])
-        ny_navn = dn.kerne or dn.hoved
+        ny_navn = kort_navn(dn)
         ny = {"noegle": f"ny:G{egen.nr}:{ny_navn}", "navn": ny_navn, "slags": art}
         ny_beskr = f"en ny {ART_ETIKET[art]} {ny_navn}"
         fk = fold(dn.kerne or dn.hoved)
@@ -826,7 +838,7 @@ def byg_forslag(data: dict) -> Forslag:
 
         def hvor(x):
             if isinstance(x, str):
-                return f"den nye gård {x[3:]}"
+                return f"den nye gård {x.rsplit(':', 1)[1]}"
             return f"række {x} ({gruppe_af[x].navn})" if x in gruppe_af else f"række {x}"
 
         def slags_tekst(x):
@@ -866,7 +878,7 @@ def byg_forslag(data: dict) -> Forslag:
             if ops["kopier"]:
                 maal = []
                 for k in ops["kopier"]:
-                    t = (f"{k['til'][3:]} (ny side)" if k["til"] in nye or isinstance(k["til"], str)
+                    t = (f"{k['til'].rsplit(':', 1)[1]} (ny side)" if k["til"] in nye or isinstance(k["til"], str)
                          else f"{gruppe_af[k['til']].navn} (række {k['til']})")
                     if t not in maal:
                         maal.append(t)
@@ -898,7 +910,7 @@ def byg_forslag(data: dict) -> Forslag:
                 # Målets navn og art sættes af målets egen gruppe.
                 delt["sammenlaeg"].append({"fra": ov, "til": maal, "gruppe": g.nr})
             else:
-                delt["saet"].append(saet(ov, parse_navn(n_ov.dele[0]).hoved, g.art))
+                delt["saet"].append(saet(ov, kort_navn(parse_navn(n_ov.dele[0])), g.art))
             kopier_for(ov, g, n_ov.dele[1:], g.art, delt, d_tvivl, d_info)
             info.extend(t for t in d_info + d_tvivl if t not in info)
             alts.append((f"Del op: {' / '.join(n_ov.dele)} er hver sin gård", delt))
@@ -1199,8 +1211,10 @@ def byg_forslag(data: dict) -> Forslag:
                       "kan læseren ikke skelne, så højst én af grupperne må oprette den (vælg »uden kopier« i en af dem).")
         q.alternativer["ja"] = Alternativ("ja", f"Ja, samme {ART_ETIKET[sl]}. Siden viser: »{navn_vis}« — én ny side "
                                                 f"med ejerforholdene fra {' og '.join(noegler)}", _tomme_ops())
-        q.alternativer["nej"] = Alternativ("nej", f"Nej, forskellige. Hver gruppe opretter sin egen side "
-                                                  f"»{navn_vis}«", _tomme_ops())
+        q.alternativer["nej"] = Alternativ(
+            "nej", f"Nej, forskellige gårde — virker kun, hvis én af grupperne fravælger kopien (»uden kopier«) eller "
+                   f"vælger et andet mål, for to nye sider begge med navnet »{navn_vis}« kan læseren ikke skelne",
+            _tomme_ops())
         for k in noegler:
             for x in grupper:
                 if post_id(x) == k:
