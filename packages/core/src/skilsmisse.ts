@@ -9,20 +9,26 @@ export type Skilsmisser = Record<string, Skilsmisse>;
 
 type Id = number | string;
 
-// Sammenstiller fact (familie, skilsmisse) → conclusion (valgt påstand) → assertion (datoer). Konklusioner uden kendt
-// fact eller uden fundet påstand springes over.
+// Sammenstiller fact (familie, skilsmisse) → conclusion (valgt påstand) → assertion (datoer). FAIL-CLOSED: hver familie
+// med et skilsmisse-fakta er skilt, også når konklusionen ikke er afklaret, eller påstanden mangler eller er skjult —
+// så er datoen blot ukendt. Datoer kommer kun fra en afklaret konklusions valgte påstand (status mangler = afklaret,
+// når kalderen allerede har filtreret), og en dateret familie overskrives ikke af et udateret fakta.
 export function byggSkilsmisser(
   facts: readonly { id: Id; subjekt_id: Id }[],
-  konkl: readonly { target_id: Id; valgt_assertion_id: Id | null }[],
+  konkl: readonly { target_id: Id; valgt_assertion_id: Id | null; status?: string | null }[],
   assertions: readonly { id: Id; date_min: string | null; date_max: string | null }[],
 ): Skilsmisser {
   const familieByFact = new Map(facts.map((f) => [String(f.id), String(f.subjekt_id)]));
   const assertionById = new Map(assertions.map((a) => [String(a.id), a]));
   const ud: Skilsmisser = {};
+  for (const fam of familieByFact.values()) ud[fam] = { dateMin: null, dateMax: null };
   for (const c of konkl) {
+    if (c.status != null && c.status !== 'afklaret') continue;
     const fam = familieByFact.get(String(c.target_id));
     const a = c.valgt_assertion_id == null ? undefined : assertionById.get(String(c.valgt_assertion_id));
-    if (fam && a) ud[fam] = { dateMin: a.date_min ?? null, dateMax: a.date_max ?? null };
+    if (!fam || !a) continue;
+    const dato = { dateMin: a.date_min ?? null, dateMax: a.date_max ?? null };
+    if (dato.dateMin != null || dato.dateMax != null || (ud[fam].dateMin == null && ud[fam].dateMax == null)) ud[fam] = dato;
   }
   return ud;
 }

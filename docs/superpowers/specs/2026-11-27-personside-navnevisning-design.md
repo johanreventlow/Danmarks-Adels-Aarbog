@@ -172,7 +172,9 @@ Personsiden viser hele datoen; træet intet år (pladsen); præsenslisten kun å
 **Data i appen:** 20 skilsmisse-fakta i prod, alle på `family` og afklarede. Målt 27/11 som anon: 15 er offentlige
 (afdøde par), 4 er skjult (begge partnere levende) og 1 er skjult af `family_offentlig` af anden grund;
 anon ser 15. De hentes **én gang i modellen** (som `adelsnavne`: fact → afklaret conclusion → assertion) til et
-indeks familie-id → skilsmisse, som personside, træ, præsensliste og statuslinje deler.
+indeks familie-id → skilsmisse, som personside, træ, præsensliste og statuslinje deler. Hver familie med et
+skilsmisse-fakta står i indekset som skilt, også når konklusionen ikke er afklaret, eller påstanden mangler eller er
+skjult; datoen kommer kun fra en afklaret konklusions valgte påstand (ellers »skilt« uden dato).
 **Fejl i opslaget er fail-closed** (rettet efter review): opslaget giver `null` (ukendt), ikke `{}`. Mens det er
 ukendt, vises ingen »skilt«, men **ingen gift-del i statuslinjen og ingen overtaget ægtefælle-titel i præsenslisten**
 — en skilt kvinde må aldrig fremstå som gift, fordi et opslag fejlede.

@@ -17,10 +17,23 @@ describe('skilsmisse', () => {
     expect(byggSkilsmisser([{ id: 9, subjekt_id: 350 }], [{ target_id: 9, valgt_assertion_id: 4 }],
       [{ id: 4, date_min: '1901-10-12', date_max: '1901-10-12' }])).toEqual({ '350': { dateMin: '1901-10-12', dateMax: '1901-10-12' } });
   });
-  it('byggSkilsmisser ignorerer ukendt fact og manglende påstand', () => {
+  it('byggSkilsmisser: ukendt fact ignoreres; manglende/skjult påstand giver skilt uden dato (fail-closed)', () => {
     expect(byggSkilsmisser([{ id: 9, subjekt_id: 350 }],
       [{ target_id: 8, valgt_assertion_id: 4 }, { target_id: 9, valgt_assertion_id: 5 }, { target_id: 9, valgt_assertion_id: null }],
-      [{ id: 4, date_min: null, date_max: null }])).toEqual({});
+      [{ id: 4, date_min: '1900-01-01', date_max: '1900-01-01' }])).toEqual({ '350': { dateMin: null, dateMax: null } });
+  });
+  it('byggSkilsmisser: fakta uden konklusion og fakta med omstridt konklusion er skilt, men uden dato', () => {
+    expect(byggSkilsmisser([{ id: 9, subjekt_id: 350 }, { id: 10, subjekt_id: 360 }],
+      [{ target_id: 10, valgt_assertion_id: 4, status: 'omstridt' }],
+      [{ id: 4, date_min: '1901-10-12', date_max: '1901-10-12' }])).toEqual({
+      '350': { dateMin: null, dateMax: null }, '360': { dateMin: null, dateMax: null } });
+  });
+  it('byggSkilsmisser: datoen fra den afklarede påstand overskrives ikke af et udateret fakta i samme familie', () => {
+    const facts = [{ id: 9, subjekt_id: 350 }, { id: 10, subjekt_id: 350 }];
+    const assertions = [{ id: 4, date_min: '1901-10-12', date_max: '1901-10-12' }, { id: 5, date_min: null, date_max: null }];
+    const ventet = { '350': { dateMin: '1901-10-12', dateMax: '1901-10-12' } };
+    expect(byggSkilsmisser(facts, [{ target_id: 9, valgt_assertion_id: 4, status: 'afklaret' }, { target_id: 10, valgt_assertion_id: 5, status: 'afklaret' }], assertions)).toEqual(ventet);
+    expect(byggSkilsmisser(facts, [{ target_id: 10, valgt_assertion_id: 5, status: 'afklaret' }, { target_id: 9, valgt_assertion_id: 4, status: 'afklaret' }], assertions)).toEqual(ventet);
   });
   it('fmtSkilt: dag, år og ord', () => {
     const s = { dateMin: '1901-10-12', dateMax: '1901-10-12' };
