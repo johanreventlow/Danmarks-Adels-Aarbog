@@ -30,7 +30,8 @@ der siger personens stand og titel, og samme regel i web, mobil og stamtræ.
     genimport-styringen, fordi 2018-20's forældreoverskrifter ikke er i kildelaget.
 
 ## Mål, ikke-mål, anti-mål
-- **Mål:** statuslinjen på personsiden (web + mobil), titelordet i stamtræet (web + mobil), »Fornavne«, køn udfyldt.
+- **Mål:** statuslinjen på personsiden (web + mobil), titelordet i stamtræet (web + mobil), »Fornavne«, køn udfyldt,
+  skilsmisse vist overalt hvor ægteskabet vises, skilsmissedatoer udfyldt.
 - **Ikke-mål:** tyske former (Graf zu/von) — venter til en eventuel tysk udgave. Brødkrumme, billedtekster,
   biografi, præsenslisten, søgning, Titulatur-rækken, udtræk af stillinger fra biografierne.
 - **Anti-mål:** statuslinjen viser **aldrig en titel, personen ikke havde**. Ved tvivl vises mindre, ikke noget
@@ -72,8 +73,8 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
 - **Partikel-adelsnavn** = `personensAdelsnavn(id, lineage, adelsnavne)` som i #499, med samme fail-closed-regler
   (ingen regel, linjens stifter, modstridende linjer → intet adelsnavn). Uden adelsnavn står adelstitlen alene. Det er
   præcis `formelNavneform` uden fornavnene.
-- **Gift-delen** (kun `koen = 'kvinde'`): for hver ægtefælle i `spousesBy`, hvis ægteskabet ikke har en afklaret
-  `skilsmisse`-fakta og mandens `title` er en adelstitel med en feminin form (`feminiserTitel`, i dag i
+- **Gift-delen** (kun `koen = 'kvinde'`): for hver ægtefælle i `spousesBy`, hvis ægteskabet ikke står i
+  skilsmisse-indekset (se Skilsmisse) og mandens `title` er en adelstitel med en feminin form (`feminiserTitel`, i dag i
   `web/src/data/presens.ts` — flyttes til `packages/core`). Højeste rang vinder ved flere (lensgrevinde > grevinde >
   friherreinde/baronesse). Mandens adelsnavn = `personensAdelsnavn(mandens id, …)`; uden det bruges mandens
   **slægtsnavn uden partikel** (»gift grevinde Ahlefeldt-Laurvig«) — projektejeren 27/11. Slægtsnavnet er mandens
@@ -148,17 +149,47 @@ personen kvinde; er alle kvinder, er personen mand. Blandede modparter → redak
 - Bivirkning, ønsket: »Forælder« bliver »Far«/»Mor« i stamtræet (`packages/core/src/fokusTrae.ts:52`), og
   præsenslisternes kønsafhængige ord bliver rigtige for flere.
 
-## Data: skilsmisse
-Personsiden henter i dag vielsesdatoer pr. familie (`web/src/data/vielser.ts`, `mobile/src/data/vielser.ts`) via
-fact → conclusion → assertion; anon må læse familiefakta, når familien er offentlig (`entitet_offentlig`). Skilsmisse
-hentes på samme måde (faktatype `skilsmisse`, afklaret konklusion) for de samme familie-id'er. Målt 26/11: 9 skilte
-familier med en adelig partner. Fejl i opslaget → ingen gift-del (fail-closed), ikke en fejlside.
+## Skilsmisse — vises, hvor ægteskabet vises (projektejeren 27/11)
+Udløser: en levende, skilt person vises i dag som gift alle steder.
+
+**Visning** — bogens form »gift …, skilt 12. okt. 1901« (2018-20 skriver »…, skilt <dato>« efter vielsen):
+
+| Hvor | I dag | Efter |
+|---|---|---|
+| Personsiden, »Gift med« | X · ⚭ 3. maj 1890 | X · ⚭ 3. maj 1890, skilt 12. okt. 1901 |
+| Stamtræet, rækken »Gift« (web + mobil) | ⚭ X | ⚭ X, skilt |
+| Præsenslisten | · g. m. X | · g. m. X, skilt 1901 |
+| Statuslinjen | — | skilt ægteskab giver ingen gift-del (ovenfor) |
+
+Uden dato står blot »skilt«. Den skilte ægtefælle bliver stående (forælder til børnene, og bogen nævner hende/ham).
+Personsiden viser hele datoen; træet intet år (pladsen); præsenslisten kun året (listens korte form).
+
+**Data i appen:** 20 skilsmisse-fakta i prod (alle på `family`, afklarede, alle med en levende partner). De hentes
+**én gang i modellen** (som `adelsnavne`: fact → afklaret conclusion → assertion) til et indeks
+familie-id → `{ dato: string | null }`, som personside, træ, præsensliste og statuslinje deler. Gæster ser ikke
+levende, og `entitet_offentlig` skjuler familier med en levende partner, så kun redaktører får rækkerne — som i dag
+for selve ægteskabet. Fejl i opslaget → ingen »skilt« og ingen gift-del-ændring (tolerant, som `adelsnavne`).
+
+**Datoerne (prod-skrivning):** alle 20 påstande har i dag `date_raw = 'skilt'` og ingen `date_min`/`date_max` —
+importen tabte datoen. 2018-20's råtekst har ca. 18 omtaler af »skilt«, heraf 17 med dato (målt 27/11 i
+`work/raw_full.txt`), så alle skilsmisser kom med; kun datoerne mangler.
+- Et deterministisk script (SQL/regex, **ingen model**: teksterne handler om levende) finder »skilt <dato>« i den
+  skilte persons biografi i databasen. **Kun entydige fund skrives:** personen har præcis én skilt familie og
+  biografien præcis én »skilt <dato>«. Resten → redaktørlisten i `~/.private/`.
+- Skrives som en **ny påstand** med 2018-20 som kilde og konklusionen flyttet til den (invariant 1: den gamle påstand
+  bevares). `date_raw` = bogens tekst (»12. okt. 1901«), `date_min`/`date_max` udfyldt efter den eksisterende
+  dato-fortolkning. Mekanismen (fx `red_upsert_fakta` eller OCR-rettelsens vej) vælges i planen.
+- Runbook som køn-rettelsen: prøvekørsel som standard, ét ændringssæt, kan fortrydes, backup før, kørt via MCP efter
+  projektejerens ja. **Output er kun antal** — datoer og navne vises aldrig i chat eller repo.
 
 ## Hvad rammer prod
-- **Data:** køn på op til 614 afdøde personer (et ændringssæt). Intet andet skrives.
+- **Data:** køn på op til 614 afdøde personer (et ændringssæt) og skilsmissedatoer på op til 20 familier (et
+  ændringssæt). Intet andet skrives.
 - **Skema:** intet. **RLS/grants:** intet nyt.
-- **Web:** ny statuslinje, »Fornavne«, træets titelord via kernefunktion. Mobil er dev-only, men følger med (paritet).
-- Rækkefølge: runbooken kan køres før eller efter merge; uden udfyldt køn mangler »gift …« blot for de berørte.
+- **Web:** ny statuslinje, »Fornavne«, træets titelord via kernefunktion, »skilt« på personside, træ og præsensliste.
+  Mobil er dev-only, men følger med (paritet).
+- Rækkefølge: runbookene kan køres før eller efter merge; uden køn mangler »gift …« blot for de berørte, og uden dato
+  står der »skilt« uden dato.
 
 ## Tilgange (overvejet)
 1. **Beregn i klienten med en kernefunktion (valgt).** Alt input findes allerede i appen (`title`, `spousesBy`,
