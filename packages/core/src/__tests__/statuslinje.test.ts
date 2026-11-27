@@ -42,7 +42,7 @@ const lineage: Lineage = {
   byPerson: {
     v44: [k5], iv1: [k4], datter: [k5], friherre: [k7], utitlet: [k5], stifter: [k5],
     lensgreveV: [k5], greveIV: [k4], greveV: [k5], lensgreveV2: [k5], greveAnden: [k7],
-    greveE: [k5], mandUdenLinje: ['legacy-source:1:V'],
+    greveE: [k5], fodtGift: [k5], mandUdenLinje: ['legacy-source:1:V'],
   },
   list: [
     { linje: k4, count: 1, headId: '298', navn: 'IV' },
@@ -76,11 +76,12 @@ describe('byggStatuslinje', () => {
   });
   it('gift-del: komtesse gift lensgreve; ingift uden titel; ingen hof for kvinder', () => {
     expect(byggStatuslinje(m, 'beke', ['dekanesse'])).toBe('Komtesse, gift lensgrevinde af Reventlow');
+    expect(byggStatuslinje(m, 'datter', ['Kammerherre'])).toBe('Komtesse af Reventlow');
     expect(byggStatuslinje(m, 'ingiftUdenTitel', null)).toBe('Gift grevinde de Reventlou');
     expect(byggStatuslinje(m, 'komtesseGiftBorgerlig', null)).toBe('Komtesse');
   });
   it('mand uden regel men med linje: slægtsnavnet uden partikel; fødselsadelsnavn bevares', () => {
-    expect(byggStatuslinje(m, 'fodtGift', null)).toBe('Komtesse, gift grevinde Reventlow');
+    expect(byggStatuslinje(m, 'fodtGift', null)).toBe('Komtesse af Reventlow, gift grevinde Reventlow');
   });
   it('mand uden ikke-teknisk linje og uden regel: ingen gift-del', () => {
     expect(byggStatuslinje(m, 'gift2', null)).toBeNull();

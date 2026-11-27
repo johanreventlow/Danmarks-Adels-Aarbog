@@ -88,9 +88,7 @@ export { ADELS_TITLER, erAdelsTitel, feminiserTitel } from '@daa/core';
 
 type RawTitelFact = { subjekt_id: number | string; vaerdi_tekst: string };
 
-// Køns-bøjning af adelstitler — gift-ind kvinder overtager ægtefællens RANG (ikke egen fødetitel)
-// som deres visnings-titel; kun mænd-formerne fra ADELS_TITLER er nøgler her, da 'komtesse' (ugift
-// datter) og de kvindelige varianter i øvrigt ikke er noget en kvinde "gifter sig til" via ægtefællen.
+// feminiserTitel (kønsbøjning af adelstitler) bor i packages/core/src/adelsTitler.ts.
 
 // Født-klausul af EGEN (ikke ægtefællens) titel+efternavn — titel med lille forbogstav som i
 // hovedrække-formatet ("født komtesse Ahlefeldt-Laurvig"), aldrig stort (det ville fejlagtigt
