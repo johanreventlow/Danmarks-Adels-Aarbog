@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-27 — Personsiden får én statuslinje, og skilsmisser vises
+
+Under navnet står nu én linje med personens stand og titel, fx »Kammerherre, greve af Reventlow« eller »Komtesse, gift
+lensgrevinde af Reventlow«. Den erstatter både titellinjen og »I Aarbogen«. Titlen gennem ægteskab er en regel (hustruen
+får mandens titel i feminin form); en kvinde født i slægten beholder sin egen titel. Stamtræet viser kun personens egen
+titel, så titlen følger det navn, der står på kortet. Fakta siger »Fornavne« i stedet for »Navn«. Skilsmisser vises nu,
+hvor ægteskabet vises (personside, stamtræ, præsensliste), og en skilt kvinde står aldrig som gift — heller ikke hvis
+opslaget fejler. Web og mobil. Samme dag i prod: 614 afdøde ingifte fik køn efter ægteskabsreglen, og 7 skilsmisser fik
+datoen fra biografien; resten står på redaktørlister (`database-current-state.md` §59, PR #514). Udtrækkene fra 2018-20
+med levende personer er taget ud af repoet (PR #517; historikken afgøres i #516).
+
 ## 2026-11-27 — Billedernes filnavn og fingeraftryk er kun for redaktionen
 
 Medlemmer kunne teknisk læse det originale filnavn og fingeraftrykket (sha256) på alle billeder, fordi redaktionens
