@@ -209,9 +209,10 @@ def test_og_liste_tilbydes_delt_uden_forvalg():
 
 def test_enkeltraekke_med_parentes_beholder_navnet():
     g = gruppe_med(forslag.byg_forslag(data([(360, "Kain (1690)")])), 360)
+    # Runde 3: det korte navn er forslaget, når det er utvetydigt; bogens navn kan stadig vælges.
     assert g.forvalg == "A"
-    assert g.alternativer["A"].ops["saet"][0]["navn"] == "Kain (1690)"
-    assert any(a.ops["saet"][0]["navn"] == "Kain" for a in g.alternativer.values())
+    assert g.alternativer["A"].ops["saet"][0]["navn"] == "Kain"
+    assert any(a.ops["saet"][0]["navn"] == "Kain (1690)" for a in g.alternativer.values())
 
 
 def test_navneskift_samler_grupper():
@@ -648,3 +649,70 @@ def test_cli_flet_skriver_intet_ved_fejl(tmp_path):
     sf.write_text(_json.dumps(_fuldt_svar(p, sha)), encoding="utf-8")
     assert forslag.main(["--flet", str(sf), "--plan", str(pf), "--plan-ud", str(ud)]) == 0
     forslag.valider_plan(_json.loads(ud.read_text(encoding="utf-8")), f.snapshots)
+
+
+# ---------- runde 3: kort navn og klart sprog ----------
+
+def test_below_faar_det_korte_navn_tilbudt():
+    navn = "Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik"
+    n = forslag.parse_navn(navn)
+    assert forslag.kort_navn(n) == "Below" and forslag.kort_entydigt(n, "Below")
+    g = gruppe_med(forslag.byg_forslag(data([(249, navn)])), 249)
+    assert g.forvalg is None  # »Len« gør slags tvivlsom
+    valg = {(a.ops["saet"][0]["navn"], a.ops["saet"][0]["slags"]) for a in g.alternativer.values()}
+    assert ("Below", None) in valg and ("Below", "gård") in valg and (navn, "gård") in valg
+    # det dårlige mellemvalg (parentes væk, sætningen bevaret) tilbydes ikke længere
+    assert not any(x[0].startswith("Below, fik") for x in valg)
+    assert any("Bälau ved Mölln" in t and "sted" in t for t in g.info)
+    assert "Navnet rummer mere end godsets navn" in g.problem and "ikke på en gård" in g.problem
+
+
+def test_kort_navn_er_forslag_kun_naar_det_er_utvetydigt():
+    f = forslag.byg_forslag(data([(361, "Kollerup, Galten Herred (1692)"), (253, "Forpagter af Gjelskov i Fyen (1670)"),
+                                  (158, "Ober‑Ellguth (1739)")]))
+    assert gruppe_med(f, 361).alternativer[gruppe_med(f, 361).forvalg].ops["saet"][0]["navn"] == "Kollerup"
+    assert gruppe_med(f, 158).alternativer["A"].ops["saet"][0]["navn"] == "Ober‑Ellguth"
+    g = gruppe_med(f, 253)
+    assert g.forvalg is None and any(a.ops["saet"][0]["navn"] == "Forpagter af Gjelskov i Fyen"
+                                     for a in g.alternativer.values())
+
+
+def test_gaardliste_med_er_uaendret():
+    g = gruppe_med(forslag.byg_forslag(data([(171, "Christianssæde med Pederstrup, Aalstrup og Frihedsminde")])), 171)
+    a = g.alternativer["A"].ops
+    assert a["saet"][0]["navn"] == "Christianssæde" and len(a["kopier"]) == 3
+
+
+def test_valgene_siger_hvad_laeseren_ser():
+    f = forslag.byg_forslag(data([(5, "Wittenberg", 3), (405, "Wittenberg (1779)"), (100, "Silkeborg Len")]))
+    for g in f.grupper:
+        for a in g.alternativer.values():
+            assert "Siden viser" in a.tekst, a.tekst
+            assert " art " not in a.tekst and "parentes" not in a.tekst
+        assert g.problem
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    assert "Hvad er problemet?" in html
+
+
+def test_autosave_noegle_pr_post_med_fingeraftryk():
+    f = forslag.byg_forslag(data(FIXTUR))
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH, "plan_sha": "x" * 64})
+    js = html.split("<script>")[1]
+    noegle = re.search(r"var NOEGLE = ([^;]+);", js).group(1)
+    assert "plan_sha" not in noegle and "kilde_hash" in noegle
+    for p_ in f.poster():
+        pid = forslag.post_id(p_)
+        m = re.search(rf'id="{pid}"[^>]*data-valghash="([0-9a-f]+)"', html)
+        assert m and m.group(1) == forslag.valg_hash(p_), pid
+    g = f.grupper[0]
+    h0 = forslag.valg_hash(g)
+    for a in g.alternativer.values():
+        a.tekst += " (ny formulering)"
+    assert forslag.valg_hash(g) == h0  # ny tekst: svaret genbruges
+    next(iter(g.alternativer.values())).ops["saet"][0]["navn"] += "x"
+    assert forslag.valg_hash(g) != h0  # andre operationer: spørg igen
+    # flettingen afviser stadig et svar på et andet forslag
+    p = f.plan("db", KH)
+    s = _fuldt_svar(p, "0" * 64)
+    with pytest.raises(forslag.FletFejl, match="andet forslag"):
+        forslag.flet(p, forslag.plan_sha(p), s)

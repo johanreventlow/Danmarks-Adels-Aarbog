@@ -356,6 +356,72 @@ def periode_spaend(periode: str | None):
     return min(aar), (None if aaben or (len(aar) == 1 and re.search(r"\d[-\u2010-\u2014]", tekst)) else max(aar))
 
 
+def kort_navn(n: Navn) -> str:
+    """Godsets navn uden bogens tilføjelser: teksten før første parentes, komma eller tankestreg, uden »til«.
+    For »X med Y« og »Grevskaberne X og Y« er det X. Hårde bindestreger og stavemåde bevares (ingen aa→å)."""
+    if n.liste in ("med", "flertal"):
+        return kanonisk_navn(n)
+    s = unicodedata.normalize("NFC", n.original).translate(_BINDESTREG).strip()
+    s = re.sub(r"^til\s+", "", s, flags=re.I)
+    s = re.split(r"\s*[(\[,]|\s+[—–]\s+", s, maxsplit=1)[0].strip()
+    s = re.sub(r"\s+til$", "", s, flags=re.I).strip()
+    m = _FORMORD_RE.match(s)
+    if m and n.art in MAJORAT:
+        s = f"{FORMORD[n.art]} {m.group(3).strip()}"
+    return s or n.original
+
+
+def kort_entydigt(n: Navn, kort: str) -> bool:
+    """Er det korte navn utvetydigt et godsnavn: 1-3 ord med stort begyndelsesbogstav, ingen tal, ingen »og«-liste."""
+    rest = kort.split(" ", 1)[1] if n.art in MAJORAT and " " in kort else kort
+    return (n.liste != "og" and not re.search(r"\d", rest)
+            and bool(re.fullmatch(r"[A-ZÆØÅÄÖÜ][^\s,()]*(?: [A-ZÆØÅÄÖÜ][^\s,()]*){0,2}", rest)))
+
+
+def parentes_forklaring(navn: str) -> list:
+    """Hvad bogens tilføjelser til navnet er, i klart sprog (til forklaringen ved »kort navn«)."""
+    ud = []
+    for p_ in re.findall(r"\(([^()]*)\)", navn):
+        p_ = p_.strip()
+        if not p_ or p_.lower() == "til":
+            continue
+        if (re.search(r"\bved\b|\b(S\.|Sogn|H\.|Herred|Amt|Kr\.)", p_)
+                or re.fullmatch(r"[A-ZÆØÅÄÖÜ][\w\-\u2010-\u2012' ]*", p_)):
+            ud.append(f"»{p_}« er et sted eller et andet navn for godset. Fase 2 kan gemme det som sted eller "
+                      f"»også kaldet«; intet går tabt, for hele bogens tekst gemmes ved ejerforholdene.")
+        else:
+            ud.append(f"»{p_}« er bogens oplysning om ejerforholdet (år, køb, salg, forlening …). Fase 2 flytter "
+                      f"den over på ejerforholdet; hele bogens tekst gemmes ved ejerforholdene.")
+    hale = re.split(r"\)\s*,|\s+[—–]\s+", navn, maxsplit=1)
+    if len(hale) == 2 and hale[1].strip():
+        ud.append(f"»{hale[1].strip()}« er bogens oplysning om ejerforholdet; fase 2 flytter den over på "
+                  f"ejerforholdet, og hele bogens tekst gemmes ved ejerforholdene.")
+    elif "(" not in navn and "," in navn and not re.search(r"\bog\b", navn):
+        ud.append(f"»{navn.split(',', 1)[1].strip()}« er en tilføjelse til navnet (sted eller oplysning); hele "
+                  f"bogens tekst gemmes ved ejerforholdene.")
+    return ud
+
+
+def _problem(g, navne: dict, ikke_gaard: list) -> str:
+    """Én linje i klart sprog: hvorfor står gruppen i arket?"""
+    medl = g.medlemmer
+    n0 = navne[g.overlever]
+    art = {"gård": "gård", "grevskab": "grevskab", "baroni": "baroni", "stamhus": "stamhus"}[g.art]
+    dele = []
+    if len(medl) > 1:
+        dele.append(f"Databasen har {len(medl)} rækker for det, der ser ud til at være samme {art}, fordi bogen "
+                    f"skriver navnet forskelligt.")
+    elif n0.liste == "og":
+        dele.append("Navnet nævner flere godser i én række.")
+    elif n0.liste in ("med", "flertal") and n0.dele:
+        dele.append("Navnet nævner flere godser; ejerforholdet skal stå på hvert af dem.")
+    elif kort_navn(n0) != n0.original:
+        dele.append("Navnet rummer mere end godsets navn (årstal, køb/salg, sted eller »til«).")
+    if ikke_gaard:
+        dele.append(f"Navnet tyder ikke på en gård (»{', '.join(ikke_gaard)}«), så vi ved ikke, hvilken slags det er.")
+    return " ".join(dele) or "Intet problem — kun slags (gård, grevskab …) sættes."
+
+
 def kanonisk_navn(n: Navn) -> str:
     return f"{FORMORD[n.art]} {n.hoved}" if n.art in MAJORAT else n.hoved
 
@@ -387,6 +453,7 @@ class Gruppe:
     alternativer: dict = field(default_factory=dict)
     forvalg: str | None = None
     kategori: str = ""  # tvivl | aendring | enkel
+    problem: str = ""  # én linje i klart sprog: hvorfor gruppen står i arket
 
 
 @dataclass
@@ -742,36 +809,63 @@ def byg_forslag(data: dict) -> Forslag:
                 return f"den nye gård {x[3:]}"
             return f"række {x} ({gruppe_af[x].navn})" if x in gruppe_af else f"række {x}"
 
+        def slags_tekst(x):
+            return "ikke angivet (vi ved ikke, om det er en gård)" if x is None else ART_ETIKET[x]
+
         def beskriv(ops):
             dele = []
-            for s in ops["saet"]:
-                gl = estates[s["estate"]]["navn"]
-                hed = (f"beholder navnet »{gl}«" if s["navn"] == gl else f"får navnet »{s['navn']}« (før »{gl}«)")
-                dele.append(f"række {s['estate']} {hed}, art {ART_ETIKET[s['slags']]}")
-            for s in ops["sammenlaeg"]:
-                ne = len(ejer_pr_gods.get(s["fra"], []))
-                nb = len(media_pr_gods.get(s["fra"], []))
-                dele.append(f"række {s['fra']} lægges ind i række {s['til']} ({ne} ejerforhold" +
-                            (f" og {nb} billede" if nb else "") + " flyttes med)")
-            for o in ops["opret"]:
-                dele.append(f"ny {ART_ETIKET[o['slags']]} oprettes: {o['navn']}")
-            for k in ops["kopier"]:
-                dele.append(f"ejerforhold {k['relation']} kopieres til {hvor(k['til'])}")
+            hoved = [x for x in ops["saet"] if x["estate"] == ov] or ops["saet"][:1]
+            andre_saet = [x for x in ops["saet"] if x not in hoved]
+            if ops["saet"] and len(ops["saet"]) > 1 and not ops["sammenlaeg"]:
+                dele.append(f"Siden viser fortsat {len(ops['saet'])} sider: " +
+                            ", ".join(f"»{x['navn']}«" for x in ops["saet"]) +
+                            f" · slags: {slags_tekst(ops['saet'][0]['slags'])}")
+            else:
+                for x in hoved:
+                    gl = estates[x["estate"]]["navn"]
+                    t = f"Siden viser: »{x['navn']}« · slags: {slags_tekst(x['slags'])}"
+                    if x["navn"] != gl:
+                        t += f" · bogens fulde tekst (»{gl}«) gemmes ved ejerforholdene"
+                    dele.append(t)
+                for x in andre_saet:
+                    dele.append(f"række {x['estate']} forbliver en egen side »{x['navn']}« (den har slettede "
+                                f"ejerforhold i historikken)")
+            for x in ops["sammenlaeg"]:
+                if x["til"] == ov:
+                    continue
+                dele.append(f"Siden viser: »{gruppe_af[x['til']].navn}« (gruppe {gruppe_af[x['til']].nr}) — "
+                            f"denne række lægges ind i den, og bogens fulde tekst gemmes ved ejerforholdet")
+            ind = [x["fra"] for x in ops["sammenlaeg"] if x["til"] == ov]
+            if ind:
+                ne = sum(len(ejer_pr_gods.get(x, [])) for x in ind)
+                nb = sum(len(media_pr_gods.get(x, [])) for x in ind)
+                dele.append(f"{len(ind)} andre række{'r' if len(ind) > 1 else ''} ({', '.join(map(str, ind))}) lægges "
+                            f"ind i denne side; deres {ne} ejerforhold" + (f" og {nb} billede(r)" if nb else "") +
+                            " flyttes med, og deres navne gemmes ved ejerforholdene")
+            nye = {o["noegle"] for o in ops["opret"]}
+            if ops["kopier"]:
+                maal = []
+                for k in ops["kopier"]:
+                    t = (f"{k['til'][3:]} (ny side)" if k["til"] in nye or isinstance(k["til"], str)
+                         else f"{gruppe_af[k['til']].navn} (række {k['til']})")
+                    if t not in maal:
+                        maal.append(t)
+                dele.append("ejerforholdet står også på: " + ", ".join(maal))
             for f_ in ops["flyt"]:
                 b = billede_af.get(f_["relation"])
                 hvad = f"billedet (media {b['media_id']})" if b else f"ejerforhold {f_['relation']}"
                 dele.append(f"{hvad} flyttes til {hvor(f_['til'])}")
-            return "; ".join(dele) or "ingen ændring"
+            return " · ".join(dele) or "ingen ændring"
 
         alts = []
         if len(medl) > 1:
-            alts.append(("Læg sammen", a))
+            alts.append(("Læg sammen til én side", a))
             adskilt = _tomme_ops()
             for m in medl:
                 adskilt["saet"].append(saet(m, navne[m].original, g.art))
-            alts.append(("Behold rækkerne adskilt (kun art sættes)", adskilt))
+            alts.append(("Behold rækkerne adskilt som hver sin side", adskilt))
         elif n_ov.liste == "og" and not all(_ligner_navn(d) and not _IKKE_GAARD_RE.search(d) for d in n_ov.dele):
-            alts.append(("Navn og art (listen ligner ikke flere gårde, så den deles ikke)", a))
+            alts.append(("Behold som én side (listen ligner ikke flere gårde)", a))
             tvivl.append(f"»{n_ov.original}« er ikke oplagt en liste af gårde; ingen forvalg")
         elif n_ov.liste == "og":
             # Del op: første led bliver gården, de øvrige får en kopi af ejerforholdet.
@@ -788,38 +882,52 @@ def byg_forslag(data: dict) -> Forslag:
             kopier_for(ov, g, n_ov.dele[1:], g.art, delt, d_tvivl, d_info)
             info.extend(t for t in d_info + d_tvivl if t not in info)
             alts.append((f"Del op: {' / '.join(n_ov.dele)} er hver sin gård", delt))
-            alts.append(("Behold som én række med bogens navn", a))
+            alts.append(("Behold som én side med bogens navn", a))
+            kort = kort_navn(n_ov)
+            if kort != n_ov.original:
+                b = json.loads(json.dumps(a))
+                b["saet"][0]["navn"] = kort
+                alts.append(("Behold som én side med det korte navn", b))
             tvivl.append("»og«-liste: er det flere gårde (del op) eller ét navn? Ingen forvalg")
         else:
-            alts.append(("Navn og art", a))
-            renset = kanonisk_navn(n_ov)
-            if a["saet"][0]["navn"] != renset:
-                b = json.loads(json.dumps(a))
-                b["saet"][0]["navn"] = renset
-                alts.append(("Navnet uden parentes og »til«", b))
-            if a["saet"][0]["navn"] != n_ov.original:
-                b = json.loads(json.dumps(a))
-                b["saet"][0]["navn"] = n_ov.original
-                alts.append(("Behold navnet uændret", b))
+            kort = kort_navn(n_ov)
+            if kort == n_ov.original:
+                alts.append(("Navnet er i orden", a))
+            else:
+                k_ops = json.loads(json.dumps(a))
+                k_ops["saet"][0]["navn"] = kort
+                u_ops = json.loads(json.dumps(a))
+                u_ops["saet"][0]["navn"] = n_ov.original
+                kort_alt = ("Kort navn" if len(kort) < len(n_ov.original) - 1 else "Ret skrivemåden", k_ops)
+                uaendret = ("Behold navnet, som det står i databasen", u_ops)
+                if kort_entydigt(n_ov, kort):
+                    alts += [kort_alt, uaendret]
+                else:
+                    alts += [uaendret, kort_alt]
+                    tvivl.append(f"det korte navn »{kort}« er ikke oplagt et godsnavn — vælg selv")
+                if len(kort) < len(n_ov.original) - 1:
+                    info.extend(x for x in parentes_forklaring(n_ov.original) if x not in info)
         if a["kopier"]:
             # Kopierne skal kunne fravælges for sig (»X med Y« kan også være én gård med et andet navn).
             uk = json.loads(json.dumps(alts[0][1]))
             brugt = {k["til"] for k in uk["kopier"]}
             uk["kopier"] = []
             uk["opret"] = [o for o in uk["opret"] if o["noegle"] not in brugt]
-            alts.append((alts[0][0] + ", men uden kopier til de øvrige gårde", uk))
+            alts.append((alts[0][0] + ", men uden kopier til de andre gårde", uk))
         if ikke_gaard and g.art == "gård":
             ekstra = []
             for tekst, ops in alts:
                 u = json.loads(json.dumps(ops))
                 for s_ in u["saet"]:
                     s_["slags"] = None
-                ekstra.append((tekst + " — men art ukendt (ikke en gård)", u))
-            alts += ekstra
+                ekstra.append((tekst + ", men slags ikke angivet", u))
+            # Navnet tyder ikke på en gård: »slags ikke angivet« er det sandsynlige svar og står først.
+            alts = ekstra + alts
         for i, (tekst, ops) in enumerate(alts):
             kode = "ABCDEFGHIJKLMNOP"[i]
-            g.alternativer[kode] = Alternativ(kode, f"{tekst}: {beskriv(ops)}", ops,
+            g.alternativer[kode] = Alternativ(kode, f"{tekst}. {beskriv(ops)}", ops,
                                              adskilt=tekst.startswith("Behold rækkerne adskilt"))
+        g.problem = _problem(g, navne, ikke_gaard)
         g.forvalg = None if tvivl else "A"
         ændrer = (len(medl) > 1 or any(g.alternativer["A"].ops[k] for k in ("kopier", "flyt", "opret"))
                   or g.alternativer["A"].ops["saet"][0]["navn"] != navne[ov].original)
@@ -879,7 +987,8 @@ def byg_forslag(data: dict) -> Forslag:
                 if gg.noegle.split(":", 1)[1] != base:
                     h.info.append("navnene ligner kun hinanden (løst match)")
             hu = ja["hoerer_under"][0]
-            ja_tekst = (f"Ja: der oprettes en »hører under«-relation fra {'den nye gård ' + gnavn if gg is None else f'række {gaard} ({gnavn})'}"
+            ja_tekst = (f"Ja. Gårdens side viser »Hørte under {mg.navn}«, og majoratets side nævner gården. Der "
+                        f"oprettes en »hører under«-relation fra {'den nye gård ' + gnavn if gg is None else f'række {gaard} ({gnavn})'}"
                         f" til række {mg.overlever} ({mg.navn})")
             if hu["citat"]:
                 ja_tekst += (f", periode {hu['periode']}, kilde DAA 2018-20, med bogens ord som citat"
@@ -889,7 +998,8 @@ def byg_forslag(data: dict) -> Forslag:
                 ja_tekst += (" — periode, udgave og bogens ord skal du give i svaret (fx »" + nr +
                              " ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes")
             h.alternativer["ja"] = Alternativ("ja", ja_tekst, ja)
-            h.alternativer["nej"] = Alternativ("nej", "Nej: ingen »hører under«", _tomme_ops())
+            h.alternativer["nej"] = Alternativ("nej", "Nej. Siderne viser ingen forbindelse mellem gården og "
+                                                      "majoratet", _tomme_ops())
             if gg is not None:
                 gper = [x for m in gg.medlemmer for e in ejer_pr_gods.get(m, []) for x in [periode_spaend(e["periode"])]
                         if x]
@@ -913,7 +1023,8 @@ def byg_forslag(data: dict) -> Forslag:
                         for e in ejer_pr_gods.get(m, []):
                             fl["flyt"].append({"relation": e["rid"], "til": mg.overlever, "gruppe": nr})
                     h.alternativer["flyt"] = Alternativ(
-                        "flyt", f"Gårdens ejerforhold flyttes til {mg.navn} (bogen mente majoratet)", fl)
+                        "flyt", f"Bogen mente majoratet. Ejerforholdet vises på siden »{mg.navn}« i stedet for "
+                                f"på gårdens side; bogens tekst gemmes ved ejerforholdet", fl)
                     gg.info.append(f"Krenkerup-mønster: ejeren af gården ejede i samme periode {mg.navn} — se {nr}")
                 else:
                     gg.info.append(f"der findes også {mg.navn} (gruppe {mg.nr}) — se {nr}")
@@ -988,9 +1099,11 @@ def byg_forslag(data: dict) -> Forslag:
         if len({x.art for x in gs}) > 1:
             s.info.append("grupperne har forskellig art")
         s.alternativer["ja"] = Alternativ(
-            "ja", f"Ja: alle rækker i gruppe {', '.join(str(x.nr) for x in rest)} lægges ind i række "
-                  f"{hoved_g.overlever} (gruppe {hoved_g.nr}); det erstatter de gruppers egne sammenlægninger", ja)
-        s.alternativer["nej"] = Alternativ("nej", "Nej: forskellige godser", _tomme_ops())
+            "ja", f"Ja, samme gods. Siden viser: »{hoved_g.navn}« (gruppe {hoved_g.nr}) · rækkerne fra gruppe "
+                  f"{', '.join(str(x.nr) for x in rest)} lægges ind i den, og deres navne gemmes ved ejerforholdene "
+                  f"(det erstatter de gruppers egne valg om sammenlægning)", ja)
+        s.alternativer["nej"] = Alternativ("nej", "Nej, forskellige godser. Siderne forbliver adskilt, som grupperne "
+                                                  "selv bestemmer", _tomme_ops())
         sammenhaenge.append(s)
         for x in gs:
             x.info.append(f"ligner gruppe {', '.join(str(y.nr) for y in gs if y is not x)} — se {nr}")
@@ -1084,6 +1197,7 @@ fieldset.valg label{display:block;padding:4px 0;cursor:pointer}fieldset.valg lab
 .hfelter input,.hfelter textarea,.hfelter select{width:100%}.fejl{color:var(--fejl);font-weight:600}
 details summary{cursor:pointer;font-weight:600}code,kbd{font-size:.9em}
 .skjult{display:none}#kopiboks{width:100%;height:8em;display:none}
+.problem{margin:.2em 0 .5em}#aendret{display:none}#aendret.vis{display:block}
 """
 
 
@@ -1114,6 +1228,14 @@ def _raekker_html(f, medl, overlever):
             "</table></div>")
 
 
+def valg_hash(p) -> str:
+    """Fingeraftryk af en posts valgmuligheder (koder og operationer, ikke teksten). Gemte svar i browseren
+    genbruges kun, hvis fingeraftrykket er uændret."""
+    ops = {k: {"adskilt": a.adskilt, **a.ops} for k, a in sorted(p.alternativer.items())}
+    return hashlib.sha256(json.dumps([p.forvalg, ops], sort_keys=True, ensure_ascii=False)
+                          .encode("utf-8")).hexdigest()[:16]
+
+
 def _valg_html(pid: str, p, forvalg: str | None, legend: str = "Dit valg") -> str:
     ud = [f"<fieldset class=valg><legend>{_e(legend)}</legend>"]
     for kode, a in p.alternativer.items():
@@ -1138,7 +1260,8 @@ def _gruppe_html(f, g) -> str:
     soeg = " ".join([str(g.nr), pid, g.navn] + [f.raekker[m]["navn"] or "" for m in g.medlemmer]).lower()
     hoved = (f"<h3><span class=nr>{g.nr}</span>{_e(g.navn)}<span class=chip>{_e(ART_ETIKET[g.art])}</span>"
              f"<span class=chip>{len(g.medlemmer)} række{'r' if len(g.medlemmer) > 1 else ''}</span>{maerke}</h3>")
-    indhold = _raekker_html(f, g.medlemmer, g.overlever) + _flag_html(g.tvivl, g.info)
+    indhold = (f"<p class=problem><b>Hvad er problemet?</b> {_e(g.problem)}</p>" +
+               _raekker_html(f, g.medlemmer, g.overlever) + _flag_html(g.tvivl, g.info))
     flere = len(g.alternativer) > 1
     if skal:
         valg = _valg_html(pid, g, None)
@@ -1149,7 +1272,8 @@ def _gruppe_html(f, g) -> str:
         valg = _valg_html(pid, g, g.forvalg) if flere else f"<p class=muted>{_e(g.alternativer[g.forvalg].tekst)}</p>"
     beslut = skal or flere
     attrs = (f"class=kort id=\"{pid}\" data-kat=\"{kat}\" data-skal=\"{1 if skal else 0}\" "
-             f"data-forvalg=\"{_e(g.forvalg or '')}\" data-soeg=\"{_e(soeg)}\"" + (f" data-id=\"{pid}\"" if beslut else ""))
+             f"data-forvalg=\"{_e(g.forvalg or '')}\" data-soeg=\"{_e(soeg)}\" data-valghash=\"{valg_hash(g)}\""
+             + (f" data-id=\"{pid}\"" if beslut else ""))
     if kat == "enkel":
         return f"<section {attrs}>{hoved}<details><summary>vis rækker</summary>{indhold}</details>{valg}</section>"
     return f"<section {attrs}>{hoved}{indhold}{valg}</section>"
@@ -1159,7 +1283,7 @@ def _spoergsmaal_html(f, q, kilder: dict) -> str:
     pid = post_id(q)
     soeg = " ".join([pid, q.tekst] + [f.raekker[m]["navn"] or "" for m in q.medlemmer]).lower()
     ud = [f"<section class=kort id=\"{pid}\" data-id=\"{pid}\" data-kat=\"{pid[0]}\" data-skal=\"1\" data-forvalg=\"\" "
-          f"data-soeg=\"{_e(soeg)}\"><h3><span class=nr>{_e(pid)}</span>{_e(q.tekst)} "
+          f"data-soeg=\"{_e(soeg)}\" data-valghash=\"{valg_hash(q)}\"><h3><span class=nr>{_e(pid)}</span>{_e(q.tekst)} "
           f"<span class=vaelg>Du skal vælge</span></h3>",
           f"<p class=muted>Grupper: {', '.join(f'<a href=#G{n}>{n}</a>' for n in q.grupper)}</p>",
           _raekker_html(f, q.medlemmer, None), _flag_html([], q.info), _valg_html(pid, q, None, "Dit svar")]
@@ -1184,7 +1308,9 @@ JS = r"""
 (function () {
   "use strict";
   var META = JSON.parse(document.getElementById("meta").textContent);
-  var NOEGLE = "471-svar:" + META.kilde_hash.estate + ":" + META.kilde_hash.relation + ":" + META.plan_sha;
+  // Nøglen følger kun dataene; hvert svar bærer postens fingeraftryk (data-valghash), så et nyt ark genbruger
+  // svar for uændrede poster og spørger igen, hvor valgmulighederne er ændret.
+  var NOEGLE = "471-svar:" + META.kilde_hash.estate + ":" + META.kilde_hash.relation;
   var kort = Array.prototype.slice.call(document.querySelectorAll("section.kort"));
   var beslut = kort.filter(function (k) { return k.hasAttribute("data-id"); });
   var aktiv = null;
@@ -1220,25 +1346,39 @@ JS = r"""
     return { version: 1, kilde_hash: META.kilde_hash, plan_forslag_sha256: META.plan_sha, svar: ud };
   }
   function gem() {
-    var tilstand = {};
+    var tilstand = gemt_tilstand();
     beslut.forEach(function (k) {
-      var v = valgt(k.id); if (v) tilstand[k.id] = v;
-      if (k.id.charAt(0) === "H") ["periode", "citat", "kilde"].forEach(function (f) {
-        tilstand[k.id + "-" + f] = felt(k.id + "-" + f); });
+      var v = valgt(k.id), o = { h: k.getAttribute("data-valghash"), v: v };
+      if (k.id.charAt(0) === "H") { o.f = {}; ["periode", "citat", "kilde"].forEach(function (f) {
+        o.f[f] = felt(k.id + "-" + f); }); }
+      if (v || o.f) tilstand[k.id] = o; else delete tilstand[k.id];
     });
     try { window.localStorage.setItem(NOEGLE, JSON.stringify(tilstand)); q("#gemt").textContent = "Gemt i browseren"; }
     catch (e) { q("#gemt").textContent = "Kan ikke gemme i browseren — brug »Gem svar«"; }
   }
+  function gemt_tilstand() {
+    try { return JSON.parse(window.localStorage.getItem(NOEGLE) || "{}") || {}; } catch (e) { return {}; }
+  }
   function hent() {
-    var t = null;
-    try { t = JSON.parse(window.localStorage.getItem(NOEGLE) || "null"); } catch (e) { t = null; }
-    if (!t) return;
-    Object.keys(t).forEach(function (n) {
-      var radio = document.querySelector('input[type=radio][name="' + n + '"][value="' + String(t[n]).replace(/"/g, "") + '"]');
-      if (radio) { radio.checked = true; return; }
-      var el = document.querySelector('[name="' + n + '"]');
-      if (el && el.type !== "radio") el.value = t[n];
+    var t = gemt_tilstand(), aendret = [];
+    Object.keys(t).forEach(function (id) {
+      var o = t[id], k = document.getElementById(id);
+      if (!o || typeof o !== "object") return;
+      if (!k || !k.hasAttribute("data-id") || k.getAttribute("data-valghash") !== o.h) {
+        if (o.v) aendret.push(id);
+        return;
+      }
+      if (o.v) { var r = k.querySelector('input[type=radio][value="' + String(o.v).replace(/"/g, "") + '"]');
+                 if (r) r.checked = true; }
+      if (o.f) Object.keys(o.f).forEach(function (f) { var el = k.querySelector('[name="' + id + "-" + f + '"]');
+                                                        if (el) el.value = o.f[f]; });
     });
+    if (aendret.length) {
+      var b = q("#aendret");
+      b.textContent = "Valgmulighederne er ændret siden sidst for " + aendret.join(", ") +
+        " — dit tidligere svar er ikke brugt; svar venligst igen.";
+      b.classList.add("vis");
+    }
   }
   function opdater(uden_gem) {
     var skal = beslut.filter(function (k) { return k.getAttribute("data-skal") === "1"; });
@@ -1400,10 +1540,16 @@ def render_html(f, meta: dict) -> str:
         "<li>»Læg sammen« flytter ejerforhold og billeder over på den række, der bliver stående; bogens "
         "oprindelige formulering gemmes som citat, så intet går tabt. »Kopieres til« betyder, at bogen nævner flere "
         "gårde i ét navn, så samme ejerforhold også kommer til at stå på dem.</li>"
+        "<li><b>Slags</b> er, hvad godset var: en gård, eller et majorat (grevskab, baroni, stamhus — en "
+        "ejerform, der samlede flere gårde). »Ikke angivet« betyder, at vi ikke ved det (fx et len eller et "
+        "herred).</li>"
+        "<li>»Siden viser« er det navn, læseren ser på godsets side. Bogens fulde tekst går aldrig tabt: den "
+        "gemmes ved hvert ejerforhold.</li>"
         "<li>Arket viser kun godsnavne, perioder og udgaver — aldrig hvem der ejede.</li></ul>"
         f"<p class=muted>{t['grupper']} grupper · {len(tvivl)} skal afgøres · {t['spoergsmaal_H']} om »hører "
         f"under« (H) · {t['spoergsmaal_S']} om navne der ligner hinanden (S) · kilde {_e(meta.get('kilde_db'))} · "
         f"estate-md5 {_e(kh.get('estate'))} · relation-md5 {_e(kh.get('relation'))} · plan-sha256 {_e(sha[:12])}…</p>"
+        "<div id=aendret class=tvivl></div>"
         "<button id=snej>Alle ubesvarede S-spørgsmål: nej</button>"
         "<textarea id=kopiboks readonly aria-label='Svar til kopiering'></textarea></div>",
         f"<div class=afsnit><h2>Grupper, der skal afgøres ({len(tvivl)})</h2>",

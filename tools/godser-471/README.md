@@ -44,16 +44,20 @@ Arket og planen indeholder gods-, relations- og medie-id'er, godsnavne, perioder
    sammen væk); ellers en række med ejerforhold fra DAA 2018-20, med sted, med rent navn, med flest koblinger.
    **Navnet** er den nyeste udgaves form (2018-20 før 1939), uden parentes; majoratet får formordet med stort
    (»Grevskabet Christianssæde«). Ingen automatisk aa→å.
-5. **Billeder af bygninger** (`media.slags='gods'`) på et majorat flyttes til gården, når titlen nævner en gård,
+5. **Kort navn**: står der mere end godsets navn (parentes, komma, tankestreg, »til«), tilbydes navnet før første
+   parentes/komma (»Below«). Det er forslaget, når det er utvetydigt (1-3 ord med stort, ingen tal, ingen
+   »og«-liste); ellers er der intet forvalg. Bogens fulde navn gemmes som citat på ejerforholdene, når navnet ændres.
+   Hver gruppe har en linje »Hvad er problemet?«, og hvert valg siger, hvad siden viser.
+6. **Billeder af bygninger** (`media.slags='gods'`) på et majorat flyttes til gården, når titlen nævner en gård,
    der findes som række.
-6. **Spørgsmål** uden forvalg:
+7. **Spørgsmål** uden forvalg:
    - **H** (hører under): majorat og gård med samme (eller lignende) navn. Godsnavnene siger aldrig selv
      »hører under«, så svaret kræver periode, udgave og bogens ord. Undtagelse: Vallø, hvor billedets overskrift
      (»… 1713-1730 hovedsæde i grevskabet Vallø«) er bogens ord. **Krenkerup-mønstret** (gårdens ejerperioder ligger
      inden for majoratets) giver valget »flyt ejerforholdet til majoratet«.
    - **S** (ligner hinanden): grupper, hvis navne er ens efter en grov stavefoldning eller kun adskiller sig ved en
      stedtilføjelse (»ved Slesvig«, », Galten Herred«), samlet i sammenhængende klynger.
-7. **Tvivl = intet forvalg**: forskellige steder (sogn), flere rækker med slettede ejerforhold, navne der ikke
+8. **Tvivl = intet forvalg**: forskellige steder (sogn), flere rækker med slettede ejerforhold, navne der ikke
    tyder på en gård (len, herred, sogn, fogderi, birk, palæ, hus, kongsgård, kloster, forlening, »o.s.v.« …),
    lister med mærkelige led, kopimål der kun ligner en eksisterende gård, billeder med en anden gårds titel.
 
@@ -70,7 +74,9 @@ det, der skal besvares. Der er filtre (Skal afgøres/Forslag/Enkle/Alle), søgni
 (`n` næste ubesvarede, `j`/`k` næste/forrige, `1`-`9` vælger svar). Knappen »Alle ubesvarede S-spørgsmål: nej«
 spørger først.
 
-Svarene gemmes i browseren (localStorage, nøglet på `kilde_hash` + planens sha256). »Gem svar« henter
+Svarene gemmes i browseren (localStorage, nøglet på `kilde_hash`). Hvert svar bærer postens fingeraftryk
+(`valg_hash`: koder og operationer, ikke teksterne), så et nyt ark genbruger svar for uændrede poster og viser en
+besked om de poster, hvor valgmulighederne er ændret. »Gem svar« henter
 `471-svar.json`, og »Kopiér svar« kopierer samme JSON:
 
 ```json
