@@ -1,7 +1,7 @@
 # Navnevisning på personsiden og i stamtræet — design
 
 **Dato:** 2026-11-27 · **Gren:** `docs/personside-navnevisning-spec` · Bygger på #499 (linjernes adelsnavn, §56).
-**Status:** udkast til projektejerens godkendelse. Intet bygget.
+**Status:** godkendt af projektejeren 2026-11-27. Intet bygget.
 
 ## Hvorfor
 Personsiden skrev navnet seks gange og »Greve« tre gange (brødkrumme, H1, titellinje, »I Aarbogen«, Fakta·Navn med
