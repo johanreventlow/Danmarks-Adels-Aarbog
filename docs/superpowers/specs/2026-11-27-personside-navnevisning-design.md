@@ -95,7 +95,7 @@ en titel personen ikke havde, ca. hver femte uden overskrift får en titel.
 
 1. **Normalisér** hver værdi: små bogstaver; fjern parentes; tag teksten før første komma; fjern præfikserne
    `karakt.`, `karakteriseret`, `titulær`, `virkelig`, `preussisk`, `tysk`, `dansk`, `kgl.`, `kongelig`; skær ved
-   første ` i | hos | af | à | ved | for | under | til | in ` (»amtmand over …« → »amtmand«).
+   første ` i | hos | af | à | ved | for | under | til | in | over ` (»amtmand over …« → »amtmand«).
 2. **Frasortér** adelstitler (`ADELS_TITLER`), ordener (`hvid ridder`, `blå ridder`, `storkors`,
    `kommandør af dannebrog`) og alt, der ikke står på den tilladte liste.
 3. **Stiger:** kun det højeste trin pr. stige tæller.
