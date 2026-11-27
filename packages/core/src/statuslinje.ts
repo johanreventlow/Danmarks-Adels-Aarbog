@@ -15,15 +15,22 @@ function aegtefaelleIder(model: Model, id: string): string[] {
   return (model.indexes.spousesBy[id] ?? []).map((s) => s.id).filter((x): x is string => x != null);
 }
 
+/** Har personen en (ikke-teknisk) linje i slægten, dvs. er hun/han født ind i den? */
+function harSlaegtLinje(model: Model, id: string): boolean {
+  return (model.lineage?.byPerson[id] ?? []).some((key) => !erTekniskLinje(key));
+}
+
 /**
- * Personens egen adelstitel (bogens stavning) — `title`, hvis den står på `ADELS_TITLER`. For kvinder dog ikke, hvis den
- * er lig den feminine form af en ægtefælles adelstitel: så er den en ægteskabstitel og hører til i gift-delen.
+ * Personens egen adelstitel (bogens stavning) — `title`, hvis den står på `ADELS_TITLER`. For en ingift kvinde dog ikke,
+ * hvis den er lig den feminine form af en ægtefælles adelstitel: så er den en ægteskabstitel og hører til i gift-delen.
+ * En kvinde født i slægten beholder altid sin titel som egen (fx Conrad Reventlows døtre, grevinder i egen ret —
+ * projektejeren 2026-11-27).
  */
 export function egenAdelstitel(model: Model, id: string): string | null {
   const person = model.byId[id];
   const titel = person?.title?.trim() ?? '';
   if (!titel || !erAdelsTitel(titel)) return null;
-  if (person.koen === 'kvinde') {
+  if (person.koen === 'kvinde' && !harSlaegtLinje(model, id)) {
     const lav = titel.toLowerCase();
     for (const h of aegtefaelleIder(model, id)) {
       const mt = model.byId[h]?.title;
@@ -43,9 +50,8 @@ function mandensNavn(model: Model, mandId: string): string | null {
   const regler = model.adelsnavne ?? {};
   const fraLinje = model.lineage ? personensAdelsnavn(mandId, model.lineage, regler) : null;
   if (fraLinje) return fraLinje;
-  const harLinje = (model.lineage?.byPerson[mandId] ?? []).some((key) => !erTekniskLinje(key));
   const slaegt = model.slaegtsnavn?.trim();
-  return harLinje && slaegt ? slaegt : null;
+  return harSlaegtLinje(model, mandId) && slaegt ? slaegt : null;
 }
 
 /** Gift-delen (»gift grevinde af Reventlow«): højeste ægteskabstitel blandt ikke-opløste ægteskaber. */
@@ -78,11 +84,14 @@ export function byggStatuslinje(model: Model, id: string, hofKilder: readonly st
     if (hof) dele.push(hof);
   }
   const egen = egenAdelstitel(model, id);
+  let egenDel: string | null = null;
   if (egen) {
     const adelsnavn = model.lineage ? personensAdelsnavn(id, model.lineage, model.adelsnavne ?? {}) : null;
-    dele.push(adelsnavn ? `${egen.toLowerCase()} ${adelsnavn}` : egen.toLowerCase());
+    egenDel = adelsnavn ? `${egen.toLowerCase()} ${adelsnavn}` : egen.toLowerCase();
+    dele.push(egenDel);
   }
   const gift = giftDel(model, id);
-  if (gift) dele.push(gift);
+  // »Grevinde af Reventlow, gift grevinde af Reventlow« siger intet nyt: gift-delen udelades, når den gentager egen del.
+  if (gift && gift !== `gift ${egenDel}`) dele.push(gift);
   return dele.length ? stort(dele.join(', ')) : null;
 }

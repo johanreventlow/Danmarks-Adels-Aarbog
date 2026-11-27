@@ -64,7 +64,9 @@ Første bogstav i linjen er stort; resten står med lille som i bogen.
   (`packages/core/src/adelsTitler.ts`). Målt i prod 27/11: ingen person har mere end én adelstitel, så »højeste egne
   titel« er i dag det samme som den ene. Funktionen skal alligevel vælge efter rang, hvis der kommer flere
   (lensgreve > greve; for kvinder kun fødselstitlen, jf. punkt 7). Bogens stavning bevares (128 har »comtesse«).
-  *Min beslutning:* en kvindes titel regnes som ægteskabstitel — og flyttes til gift-delen — når den er lig den
+  *Projektejeren 27/11:* en kvinde **født i slægten** beholder altid sin titel som egen (Conrad Reventlows døtre var
+  grevinder i egen ret; usædvanligt, men det findes). Og en gift-del, der blot gentager egen del, udelades.
+  *Min beslutning:* en **ingift** kvindes titel regnes som ægteskabstitel — og flyttes til gift-delen — når den er lig den
   feminine form af en ægtefælles adelstitel; ellers er den hendes egen. Så gælder punkt 7 som regel, ikke som et
   tilfælde af dagens data.
 - **Rangfølge** (*min beslutning*): komtesse/comtesse < friherreinde = baronesse < grevinde < lensgrevinde <

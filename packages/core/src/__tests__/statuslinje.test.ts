@@ -25,6 +25,9 @@ const persons: AppPerson[] = [
   p('fodtGift', 'kvinde', 'Komtesse'), p('greveAnden', 'mand', 'Greve'),
   p('mandUdenLinje', 'mand', 'Greve'), p('gift2', 'kvinde'),
   p('egen', 'kvinde', 'Grevinde'), p('greveE', 'mand', 'Greve'),
+  // Conrads datter: grevinde i egen ret (født i V), gift med en greve af V og med en friherre
+  p('egenRet', 'kvinde', 'Grevinde'), p('greveV3', 'mand', 'Greve'),
+  p('egenRet2', 'kvinde', 'Grevinde'), p('friherreF', 'mand', 'Friherre'),
 ];
 
 const unions = [
@@ -36,13 +39,15 @@ const unions = [
   { id: 'f6', p1: 'greveAnden', p2: 'fodtGift', p2_name: null, year: null },
   { id: 'f7', p1: 'mandUdenLinje', p2: 'gift2', p2_name: null, year: null },
   { id: 'f8', p1: 'greveE', p2: 'egen', p2_name: null, year: null },
+  { id: 'f9', p1: 'greveV3', p2: 'egenRet', p2_name: null, year: null },
+  { id: 'f10', p1: 'friherreF', p2: 'egenRet2', p2_name: null, year: null },
 ];
 
 const lineage: Lineage = {
   byPerson: {
     v44: [k5], iv1: [k4], datter: [k5], friherre: [k7], utitlet: [k5], stifter: [k5],
     lensgreveV: [k5], greveIV: [k4], greveV: [k5], lensgreveV2: [k5], greveAnden: [k7],
-    greveE: [k5], fodtGift: [k5], mandUdenLinje: ['legacy-source:1:V'],
+    greveE: [k5], fodtGift: [k5], egenRet: [k5], greveV3: [k5], egenRet2: [k5], friherreF: [k7], mandUdenLinje: ['legacy-source:1:V'],
   },
   list: [
     { linje: k4, count: 1, headId: '298', navn: 'IV' },
@@ -119,6 +124,14 @@ describe('egenAdelstitel og traeTitel', () => {
   it('kvindes titel lig mandens feminiserede titel er en ægteskabstitel → null', () => {
     expect(egenAdelstitel(m, 'egen')).toBeNull();
     expect(byggStatuslinje(m, 'egen', null)).toBe('Gift grevinde af Reventlow');
+  });
+  it('født i slægten: grevinde i egen ret beholder titlen, også gift med en greve', () => {
+    expect(egenAdelstitel(m, 'egenRet')).toBe('Grevinde');
+    expect(traeTitel(m, 'egenRet')).toBe('Grevinde');
+    // gift-delen gentager egen del → udelades
+    expect(byggStatuslinje(m, 'egenRet', null)).toBe('Grevinde af Reventlow');
+    // gift med en friherre: egen titel + gift-del
+    expect(byggStatuslinje(m, 'egenRet2', null)).toBe('Grevinde af Reventlow, gift friherreinde Reventlow');
   });
   it('bogens stavning bevares', () => {
     const m2 = { ...m, byId: { ...m.byId, datter: { ...m.byId.datter, title: 'Comtesse' } } };
