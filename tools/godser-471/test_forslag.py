@@ -595,23 +595,30 @@ def test_flet_s_ja_mod_behold_adskilt_afvises():
     f, p, sha = _forslag()
     s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S"
                 and any(len(p["poster"][g]["medlemmer"]) > 1 for g in x["grupper"]))
-    g = next(g for g in p["poster"][s_id]["grupper"] if len(p["poster"][g]["medlemmer"]) > 1)
+    gl = p["poster"][s_id]["grupper"]
+    g = next(g for g in gl if len(p["poster"][g]["medlemmer"]) > 1)
     adskilt = next(k for k, a in p["alternativer"][g].items() if a.get("adskilt"))
-    with pytest.raises(forslag.FletFejl, match="adskilt"):
-        forslag.flet(p, sha, _fuldt_svar(p, sha, **{s_id: "ja", g: adskilt}))
+    if g == gl[0]:
+        # hovedgruppen kan ikke både holdes adskilt og samle de andre
+        with pytest.raises(forslag.FletFejl, match="adskilt"):
+            forslag.flet(p, sha, _fuldt_svar(p, sha, **{s_id: "ja", g: adskilt}))
+    else:
+        # en gruppe, som S-»ja« afgør: dens gamle svar ignoreres
+        plan, opsum = forslag.flet(p, sha, _fuldt_svar(p, sha, **{s_id: "ja", g: adskilt}))
+        assert any(g in l and "ignoreret" in l for l in opsum)
 
 
 def test_ark_har_en_inputgruppe_pr_beslutning_og_ingen_personfelter():
     f, p, sha = _forslag()
     html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH, "plan_sha": sha})
-    radio_navne = set(re.findall(r'type=radio name="([^"]+)"', html))
+    radio_navne = {n for n in re.findall(r'type=radio name="([^"]+)"', html) if "~" not in n}
     beslut = set(re.findall(r'data-id="([^"]+)"', html))
     assert radio_navne == beslut
     forventet = {f"G{g.nr}" for g in f.grupper if g.forvalg is None or len(g.alternativer) > 1}
     forventet |= {s.nr for s in f.sammenhaenge} | {h.nr for h in f.hoerer} | {q.nr for q in f.nye}
     assert beslut == forventet
     alle_navne = set(re.findall(r'name="([^"]+)"', html.split("<script>")[0]))
-    assert all(re.fullmatch(r"[GSHN]\d+(-periode|-citat|-kilde|-gruppe)?", n) for n in alle_navne), alle_navne
+    assert all(re.fullmatch(r"[GSHN]\d+(~G\d+|-periode|-citat|-kilde|-gruppe)?", n) for n in alle_navne), alle_navne
     assert not re.search(r"person|fornavn|efternavn", html, re.I)
     # ingen forvalg ved »Du skal vælge«
     for pid in p["aabne"]:
@@ -753,7 +760,7 @@ def test_m1_kort_navn_der_rammer_en_anden_gruppe_er_ikke_forslag_og_kollision_af
     p = f.plan("db", KH)
     s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
     svar = _alle_aabne(f, p, **{f"G{g.nr}": _kode(g, "Kollerup")})
-    with pytest.raises(forslag.FletFejl, match=rf"»Kollerup«.*svar ja i {s_id}"):
+    with pytest.raises(forslag.FletFejl, match=rf"(?i)svar ja i {s_id}.*»Kollerup«"):
         _flet(f, svar)
     plan, _ = _flet(f, {**svar, s_id: "ja"})
     assert {"fra": 361, "til": 162, "gruppe": s_id} in plan["sammenlaeg"]
@@ -767,7 +774,7 @@ def test_m2_nye_gaarde_deles_kun_ved_ja():
     assert n1 != n2 and n1.startswith(f"ny:G{g1.nr}:")
     assert len(f.nye) == 1
     nid = f.nye[0].nr
-    with pytest.raises(forslag.FletFejl, match=rf"»Aalstrup«.*svar ja i {nid}"):
+    with pytest.raises(forslag.FletFejl, match=rf"(?i)svar ja i {nid}.*»Aalstrup«"):
         _flet(f, {nid: "nej"})
     plan, _ = _flet(f, {nid: "ja"})
     assert [o["noegle"] for o in plan["opret"]] == ["ny:Aalstrup"]
@@ -1009,14 +1016,14 @@ def test_arkets_konfliktberegning_er_den_samme_som_fletningens(tmp_path):
         d = forslag.konfliktdata(p)
         valg = _tilfaeldige_valg(p, 150) + [{}] + [
             {k: (v if isinstance(v, dict) else {"svar": v}) for k, v in s.items()} for s in _reparerede_svar(p, 30)]
-        py = [forslag.konflikter(d, v) for v in valg]
+        py = [[forslag.konflikter(d, v), forslag.afgjorte(d, v)] for v in valg]
         js_fil = tmp_path / "k.js"
         js_fil.write_text(forslag.JS_KONFLIKT + "\nconst D = " + _json.dumps(d, ensure_ascii=False) +
                           ";\nconst V = " + _json.dumps(valg, ensure_ascii=False) +
-                          ";\nprocess.stdout.write(JSON.stringify(V.map(v => konflikter(D, v))));\n", encoding="utf-8")
+                          ";\nprocess.stdout.write(JSON.stringify(V.map(v => [konflikter(D, v), afgjorte(D, v)])));\n", encoding="utf-8")
         ud = _subprocess.run(["node", str(js_fil)], capture_output=True, text=True, check=True).stdout
         assert _json.loads(ud) == _json.loads(_json.dumps(py, ensure_ascii=False))
-        assert any(py)  # testen rammer faktisk konflikter
+        assert any(x[0] for x in py) and any(x[1] for x in py)  # testen rammer konflikter og afgjorte grupper
 
 
 def test_konfliktreglen_passer_med_den_faerdige_plan():
@@ -1051,3 +1058,44 @@ def test_arket_har_konfliktdata_og_advarer_ved_gem():
     d = _json.loads(re.search(r"<script type=application/json id=konflikt>(.*?)</script>", html).group(1))
     assert d == _json.loads(_json.dumps(forslag.konfliktdata(p), ensure_ascii=False))
     assert "id=konflikter" in html and "fletningen vil afvise dem" in html and "function konflikter(" in html
+
+
+
+# ---------- et »ja« til samme gods afgør de berørte grupper ----------
+
+def test_s_ja_afgoer_gruppen_i_fletningen_og_nej_kraever_den_igen():
+    f = forslag.byg_forslag(data([(146, "Aschau", 6), (406, "Aschau ved Altenhof (1782)")]))
+    p = f.plan("db", KH)
+    g8 = f"G{gruppe_med(f, 406).nr}"
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    assert g8 in p["aabne"]
+    d = forslag.konfliktdata(p)
+    assert forslag.afgjorte(d, {s_id: {"svar": "ja"}}) == {g8: [s_id, f"G{gruppe_med(f, 146).nr}"]}
+    plan, opsum = _flet(f, {s_id: "ja"})  # G8 mangler: afgjort af S
+    assert {"fra": 406, "til": 146, "gruppe": s_id} in plan["sammenlaeg"]
+    assert not any(o["estate"] == 406 for o in plan["saet"])
+    plan2, opsum2 = _flet(f, {s_id: "ja", g8: "B"})  # gammelt svar ignoreres
+    assert plan2["sammenlaeg"] == plan["sammenlaeg"] and any("ignoreret: " + g8 in l for l in opsum2)
+    with pytest.raises(forslag.FletFejl, match=f"{g8}: mangler svar"):
+        _flet(f, {s_id: "nej"})
+    assert forslag.afgjorte(d, {s_id: {"svar": "nej"}}) == {}
+
+
+def test_s_ja_afgoer_ikke_en_gruppe_med_kopier():
+    f = forslag.byg_forslag(data([(88, "Lundegaard", 3), (75, "Lundsgaard med Filipsborg")]))
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    g = f"G{gruppe_med(f, 75).nr}"
+    assert g in p["poster"][s_id]["grupper"][1:]
+    assert g not in forslag.afgjorte(forslag.konfliktdata(p), {s_id: {"svar": "ja"}})
+
+
+def test_arket_har_spoergsmaalet_inde_i_gruppen_og_foer_den():
+    f = forslag.byg_forslag(data([(146, "Aschau", 6), (406, "Aschau ved Altenhof (1782)")]))
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    s_id = f.sammenhaenge[0].nr
+    g8 = f"G{gruppe_med(f, 406).nr}"
+    assert f'name="{s_id}~{g8}"' in html and f'data-spejl="{s_id}"' in html
+    assert html.index(f'id="{s_id}"') < html.index(f'id="{g8}"')
+    assert "Svar først på, om grupperne er samme gods" in html
+    assert "function afgjorte(" in forslag.JS_KONFLIKT

@@ -1318,6 +1318,9 @@ fieldset.valg label{display:block;padding:4px 0;cursor:pointer}fieldset.valg lab
 details summary{cursor:pointer;font-weight:600}code,kbd{font-size:.9em}
 .skjult{display:none}#kopiboks{width:100%;height:8em;display:none}
 .problem{margin:.2em 0 .5em}
+fieldset.spejl{border-style:dashed}.afgjort-note:empty{display:none}
+.afgjort-note{background:var(--ok-bg);color:var(--ok-fg);border-radius:8px;padding:6px 10px;margin:8px 0 0;font-weight:600}
+.kort.afgjort fieldset.valg:not(.spejl){opacity:.45}
 .konfliktboks{display:none;max-width:980px;margin:6px auto 0;background:var(--warn-bg);color:var(--fejl);
 border:2px solid var(--fejl);border-radius:8px;padding:4px 10px;max-height:40vh;overflow:auto}
 .konfliktboks.vis{display:block}.konfliktboks a{color:inherit;font-weight:600}
@@ -1376,7 +1379,27 @@ def _flag_html(tvivl: list, info: list) -> str:
     return tv + (("<ul>" + "".join(f"<li>{_e(t)}</li>" for t in info) + "</ul>") if info else "")
 
 
-def _gruppe_html(f, g) -> str:
+def _spejl_html(f, q, g) -> str:
+    """S/N-spørgsmålet gentaget inde i gruppens kort; bundet til samme svar som spørgsmålets eget kort."""
+    andre = [n for n in q.grupper if n != g.nr]
+    navn_af = {x.nr: x.navn for x in f.grupper}
+    if q.nr.startswith("S"):
+        legend = (f"Samme gods som {', '.join(f'gruppe {n} »{navn_af[n]}«' for n in andre)}? ({q.nr})")
+        etiket = {"ja": "Ja, samme gods", "nej": "Nej, forskellige godser",
+                  "delvis": f"Kun nogle (vælg hvilke i {q.nr})"}
+    else:
+        legend = f"{q.tekst} ({q.nr})"
+        etiket = {"ja": "Ja, samme gård (én ny side)", "nej": "Nej, forskellige"}
+    ud = [f"<fieldset class=\"valg spejl\" data-spejl=\"{_e(q.nr)}\"><legend>{_e(legend)} "
+          f"<a href=\"#{_e(q.nr)}\">se spørgsmålet</a></legend>"]
+    for kode in q.alternativer:
+        ud.append(f"<label><input type=radio name=\"{_e(q.nr)}~G{g.nr}\" value=\"{_e(kode)}\"> "
+                  f"{_e(etiket.get(kode, kode))}</label>")
+    ud.append("</fieldset>")
+    return "".join(ud)
+
+
+def _gruppe_html(f, g, spejle=()) -> str:
     pid = post_id(g)
     skal = g.forvalg is None
     kat = "tvivl" if skal else g.kategori
@@ -1385,7 +1408,8 @@ def _gruppe_html(f, g) -> str:
     hoved = (f"<h3><span class=nr>{g.nr}</span>{_e(g.navn)}<span class=chip>{_e(ART_ETIKET[g.art])}</span>"
              f"<span class=chip>{len(g.medlemmer)} række{'r' if len(g.medlemmer) > 1 else ''}</span>{maerke}</h3>")
     indhold = (f"<p class=problem><b>Hvad er problemet?</b> {_e(g.problem)}</p>" +
-               _raekker_html(f, g.medlemmer, g.overlever) + _flag_html(g.tvivl, g.info))
+               _raekker_html(f, g.medlemmer, g.overlever) + _flag_html(g.tvivl, g.info) +
+               "".join(_spejl_html(f, q, g) for q in spejle) + "<div class=afgjort-note></div>")
     flere = len(g.alternativer) > 1
     if skal:
         valg = _valg_html(pid, g, None)
@@ -1396,7 +1420,8 @@ def _gruppe_html(f, g) -> str:
         valg = _valg_html(pid, g, g.forvalg) if flere else f"<p class=muted>{_e(g.alternativer[g.forvalg].tekst)}</p>"
     beslut = skal or flere
     attrs = (f"class=kort id=\"{pid}\" data-kat=\"{kat}\" data-skal=\"{1 if skal else 0}\" "
-             f"data-forvalg=\"{_e(g.forvalg or '')}\" data-soeg=\"{_e(soeg)}\" data-valghash=\"{valg_hash(g)}\""
+             f"data-forvalg=\"{_e(g.forvalg or '')}\" data-soeg=\"{_e(soeg)}\" data-valghash=\"{valg_hash(g)}\" "
+             f"data-navn=\"{_e(g.navn)}\""
              + (f" data-id=\"{pid}\"" if beslut else ""))
     if kat == "enkel":
         return f"<section {attrs}>{hoved}<details><summary>vis rækker</summary>{indhold}</details>{valg}</section>"
@@ -1439,10 +1464,28 @@ function navnEns(s) {
   return String(s || "").normalize("NFC").toLowerCase().replace(/[\u2010-\u2014-]/g, "-").replace(/\s+/g, " ").trim();
 }
 function har(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+// Ordret oversættelse af afgjorte() i forslag.py; testes mod Python med node.
+function afgjorte(D, valg) {
+  var poster = D.poster, kun = {}, ud = {};
+  (D.kun_navn || []).forEach(function (g) { kun[g] = true; });
+  Object.keys(poster).forEach(function (pid) {
+    var x = poster[pid], v = har(valg, pid) ? valg[pid] : null;
+    if (x.type !== "S" || !v || (v.svar !== "ja" && v.svar !== "delvis")) return;
+    var gl = v.svar === "ja" ? x.grupper
+      : x.grupper.filter(function (g) { return (v.grupper || []).indexOf(g) >= 0; });
+    gl.slice(1).forEach(function (g) {
+      if (kun[g] && x.flyttes[g].length === poster[g].medlemmer.length) ud[g] = [pid, gl[0]];
+    });
+  });
+  return ud;
+}
 // Ordret oversættelse af konflikter() i forslag.py (samme regel som --flet); testes mod Python med node.
 function konflikter(D, valg) {
-  var alt = D.alt, poster = D.poster, forvalg = D.forvalg;
-  function kode(pid) { return har(valg, pid) ? valg[pid].svar : (har(forvalg, pid) ? forvalg[pid] : null); }
+  var alt = D.alt, poster = D.poster, forvalg = D.forvalg, afg = afgjorte(D, valg);
+  function kode(pid) {
+    if (har(afg, pid)) return null;
+    return har(valg, pid) ? valg[pid].svar : (har(forvalg, pid) ? forvalg[pid] : null);
+  }
   var opsl = {}, erstattet = {};
   Object.keys(poster).forEach(function (pid) {
     var x = poster[pid], k = kode(pid);
@@ -1532,8 +1575,10 @@ JS = r"""
     return Array.prototype.map.call(document.querySelectorAll('input[name="' + id + '-gruppe"]:checked'),
                                     function (c) { return c.value; });
   }
+  var AFG = {};
   function besvaret(k) {
     var id = k.id, v = valgt(id);
+    if (har(AFG, id)) return true;
     if (!v) return false;
     if (id.charAt(0) === "H" && v === "ja") return hMangler(id).length === 0;
     if (v === "delvis") return delvisValgt(id).length >= 2;
@@ -1549,6 +1594,8 @@ JS = r"""
         if (v === "ja") { o.periode = felt(id + "-periode").trim(); o.citat = felt(id + "-citat").trim();
                           o.kilde = Number(felt(id + "-kilde")); }
         ud[id] = o;
+      } else if (har(AFG, id)) {
+        return;  // afgjort af et S-»ja«: gruppens eget (gamle) valg sendes ikke med
       } else if (v === "delvis") {
         ud[id] = { svar: "delvis", grupper: delvisValgt(id) };
       } else if (k.getAttribute("data-skal") === "1" || v !== k.getAttribute("data-forvalg")) {
@@ -1608,8 +1655,32 @@ JS = r"""
     });
     return v;
   }
+  function synkSpejle() {
+    Array.prototype.forEach.call(document.querySelectorAll("fieldset.spejl"), function (fs) {
+      var v = valgt(fs.getAttribute("data-spejl"));
+      Array.prototype.forEach.call(fs.querySelectorAll("input[type=radio]"), function (r) { r.checked = r.value === v; });
+    });
+  }
+  function visAfgjorte(v) {
+    AFG = afgjorte(KD, v);
+    beslut.forEach(function (k) {
+      if (k.id.charAt(0) !== "G") return;
+      var a = har(AFG, k.id) ? AFG[k.id] : null, note = k.querySelector(".afgjort-note");
+      k.classList.toggle("afgjort", !!a);
+      Array.prototype.forEach.call(k.querySelectorAll("fieldset.valg:not(.spejl)"), function (fs) { fs.disabled = !!a; });
+      if (!note) return;
+      note.textContent = "";
+      if (a) {
+        var hk = document.getElementById(a[1]), hn = hk ? hk.getAttribute("data-navn") : a[1];
+        note.appendChild(document.createTextNode("Afgjort af " + a[0] + ": rækkerne lægges ind i gruppe " +
+          a[1].slice(1) + " »" + hn + "«. Dit valg her bruges ikke, så længe svaret er ja."));
+      }
+    });
+  }
   function visKonflikter() {
-    var ks = konflikter(KD, sideValg()), boks = q("#konflikter");
+    var sv = sideValg();
+    visAfgjorte(sv);
+    var ks = konflikter(KD, sv), boks = q("#konflikter");
     antalKonflikter = ks.length;
     Array.prototype.forEach.call(document.querySelectorAll(".kort.konflikt"), function (k) { k.classList.remove("konflikt"); });
     boks.textContent = "";
@@ -1629,7 +1700,18 @@ JS = r"""
         li.appendChild(lnk(h, navn(h)));
         var kort = document.getElementById(h); if (kort) kort.classList.add("konflikt");
       });
-      if (k.hvem.length === 1) {
+      if (k.spm.length) {
+        li.textContent = "";
+        li.appendChild(document.createTextNode("Er det samme gods? Svar ja i "));
+        k.spm.forEach(function (s, i) { if (i) li.appendChild(document.createTextNode(", ")); li.appendChild(lnk(s, s)); });
+        li.appendChild(document.createTextNode(" — ellers vil "));
+        k.hvem.forEach(function (h, i) {
+          if (i) li.appendChild(document.createTextNode(i === k.hvem.length - 1 ? " og " : ", "));
+          li.appendChild(lnk(h, navn(h)));
+        });
+        li.appendChild(document.createTextNode(" begge hedde »" + k.navn + "«; vælg i så fald et andet navn (eller " +
+          "»uden kopier«) i en af grupperne"));
+      } else if (k.hvem.length === 1) {
         li.appendChild(document.createTextNode(": " + k.antal + " sider vil hedde »" + k.navn + "« — vælg »læg sammen«"));
       } else {
         li.appendChild(document.createTextNode(" vil begge hedde »" + k.navn + "« — "));
@@ -1668,8 +1750,11 @@ JS = r"""
         dv.querySelector("[data-fejl]").textContent = del && delvisValgt(id).length < 2 ? "Vælg mindst to grupper" : "";
       }
     });
-    q("#taeller").textContent = n + " af " + skal.length + " besvaret";
+    synkSpejle();
     visKonflikter();
+    n = 0;
+    skal.forEach(function (k) { var b = besvaret(k); if (b) n++; k.classList.toggle("besvaret", b); k.classList.toggle("mangler", !b); });
+    q("#taeller").textContent = n + " af " + skal.length + " besvaret";
     q(".bar i").style.width = (skal.length ? 100 * n / skal.length : 100) + "%";
     if (!uden_gem) gem();
   }
@@ -1733,7 +1818,14 @@ JS = r"""
     mangler.forEach(function (k) { var r = k.querySelector('input[value="nej"]'); if (r) r.checked = true; });
     opdater();
   }
-  document.addEventListener("change", function () { opdater(); });
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (t && t.type === "radio" && t.name.indexOf("~") > 0) {
+      var hoved = document.querySelector('input[type=radio][name="' + t.name.split("~")[0] + '"][value="' + t.value + '"]');
+      if (hoved) hoved.checked = true;
+    }
+    opdater();
+  });
   document.addEventListener("input", function (e) { if (e.target.closest(".hfelter")) opdater(); });
   // (afkrydsningsfelterne for »kun nogle« udløser »change« og dermed opdater)
   document.addEventListener("click", function (e) { var k = e.target.closest("section.kort"); if (k && k !== aktiv) {
@@ -1746,7 +1838,7 @@ JS = r"""
     else if (e.key === "k") { flyt(-1, false); e.preventDefault(); }
     else if (e.key === "n") { flyt(1, true); e.preventDefault(); }
     else if (/^[1-9]$/.test(e.key) && aktiv) {
-      var r = aktiv.querySelectorAll("fieldset.valg input[type=radio]")[Number(e.key) - 1];
+      var r = aktiv.querySelectorAll("fieldset.valg:not(.spejl):not([disabled]) input[type=radio]")[Number(e.key) - 1];
       if (r) { r.checked = true; opdater(); e.preventDefault(); }
     }
   });
@@ -1789,6 +1881,13 @@ def render_html(f, meta: dict) -> str:
     sha = meta.get("plan_sha") or plan_sha(plan)
     t = taelling(f, plan)
     tvivl = [g for g in f.grupper if g.forvalg is None]
+    spejle = {}
+    for q in list(f.sammenhaenge) + list(f.nye):
+        for n in q.grupper:
+            spejle.setdefault(n, []).append(q)
+    # »Skal afgøres«: hvert S/N-spørgsmål står lige før de grupper, det handler om.
+    raekke = sorted([(min(q.grupper), 0, i, q) for i, q in enumerate(list(f.sammenhaenge) + list(f.nye))] +
+                    [(g.nr, 1, 0, g) for g in tvivl], key=lambda t: t[:3])
     aendr = [g for g in f.grupper if g.forvalg and g.kategori == "aendring"]
     enkel = [g for g in f.grupper if g.forvalg and g.kategori == "enkel"]
     kh = meta.get("kilde_hash", {})
@@ -1813,6 +1912,8 @@ def render_html(f, meta: dict) -> str:
         "<input type=search id=soeg placeholder='Søg navn eller nummer' aria-label=Søg></div></header><main>",
         "<h1>Godserne: dine valg</h1>",
         "<div class=kort><b>Sådan gør du</b><ul>"
+        "<li><b>Svar først på, om grupperne er samme gods — så falder mange valg bort.</b> Spørgsmålet står både "
+        "for sig selv (S/N) og inde i de grupper, det handler om; de to steder følges ad.</li>"
         "<li>Vælg et svar ved hvert kort. Står der <span class=vaelg>Du skal vælge</span>, er intet valgt på "
         "forhånd. Står der <span class=forslag>Forslag</span>, er forslaget valgt, men du kan ændre det.</li>"
         "<li>Dine valg gemmes i browseren, mens du arbejder. Når du er færdig: tryk <b>Gem svar</b> (henter "
@@ -1834,21 +1935,20 @@ def render_html(f, meta: dict) -> str:
         "<div id=aendret class=tvivl></div>"
         "<button id=snej>Alle ubesvarede S-spørgsmål: nej</button>"
         "<textarea id=kopiboks readonly aria-label='Svar til kopiering'></textarea></div>",
-        f"<div class=afsnit><h2>Grupper, der skal afgøres ({len(tvivl)})</h2>",
-        *(_gruppe_html(f, g) for g in tvivl), "</div>",
+        f"<div class=afsnit><h2>Skal afgøres: grupper ({len(tvivl)}) og spørgsmål om samme gods "
+        f"(S {len(f.sammenhaenge)}, N {len(f.nye)})</h2>"
+        "<p class=muted>Et S-spørgsmål står lige før de grupper, det handler om. »Ja« lægger rækkerne ind i den "
+        "første gruppes række, og så er de andre gruppers eget valg afgjort.</p>",
+        *((_gruppe_html(f, x, spejle.get(x.nr, ())) if isinstance(x, Gruppe) else _spoergsmaal_html(f, x, f.kilder))
+          for *_r, x in raekke), "</div>",
         f"<div class=afsnit><h2>Hører under (H, {len(f.hoerer)})</h2>"
         "<p class=muted>»Hører under« registreres kun, hvor bogen selv siger det.</p>",
         *(_spoergsmaal_html(f, h, f.kilder) for h in f.hoerer), "</div>",
-        f"<div class=afsnit><h2>Navne der ligner hinanden (S, {len(f.sammenhaenge)})</h2>"
-        "<p class=muted>Svar »ja«, hvis grupperne er samme gods. »Ja« lægger alle rækkerne ind i den første "
-        "gruppes række og erstatter de andre gruppers egne sammenlægninger.</p>",
-        *(_spoergsmaal_html(f, s_, f.kilder) for s_ in f.sammenhaenge), "</div>",
-        f"<div class=afsnit><h2>Nye gårde med samme navn (N, {len(f.nye)})</h2>"
-        "<p class=muted>To grupper vil hver oprette en ny side med samme navn.</p>",
-        *(_spoergsmaal_html(f, q_, f.kilder) for q_ in f.nye), "</div>",
-        f"<div class=afsnit><h2>Forslag ({len(aendr)})</h2>", *(_gruppe_html(f, g) for g in aendr), "</div>",
+        f"<div class=afsnit><h2>Forslag ({len(aendr)})</h2>",
+        *(_gruppe_html(f, g, spejle.get(g.nr, ())) for g in aendr), "</div>",
         f"<div class=afsnit><h2>Enkle rækker ({len(enkel)})</h2>"
-        "<p class=muted>Navnet beholdes; kun arten sættes.</p>", *(_gruppe_html(f, g) for g in enkel), "</div>",
+        "<p class=muted>Navnet beholdes; kun arten sættes.</p>",
+        *(_gruppe_html(f, g, spejle.get(g.nr, ())) for g in enkel), "</div>",
         f"</main><script>{JS_KONFLIKT}{JS}</script></body></html>",
     ]
     return "\n".join(dele)
@@ -1870,15 +1970,38 @@ def konfliktdata(plan: dict) -> dict:
                         "opret": [[o["noegle"], o["navn"], o["slags"]] for o in a.get("opret", [])],
                         "fra": [o["fra"] for o in a.get("sammenlaeg", [])]}
                     for k, a in alts.items()}
-    return {"alt": alt, "forvalg": plan["forvalg"], "poster": plan["poster"]}
+    kun_navn = sorted(pid for pid, x in plan["poster"].items() if x["type"] == "gruppe" and not any(
+        a.get("kopier") or a.get("opret") or a.get("flyt") or a.get("hoerer_under")
+        for a in plan["alternativer"][pid].values()))
+    return {"alt": alt, "forvalg": plan["forvalg"], "poster": plan["poster"], "kun_navn": kun_navn}
+
+
+def afgjorte(d: dict, valg: dict) -> dict:
+    """Grupper, som et S-»ja« (eller »kun nogle« med gruppen) afgør: alle deres rækker lægges ind i en anden gruppe,
+    og gruppen afgør intet andet (ingen kopier, flytninger eller nye gårde). {gruppe: [S-spørgsmål, hovedgruppe]}.
+    Arkets JavaScript (JS_KONFLIKT) har en ordret kopi."""
+    poster, kun = d["poster"], set(d.get("kun_navn", []))
+    ud = {}
+    for pid, x in poster.items():
+        v = valg.get(pid)
+        if x["type"] != "S" or not v or v["svar"] not in ("ja", "delvis"):
+            continue
+        gl = x["grupper"] if v["svar"] == "ja" else [g for g in x["grupper"] if g in v.get("grupper", [])]
+        for g in gl[1:]:
+            if g in kun and len(x["flyttes"][g]) == len(poster[g]["medlemmer"]):
+                ud[g] = [pid, gl[0]]
+    return ud
 
 
 def konflikter(d: dict, valg: dict) -> list:
     """Sider, der ville få samme navn og slags (læseren kan ikke skelne dem). Samme regel som --flet; arkets
     JavaScript (JS_KONFLIKT) er en ordret oversættelse og testes mod denne. valg: {post: {"svar": …[, "grupper"]}}."""
     alt, poster, forvalg = d["alt"], d["poster"], d["forvalg"]
+    afg = afgjorte(d, valg)
 
     def kode(pid):
+        if pid in afg:
+            return None
         v = valg.get(pid)
         return v["svar"] if v else forvalg.get(pid)
     opsl, erstattet = {}, set()
@@ -1936,9 +2059,12 @@ def konflikt_tekst(k: dict) -> str:
     if len(k["hvem"]) == 1:
         return (f"{k['hvem'][0]}: rækkerne holdes adskilt, men {k['antal']} af dem ville vise »{k['navn']}« ({sl}) — "
                 f"to sider med samme navn kan læseren ikke skelne; vælg »læg sammen« i {k['hvem'][0]}")
+    if k["spm"]:
+        return (f"Er det samme gods? Svar ja i {', '.join(k['spm'])} — ellers vil {' og '.join(k['hvem'])} begge "
+                f"vise »{k['navn']}« ({sl}), og to sider med samme navn kan læseren ikke skelne; vælg i så fald et "
+                f"andet navn (eller »uden kopier«) i en af grupperne")
     return (f"{' og '.join(k['hvem'])} ville begge vise »{k['navn']}« ({sl}) — to sider med samme navn kan læseren "
-            f"ikke skelne: " + (f"svar ja i {', '.join(k['spm'])}, eller " if k["spm"] else "") +
-            "vælg et andet navn (eller »uden kopier«) i en af grupperne")
+            f"ikke skelne: vælg et andet navn (eller »uden kopier«) i en af grupperne")
 
 
 def _gruppe_af_estate(poster: dict) -> dict:
@@ -2000,13 +2126,21 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
                 fejl.append(f"{pid}: ukendt valg {v!r} (mulige: {', '.join(k for k in alt[pid] if k != 'delvis')})")
                 continue
             valg[pid] = {"svar": v}
+    if fejl:
+        raise FletFejl(fejl)
+    # Et S-»ja« afgør de grupper, hvis rækker alle lægges ind i en anden gruppe: deres egne svar mangler gerne og
+    # ignoreres, hvis de står der (et gammelt svar fra før S-svaret).
+    afg = afgjorte(konfliktdata(forslag_plan), valg)
+    ignoreret = sorted(g for g in afg if g in valg)
     for pid in forslag_plan["aabne"]:
-        if pid not in valg and not any(f.startswith(f"{pid}:") for f in fejl):
+        if pid not in valg and pid not in afg:
             fejl.append(f"{pid}: mangler svar")
     if fejl:
         raise FletFejl(fejl)
 
     def kode(pid):
+        if pid in afg:
+            return None
         return valg[pid]["svar"] if pid in valg else forslag_plan["forvalg"].get(pid)
 
     # S: de grupper, der er samme gods (alle ved »ja«, de afkrydsede ved »delvis«), lægges ind i den første af dem.
@@ -2018,7 +2152,7 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
         s_valgt[pid] = gl
         til = poster[gl[0]]["overlever"]
         for g in gl:
-            if alt[g][kode(g)].get("adskilt") and len(poster[g]["medlemmer"]) > 1:
+            if kode(g) is not None and alt[g][kode(g)].get("adskilt") and len(poster[g]["medlemmer"]) > 1:
                 fejl.append(f"{pid} siger, at {', '.join(gl)} er samme gods, men {g} er valgt »behold rækkerne "
                             f"adskilt« ({kode(g)}) — vælg ét af dem")
         for g in gl[1:]:
@@ -2122,6 +2256,9 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
                  f"{len(aendret)} forslag ændret; S samme gods: {len(s_valgt)}; "
                  f"H-ja: {sum(1 for p_ in valg if p_[0] == 'H' and valg[p_]['svar'] == 'ja')}; "
                  f"N-ja: {sum(1 for p_ in valg if p_[0] == 'N' and valg[p_]['svar'] == 'ja')}")
+    if afg:
+        opsum.append(f"  afgjort af S: {len(afg)} grupper" + (f" (deres egne svar ignoreret: {', '.join(ignoreret)})"
+                                                              if ignoreret else ""))
     if aendret:
         opsum.append("  ændret: " + ", ".join(aendret))
     return plan, opsum
