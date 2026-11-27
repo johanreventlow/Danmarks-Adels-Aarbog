@@ -614,7 +614,7 @@ def test_ark_har_en_inputgruppe_pr_beslutning_og_ingen_personfelter():
     radio_navne = {n for n in re.findall(r'type=radio name="([^"]+)"', html) if "~" not in n}
     beslut = set(re.findall(r'data-id="([^"]+)"', html))
     assert radio_navne == beslut
-    forventet = {f"G{g.nr}" for g in f.grupper if g.forvalg is None or len(g.alternativer) > 1}
+    forventet = {f"G{g.nr}" for g in f.grupper}  # alle grupper kan deles op
     forventet |= {s.nr for s in f.sammenhaenge} | {h.nr for h in f.hoerer} | {q.nr for q in f.nye}
     assert beslut == forventet
     alle_navne = set(re.findall(r'name="([^"]+)"', html.split("<script>")[0]))
@@ -636,7 +636,7 @@ def test_rundtur_ark_svar_flet_valider():
         if pid.startswith("H"):
             svar[pid] = {"svar": "ja", "periode": "", "citat": "bogens ord", "kilde": 1}
         elif pid in p["aabne"]:
-            svar[pid] = koder[-1]
+            svar[pid] = [k for k in koder if k != "del"][-1]
     plan, _ = forslag.flet(p, sha, {"version": 1, "kilde_hash": meta["kilde_hash"],
                                     "plan_forslag_sha256": meta["plan_sha"], "svar": svar})
     forslag.valider_plan(plan, f.snapshots)
@@ -966,6 +966,11 @@ def _tilfaeldige_valg(p, n, frø=0):
             if pid not in p["aabne"] and rng.random() < 0.6:
                 continue
             k = rng.choice(list(alts))
+            if pid[0] == "G" and rng.random() < 0.08:
+                maal = rng.choice(["ny", rng.choice([x for x in p["poster"] if x[0] == "G" and x != pid])])
+                v[pid] = {"svar": "del", "dele": [{"navn": f"Del{pid}", "slags": "gård", "maal": "ny"},
+                                                   {"navn": "Koppel", "slags": None, "maal": maal}]}
+                continue
             if k == "delvis":
                 gl = p["poster"][pid]["grupper"]
                 v[pid] = {"svar": "delvis", "grupper": rng.sample(gl, rng.randint(2, len(gl)))}
@@ -1099,3 +1104,96 @@ def test_arket_har_spoergsmaalet_inde_i_gruppen_og_foer_den():
     assert html.index(f'id="{s_id}"') < html.index(f'id="{g8}"')
     assert "Svar først på, om grupperne er samme gods" in html
     assert "function afgjorte(" in forslag.JS_KONFLIKT
+
+
+
+# ---------- »del op i flere godser« ----------
+
+FIDEI = [(395, "Fideikommisgodserne Varste-Polle og Koppel"), (182, "Koppel", 2), (180, "Varste")]
+
+
+def test_del_forslag_fra_navnet_uden_ejerskabsform():
+    f = forslag.byg_forslag(data(FIDEI))
+    g = gruppe_med(f, 395)
+    assert g.dele_forslag == [{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"},
+                              {"navn": "Koppel", "slags": "gård", "maal": f"G{gruppe_med(f, 182).nr}"}]
+
+
+def test_del_op_omdoeber_og_kopierer_til_eksisterende_gruppe():
+    f = forslag.byg_forslag(data(FIDEI))
+    g, koppel = gruppe_med(f, 395), gruppe_med(f, 182)
+    p = f.plan("db", KH)
+    dele = [{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"},
+            {"navn": "Koppel", "slags": "gård", "maal": f"G{koppel.nr}"}]
+    plan, opsum = _flet(f, _alle_aabne(f, p, **{f"G{g.nr}": {"svar": "del", "dele": dele}}))
+    assert {"estate": 395, "navn": "Varste-Polle", "slags": "gård", "gruppe": g.nr} in plan["saet"]
+    assert {"relation": 39500, "til": 182, "citat": "Fideikommisgodserne Varste-Polle og Koppel",
+            "gruppe": g.nr} in plan["kopier"]
+    assert any("delt op i 2" in l for l in opsum)
+
+
+def test_del_op_med_to_nye_sider():
+    f = forslag.byg_forslag(data(FIDEI))
+    g = gruppe_med(f, 395)
+    p = f.plan("db", KH)
+    dele = [{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"}, {"navn": "Nykoppel", "slags": None, "maal": "ny"}]
+    plan, _ = _flet(f, _alle_aabne(f, p, **{f"G{g.nr}": {"svar": "del", "dele": dele}}))
+    assert {"noegle": f"ny:G{g.nr}:Nykoppel", "navn": "Nykoppel", "slags": None, "gruppe": g.nr} in plan["opret"]
+    assert {"relation": 39500, "til": f"ny:G{g.nr}:Nykoppel", "citat": "Fideikommisgodserne Varste-Polle og Koppel",
+            "gruppe": g.nr} in plan["kopier"]
+
+
+def test_del_op_del_1_til_eksisterende_laegger_raekken_ind():
+    f = forslag.byg_forslag(data(FIDEI))
+    g, varste = gruppe_med(f, 395), gruppe_med(f, 180)
+    p = f.plan("db", KH)
+    dele = [{"navn": "Varste", "slags": "gård", "maal": f"G{varste.nr}"},
+            {"navn": "Koppel", "slags": "gård", "maal": f"G{gruppe_med(f, 182).nr}"}]
+    plan, _ = _flet(f, _alle_aabne(f, p, **{f"G{g.nr}": {"svar": "del", "dele": dele}}))
+    assert {"fra": 395, "til": 180, "gruppe": g.nr} in plan["sammenlaeg"]
+    assert not any(o["estate"] == 395 for o in plan["saet"])
+
+
+@pytest.mark.parametrize("dele, tekst", [
+    ([{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"}], "mindst to"),
+    ([{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"}, {"navn": "Koppel", "slags": "gård", "maal": "G999"}],
+     "ukendt mål"),
+    ([{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"}, {"navn": "", "slags": "gård", "maal": "ny"}],
+     "navnet mangler"),
+    ([{"navn": "Varste (1700)", "slags": "gård", "maal": "ny"}, {"navn": "Koppel", "slags": "gård", "maal": "ny"}],
+     "ikke kun godsets navn"),
+    ([{"navn": "Varste-Polle", "slags": "hus", "maal": "ny"}, {"navn": "Koppel", "slags": "gård", "maal": "ny"}],
+     "ukendt slags"),
+    ([{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"}, {"navn": "Koppel", "slags": "gård", "maal": "SELV"}],
+     "gruppen selv"),
+])
+def test_del_op_ugyldigt_afvises(dele, tekst):
+    f = forslag.byg_forslag(data(FIDEI))
+    g = gruppe_med(f, 395)
+    p = f.plan("db", KH)
+    dele = [dict(d, maal=f"G{g.nr}" if d["maal"] == "SELV" else d["maal"]) for d in dele]
+    with pytest.raises(forslag.FletFejl, match=tekst):
+        _flet(f, _alle_aabne(f, p, **{f"G{g.nr}": {"svar": "del", "dele": dele}}))
+
+
+def test_del_op_til_afgjort_gruppe_afvises():
+    f = forslag.byg_forslag(data([(146, "Aschau", 6), (406, "Aschau ved Altenhof (1782)"),
+                                  (395, "Holm og Aschau ved Altenhof")]))
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S" and
+                f"G{gruppe_med(f, 406).nr}" in x["grupper"])
+    g = gruppe_med(f, 395)
+    dele = [{"navn": "Holm", "slags": "gård", "maal": "ny"},
+            {"navn": "Aschau", "slags": "gård", "maal": f"G{gruppe_med(f, 406).nr}"}]
+    with pytest.raises(forslag.FletFejl, match="peg på"):
+        _flet(f, _alle_aabne(f, p, **{s_id: "ja", f"G{g.nr}": {"svar": "del", "dele": dele}}))
+
+
+def test_del_op_navnekonflikt_vises_i_reglen():
+    f = forslag.byg_forslag(data(FIDEI))
+    p = f.plan("db", KH)
+    g = gruppe_med(f, 395)
+    v = {f"G{g.nr}": {"svar": "del", "dele": [{"navn": "Koppel", "slags": "gård", "maal": "ny"},
+                                               {"navn": "X", "slags": "gård", "maal": "ny"}]}}
+    ks = forslag.konflikter(forslag.konfliktdata(p), v)
+    assert any(k["navn"] == "Koppel" for k in ks)

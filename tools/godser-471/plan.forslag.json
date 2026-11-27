@@ -15755,7 +15755,19 @@
     161
    ],
    "overlever": 161,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    161
+   ],
+   "navne": {
+    "161": "Aakær"
+   },
+   "ejerforhold": [
+    [
+     680,
+     "Aakær"
+    ]
+   ]
   },
   "G2": {
    "type": "gruppe",
@@ -15763,7 +15775,19 @@
     408
    ],
    "overlever": 408,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    408
+   ],
+   "navne": {
+    "408": "Aakær og Dybvad (1802 Medejer, 1816-1836 Eneejer)"
+   },
+   "ejerforhold": [
+    [
+     2655,
+     "Aakær og Dybvad (1802 Medejer, 1816-1836 Eneejer)"
+    ]
+   ]
   },
   "G3": {
    "type": "gruppe",
@@ -15771,7 +15795,35 @@
     179
    ],
    "overlever": 179,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    179
+   ],
+   "navne": {
+    "179": "Agerup"
+   },
+   "ejerforhold": [
+    [
+     734,
+     "Agerup"
+    ],
+    [
+     764,
+     "Agerup"
+    ],
+    [
+     798,
+     "Agerup"
+    ],
+    [
+     809,
+     "Agerup"
+    ],
+    [
+     815,
+     "Agerup"
+    ]
+   ]
   },
   "G4": {
    "type": "gruppe",
@@ -15780,7 +15832,25 @@
     400
    ],
    "overlever": 394,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    394,
+    400
+   ],
+   "navne": {
+    "394": "til Aggerupgaard",
+    "400": "Aggerupgaard (til)"
+   },
+   "ejerforhold": [
+    [
+     2635,
+     "til Aggerupgaard"
+    ],
+    [
+     2640,
+     "Aggerupgaard (til)"
+    ]
+   ]
   },
   "G5": {
    "type": "gruppe",
@@ -15790,7 +15860,70 @@
     321
    ],
    "overlever": 119,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    159,
+    321
+   ],
+   "navne": {
+    "119": "Altenhof",
+    "159": "Altenhof med Aschau og Hoffnungsthal",
+    "321": "Altenhof (1692)"
+   },
+   "ejerforhold": [
+    [
+     421,
+     "Altenhof"
+    ],
+    [
+     497,
+     "Altenhof"
+    ],
+    [
+     534,
+     "Altenhof"
+    ],
+    [
+     552,
+     "Altenhof"
+    ],
+    [
+     607,
+     "Altenhof"
+    ],
+    [
+     687,
+     "Altenhof"
+    ],
+    [
+     2557,
+     "Altenhof"
+    ],
+    [
+     2643,
+     "Altenhof"
+    ],
+    [
+     2648,
+     "Altenhof"
+    ],
+    [
+     2657,
+     "Altenhof"
+    ],
+    [
+     2671,
+     "Altenhof"
+    ],
+    [
+     663,
+     "Altenhof med Aschau og Hoffnungsthal"
+    ],
+    [
+     2540,
+     "Altenhof (1692)"
+    ]
+   ]
   },
   "G6": {
    "type": "gruppe",
@@ -15798,7 +15931,19 @@
     237
    ],
    "overlever": 237,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    237
+   ],
+   "navne": {
+    "237": "andel af Ziesendorf (forlenet 1397)"
+   },
+   "ejerforhold": [
+    [
+     2408,
+     "andel af Ziesendorf (forlenet 1397)"
+    ]
+   ]
   },
   "G7": {
    "type": "gruppe",
@@ -15806,7 +15951,39 @@
     146
    ],
    "overlever": 146,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    146
+   ],
+   "navne": {
+    "146": "Aschau"
+   },
+   "ejerforhold": [
+    [
+     538,
+     "Aschau"
+    ],
+    [
+     553,
+     "Aschau"
+    ],
+    [
+     608,
+     "Aschau"
+    ],
+    [
+     2650,
+     "Aschau"
+    ],
+    [
+     2659,
+     "Aschau"
+    ],
+    [
+     2672,
+     "Aschau"
+    ]
+   ]
   },
   "G8": {
    "type": "gruppe",
@@ -15814,7 +15991,19 @@
     406
    ],
    "overlever": 406,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    406
+   ],
+   "navne": {
+    "406": "Aschau ved Altenhof (1782)"
+   },
+   "ejerforhold": [
+    [
+     2647,
+     "Aschau ved Altenhof (1782)"
+    ]
+   ]
   },
   "G9": {
    "type": "gruppe",
@@ -15822,7 +16011,19 @@
     33
    ],
    "overlever": 33,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    33
+   ],
+   "navne": {
+    "33": "Askov"
+   },
+   "ejerforhold": [
+    [
+     100,
+     "Askov"
+    ]
+   ]
   },
   "G10": {
    "type": "gruppe",
@@ -15830,7 +16031,19 @@
     139
    ],
    "overlever": 139,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    139
+   ],
+   "navne": {
+    "139": "Astrup"
+   },
+   "ejerforhold": [
+    [
+     504,
+     "Astrup"
+    ]
+   ]
   },
   "G11": {
    "type": "gruppe",
@@ -15838,7 +16051,19 @@
     213
    ],
    "overlever": 213,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    213
+   ],
+   "navne": {
+    "213": "Ballegaard og Bøgskov"
+   },
+   "ejerforhold": [
+    [
+     871,
+     "Ballegaard og Bøgskov"
+    ]
+   ]
   },
   "G12": {
    "type": "gruppe",
@@ -15846,7 +16071,19 @@
     393
    ],
    "overlever": 393,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    393
+   ],
+   "navne": {
+    "393": "Ballegaard og Bøgskov i Sundeved"
+   },
+   "ejerforhold": [
+    [
+     2633,
+     "Ballegaard og Bøgskov i Sundeved"
+    ]
+   ]
   },
   "G13": {
    "type": "gruppe",
@@ -15855,7 +16092,25 @@
     297
    ],
    "overlever": 62,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    62,
+    297
+   ],
+   "navne": {
+    "62": "Bankendorf",
+    "297": "Bankendorf (Oldenburg Sogn i Holsten)"
+   },
+   "ejerforhold": [
+    [
+     192,
+     "Bankendorf"
+    ],
+    [
+     2483,
+     "Bankendorf (Oldenburg Sogn i Holsten)"
+    ]
+   ]
   },
   "G14": {
    "type": "gruppe",
@@ -15867,7 +16122,90 @@
     383
    ],
    "overlever": 261,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    172,
+    364,
+    375,
+    383
+   ],
+   "navne": {
+    "172": "baroniet Brahetrolleborg",
+    "261": "Baroniet Brahe-Trolleborg",
+    "364": "Baroniet Brahe-Trolleborg (1722)",
+    "375": "Baroniet Brahe-Trolleborg (1775)",
+    "383": "Baroniet Brahe-Trolleborg (1854)"
+   },
+   "ejerforhold": [
+    [
+     725,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     817,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     829,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     838,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     853,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     881,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     930,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     933,
+     "baroniet Brahetrolleborg"
+    ],
+    [
+     1039,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2599,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2601,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2606,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2619,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2632,
+     "Baroniet Brahe-Trolleborg"
+    ],
+    [
+     2590,
+     "Baroniet Brahe-Trolleborg (1722)"
+    ],
+    [
+     2612,
+     "Baroniet Brahe-Trolleborg (1775)"
+    ],
+    [
+     2621,
+     "Baroniet Brahe-Trolleborg (1854)"
+    ]
+   ]
   },
   "G15": {
    "type": "gruppe",
@@ -15875,7 +16213,19 @@
     4
    ],
    "overlever": 4,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    4
+   ],
+   "navne": {
+    "4": "Bauersdorf"
+   },
+   "ejerforhold": [
+    [
+     4,
+     "Bauersdorf"
+    ]
+   ]
   },
   "G16": {
    "type": "gruppe",
@@ -15883,7 +16233,19 @@
     122
    ],
    "overlever": 122,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    122
+   ],
+   "navne": {
+    "122": "Beckhof"
+   },
+   "ejerforhold": [
+    [
+     433,
+     "Beckhof"
+    ]
+   ]
   },
   "G17": {
    "type": "gruppe",
@@ -15891,7 +16253,19 @@
     68
    ],
    "overlever": 68,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    68
+   ],
+   "navne": {
+    "68": "Belau"
+   },
+   "ejerforhold": [
+    [
+     209,
+     "Belau"
+    ]
+   ]
   },
   "G18": {
    "type": "gruppe",
@@ -15899,7 +16273,19 @@
     249
    ],
    "overlever": 249,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    249
+   ],
+   "navne": {
+    "249": "Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik"
+   },
+   "ejerforhold": [
+    [
+     2411,
+     "Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik"
+    ]
+   ]
   },
   "G19": {
    "type": "gruppe",
@@ -15907,7 +16293,27 @@
     25
    ],
    "overlever": 25,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    25
+   ],
+   "navne": {
+    "25": "Bentfeld"
+   },
+   "ejerforhold": [
+    [
+     78,
+     "Bentfeld"
+    ],
+    [
+     79,
+     "Bentfeld"
+    ],
+    [
+     80,
+     "Bentfeld"
+    ]
+   ]
   },
   "G20": {
    "type": "gruppe",
@@ -15915,7 +16321,19 @@
     234
    ],
    "overlever": 234,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    234
+   ],
+   "navne": {
+    "234": "Bentvelde (Giekow Sogn)"
+   },
+   "ejerforhold": [
+    [
+     2405,
+     "Bentvelde (Giekow Sogn)"
+    ]
+   ]
   },
   "G21": {
    "type": "gruppe",
@@ -15924,7 +16342,25 @@
     286
    ],
    "overlever": 114,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    114,
+    286
+   ],
+   "navne": {
+    "114": "Bibow",
+    "286": "Bibow (pantegods)"
+   },
+   "ejerforhold": [
+    [
+     412,
+     "Bibow"
+    ],
+    [
+     2460,
+     "Bibow (pantegods)"
+    ]
+   ]
   },
   "G22": {
    "type": "gruppe",
@@ -15932,7 +16368,19 @@
     191
    ],
    "overlever": 191,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    191
+   ],
+   "navne": {
+    "191": "Bielawe"
+   },
+   "ejerforhold": [
+    [
+     766,
+     "Bielawe"
+    ]
+   ]
   },
   "G23": {
    "type": "gruppe",
@@ -15940,7 +16388,23 @@
     115
    ],
    "overlever": 115,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    115
+   ],
+   "navne": {
+    "115": "Bienebek"
+   },
+   "ejerforhold": [
+    [
+     415,
+     "Bienebek"
+    ],
+    [
+     473,
+     "Bienebek"
+    ]
+   ]
   },
   "G24": {
    "type": "gruppe",
@@ -15949,7 +16413,25 @@
     330
    ],
    "overlever": 318,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    318,
+    330
+   ],
+   "navne": {
+    "318": "Binebek",
+    "330": "Binebek (1684-1707)"
+   },
+   "ejerforhold": [
+    [
+     2537,
+     "Binebek"
+    ],
+    [
+     2550,
+     "Binebek (1684-1707)"
+    ]
+   ]
   },
   "G25": {
    "type": "gruppe",
@@ -15958,7 +16440,25 @@
     241
    ],
    "overlever": 16,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    16,
+    241
+   ],
+   "navne": {
+    "16": "Birkenmoor",
+    "241": "Birkenmoor (Dänischen Hagen Sogn)"
+   },
+   "ejerforhold": [
+    [
+     59,
+     "Birkenmoor"
+    ],
+    [
+     992,
+     "Birkenmoor (Dänischen Hagen Sogn)"
+    ]
+   ]
   },
   "G26": {
    "type": "gruppe",
@@ -15966,7 +16466,19 @@
     384
    ],
    "overlever": 384,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    384
+   ],
+   "navne": {
+    "384": "til Bistingsmåla i Mønsterås"
+   },
+   "ejerforhold": [
+    [
+     2623,
+     "til Bistingsmåla i Mønsterås"
+    ]
+   ]
   },
   "G27": {
    "type": "gruppe",
@@ -15974,7 +16486,19 @@
     421
    ],
    "overlever": 421,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    421
+   ],
+   "navne": {
+    "421": "Bjørnholm (Sønder Dyrs H.), sammen med broderen Ove"
+   },
+   "ejerforhold": [
+    [
+     2679,
+     "Bjørnholm (Sønder Dyrs H.), sammen med broderen Ove"
+    ]
+   ]
   },
   "G28": {
    "type": "gruppe",
@@ -15982,7 +16506,19 @@
     423
    ],
    "overlever": 423,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    423
+   ],
+   "navne": {
+    "423": "Bjørnsholm (solgt 1441 til Hr. Otto Nielsen Rosenkrantz)"
+   },
+   "ejerforhold": [
+    [
+     2681,
+     "Bjørnsholm (solgt 1441 til Hr. Otto Nielsen Rosenkrantz)"
+    ]
+   ]
   },
   "G29": {
    "type": "gruppe",
@@ -15990,7 +16526,19 @@
     11
    ],
    "overlever": 11,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    11
+   ],
+   "navne": {
+    "11": "Bliesdorf"
+   },
+   "ejerforhold": [
+    [
+     48,
+     "Bliesdorf"
+    ]
+   ]
   },
   "G30": {
    "type": "gruppe",
@@ -15998,7 +16546,19 @@
     132
    ],
    "overlever": 132,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    132
+   ],
+   "navne": {
+    "132": "Borghorst"
+   },
+   "ejerforhold": [
+    [
+     474,
+     "Borghorst"
+    ]
+   ]
   },
   "G31": {
    "type": "gruppe",
@@ -16006,7 +16566,19 @@
     331
    ],
    "overlever": 331,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    331
+   ],
+   "navne": {
+    "331": "Borghorst og Wittmold (1716)"
+   },
+   "ejerforhold": [
+    [
+     2551,
+     "Borghorst og Wittmold (1716)"
+    ]
+   ]
   },
   "G32": {
    "type": "gruppe",
@@ -16015,7 +16587,25 @@
     189
    ],
    "overlever": 189,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    173,
+    189
+   ],
+   "navne": {
+    "173": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
+    "189": "Brahetrolleborg"
+   },
+   "ejerforhold": [
+    [
+     726,
+     "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard"
+    ],
+    [
+     761,
+     "Brahetrolleborg"
+    ]
+   ]
   },
   "G33": {
    "type": "gruppe",
@@ -16023,7 +16613,19 @@
     428
    ],
    "overlever": 428,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    428
+   ],
+   "navne": {
+    "428": "Brangstrup (Aasum H.)"
+   },
+   "ejerforhold": [
+    [
+     2688,
+     "Brangstrup (Aasum H.)"
+    ]
+   ]
   },
   "G34": {
    "type": "gruppe",
@@ -16031,7 +16633,43 @@
     95
    ],
    "overlever": 95,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    95
+   ],
+   "navne": {
+    "95": "Brockhusen"
+   },
+   "ejerforhold": [
+    [
+     347,
+     "Brockhusen"
+    ],
+    [
+     357,
+     "Brockhusen"
+    ],
+    [
+     375,
+     "Brockhusen"
+    ],
+    [
+     410,
+     "Brockhusen"
+    ],
+    [
+     2458,
+     "Brockhusen"
+    ],
+    [
+     2518,
+     "Brockhusen"
+    ],
+    [
+     2531,
+     "Brockhusen"
+    ]
+   ]
   },
   "G35": {
    "type": "gruppe",
@@ -16039,7 +16677,19 @@
     427
    ],
    "overlever": 427,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    427
+   ],
+   "navne": {
+    "427": "Brolykke"
+   },
+   "ejerforhold": [
+    [
+     2687,
+     "Brolykke"
+    ]
+   ]
   },
   "G36": {
    "type": "gruppe",
@@ -16047,7 +16697,23 @@
     198
    ],
    "overlever": 198,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    198
+   ],
+   "navne": {
+    "198": "Broløkke"
+   },
+   "ejerforhold": [
+    [
+     806,
+     "Broløkke"
+    ],
+    [
+     813,
+     "Broløkke"
+    ]
+   ]
   },
   "G37": {
    "type": "gruppe",
@@ -16055,7 +16721,27 @@
     176
    ],
    "overlever": 176,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    176
+   ],
+   "navne": {
+    "176": "Brostorp"
+   },
+   "ejerforhold": [
+    [
+     729,
+     "Brostorp"
+    ],
+    [
+     919,
+     "Brostorp"
+    ],
+    [
+     966,
+     "Brostorp"
+    ]
+   ]
   },
   "G38": {
    "type": "gruppe",
@@ -16064,7 +16750,32 @@
     307
    ],
    "overlever": 7,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    307
+   ],
+   "navne": {
+    "7": "Brunsholm",
+    "307": "Brunsholm (købt 1698 af Joachim v. Ahlefeldt)"
+   },
+   "ejerforhold": [
+    [
+     8,
+     "Brunsholm"
+    ],
+    [
+     28,
+     "Brunsholm"
+    ],
+    [
+     2504,
+     "Brunsholm"
+    ],
+    [
+     2500,
+     "Brunsholm (købt 1698 af Joachim v. Ahlefeldt)"
+    ]
+   ]
   },
   "G39": {
    "type": "gruppe",
@@ -16072,7 +16783,19 @@
     204
    ],
    "overlever": 204,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    204
+   ],
+   "navne": {
+    "204": "Brusgaard"
+   },
+   "ejerforhold": [
+    [
+     821,
+     "Brusgaard"
+    ]
+   ]
   },
   "G40": {
    "type": "gruppe",
@@ -16080,7 +16803,19 @@
     47
    ],
    "overlever": 47,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    47
+   ],
+   "navne": {
+    "47": "Brügge"
+   },
+   "ejerforhold": [
+    [
+     155,
+     "Brügge"
+    ]
+   ]
   },
   "G41": {
    "type": "gruppe",
@@ -16088,7 +16823,19 @@
     3
    ],
    "overlever": 3,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    3
+   ],
+   "navne": {
+    "3": "Bäslin"
+   },
+   "ejerforhold": [
+    [
+     3,
+     "Bäslin"
+    ]
+   ]
   },
   "G42": {
    "type": "gruppe",
@@ -16096,7 +16843,23 @@
     199
    ],
    "overlever": 199,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    199
+   ],
+   "navne": {
+    "199": "Bøgebjerg"
+   },
+   "ejerforhold": [
+    [
+     807,
+     "Bøgebjerg"
+    ],
+    [
+     814,
+     "Bøgebjerg"
+    ]
+   ]
   },
   "G43": {
    "type": "gruppe",
@@ -16105,7 +16868,25 @@
     239
    ],
    "overlever": 13,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    13,
+    239
+   ],
+   "navne": {
+    "13": "Bülk",
+    "239": "Bülk (solgt 1353 til svogeren Wulf Pogwisch)"
+   },
+   "ejerforhold": [
+    [
+     56,
+     "Bülk"
+    ],
+    [
+     990,
+     "Bülk (solgt 1353 til svogeren Wulf Pogwisch)"
+    ]
+   ]
   },
   "G44": {
    "type": "gruppe",
@@ -16113,7 +16894,19 @@
     113
    ],
    "overlever": 113,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    113
+   ],
+   "navne": {
+    "113": "Cammin"
+   },
+   "ejerforhold": [
+    [
+     411,
+     "Cammin"
+    ]
+   ]
   },
   "G45": {
    "type": "gruppe",
@@ -16121,7 +16914,19 @@
     156
    ],
    "overlever": 156,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    156
+   ],
+   "navne": {
+    "156": "Carlsminde"
+   },
+   "ejerforhold": [
+    [
+     610,
+     "Carlsminde"
+    ]
+   ]
   },
   "G46": {
    "type": "gruppe",
@@ -16129,7 +16934,19 @@
     285
    ],
    "overlever": 285,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    285
+   ],
+   "navne": {
+    "285": "Carnin (til leje)"
+   },
+   "ejerforhold": [
+    [
+     2459,
+     "Carnin (til leje)"
+    ]
+   ]
   },
   "G47": {
    "type": "gruppe",
@@ -16137,7 +16954,19 @@
     178
    ],
    "overlever": 178,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    178
+   ],
+   "navne": {
+    "178": "Christianslund"
+   },
+   "ejerforhold": [
+    [
+     733,
+     "Christianslund"
+    ]
+   ]
   },
   "G48": {
    "type": "gruppe",
@@ -16145,7 +16974,19 @@
     171
    ],
    "overlever": 171,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    171
+   ],
+   "navne": {
+    "171": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde"
+   },
+   "ejerforhold": [
+    [
+     724,
+     "Christianssæde med Pederstrup, Aalstrup og Frihedsminde"
+    ]
+   ]
   },
   "G49": {
    "type": "gruppe",
@@ -16153,7 +16994,19 @@
     108
    ],
    "overlever": 108,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    108
+   ],
+   "navne": {
+    "108": "Clausdorf"
+   },
+   "ejerforhold": [
+    [
+     396,
+     "Clausdorf"
+    ]
+   ]
   },
   "G50": {
    "type": "gruppe",
@@ -16162,7 +17015,28 @@
     357
    ],
    "overlever": 165,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    357
+   ],
+   "navne": {
+    "165": "Clausholm",
+    "357": "Clausholm (1683)"
+   },
+   "ejerforhold": [
+    [
+     707,
+     "Clausholm"
+    ],
+    [
+     802,
+     "Clausholm"
+    ],
+    [
+     2583,
+     "Clausholm (1683)"
+    ]
+   ]
   },
   "G51": {
    "type": "gruppe",
@@ -16171,7 +17045,20 @@
     340
    ],
    "overlever": 263,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    340
+   ],
+   "navne": {
+    "263": "Colmar",
+    "340": "Colmar (Arv efter Faderen)"
+   },
+   "ejerforhold": [
+    [
+     2562,
+     "Colmar (Arv efter Faderen)"
+    ]
+   ]
   },
   "G52": {
    "type": "gruppe",
@@ -16179,7 +17066,19 @@
     144
    ],
    "overlever": 144,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    144
+   ],
+   "navne": {
+    "144": "Cronshagen"
+   },
+   "ejerforhold": [
+    [
+     527,
+     "Cronshagen"
+    ]
+   ]
   },
   "G53": {
    "type": "gruppe",
@@ -16187,7 +17086,19 @@
     195
    ],
    "overlever": 195,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    195
+   ],
+   "navne": {
+    "195": "Damgaard"
+   },
+   "ejerforhold": [
+    [
+     797,
+     "Damgaard"
+    ]
+   ]
   },
   "G54": {
    "type": "gruppe",
@@ -16196,7 +17107,37 @@
     399
    ],
    "overlever": 186,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    186,
+    399
+   ],
+   "navne": {
+    "186": "Damp",
+    "399": "Damp (til)"
+   },
+   "ejerforhold": [
+    [
+     756,
+     "Damp"
+    ],
+    [
+     790,
+     "Damp"
+    ],
+    [
+     799,
+     "Damp"
+    ],
+    [
+     810,
+     "Damp"
+    ],
+    [
+     2638,
+     "Damp (til)"
+    ]
+   ]
   },
   "G55": {
    "type": "gruppe",
@@ -16204,7 +17145,19 @@
     429
    ],
    "overlever": 429,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    429
+   ],
+   "navne": {
+    "429": "Damsbo (Salling H.)"
+   },
+   "ejerforhold": [
+    [
+     2689,
+     "Damsbo (Salling H.)"
+    ]
+   ]
   },
   "G56": {
    "type": "gruppe",
@@ -16212,7 +17165,19 @@
     206
    ],
    "overlever": 206,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    206
+   ],
+   "navne": {
+    "206": "Danstedgaard"
+   },
+   "ejerforhold": [
+    [
+     830,
+     "Danstedgaard"
+    ]
+   ]
   },
   "G57": {
    "type": "gruppe",
@@ -16220,7 +17185,19 @@
     121
    ],
    "overlever": 121,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    121
+   ],
+   "navne": {
+    "121": "det Blomeske Frihus"
+   },
+   "ejerforhold": [
+    [
+     432,
+     "det Blomeske Frihus"
+    ]
+   ]
   },
   "G58": {
    "type": "gruppe",
@@ -16228,7 +17205,19 @@
     212
    ],
    "overlever": 212,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    212
+   ],
+   "navne": {
+    "212": "det Reventlowske hus i Amaliegade"
+   },
+   "ejerforhold": [
+    [
+     862,
+     "det Reventlowske hus i Amaliegade"
+    ]
+   ]
   },
   "G59": {
    "type": "gruppe",
@@ -16236,7 +17225,23 @@
     164
    ],
    "overlever": 164,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    164
+   ],
+   "navne": {
+    "164": "det Reventlowske palæ"
+   },
+   "ejerforhold": [
+    [
+     705,
+     "det Reventlowske palæ"
+    ],
+    [
+     856,
+     "det Reventlowske palæ"
+    ]
+   ]
   },
   "G60": {
    "type": "gruppe",
@@ -16245,7 +17250,25 @@
     211
    ],
    "overlever": 211,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    188,
+    211
+   ],
+   "navne": {
+    "188": "Ditlevslyst",
+    "211": "Gjællebrede (senere Ditlevslyst)"
+   },
+   "ejerforhold": [
+    [
+     760,
+     "Ditlevslyst"
+    ],
+    [
+     857,
+     "Gjællebrede (senere Ditlevslyst)"
+    ]
+   ]
   },
   "G61": {
    "type": "gruppe",
@@ -16253,7 +17276,19 @@
     65
    ],
    "overlever": 65,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    65
+   ],
+   "navne": {
+    "65": "Doberstorf"
+   },
+   "ejerforhold": [
+    [
+     196,
+     "Doberstorf"
+    ]
+   ]
   },
   "G62": {
    "type": "gruppe",
@@ -16261,7 +17296,23 @@
     187
    ],
    "overlever": 187,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    187
+   ],
+   "navne": {
+    "187": "Dorotheenthal"
+   },
+   "ejerforhold": [
+    [
+     757,
+     "Dorotheenthal"
+    ],
+    [
+     791,
+     "Dorotheenthal"
+    ]
+   ]
   },
   "G63": {
    "type": "gruppe",
@@ -16269,7 +17320,19 @@
     49
    ],
    "overlever": 49,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    49
+   ],
+   "navne": {
+    "49": "Drage"
+   },
+   "ejerforhold": [
+    [
+     158,
+     "Drage"
+    ]
+   ]
   },
   "G64": {
    "type": "gruppe",
@@ -16278,7 +17341,25 @@
     273
    ],
    "overlever": 41,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    41,
+    273
+   ],
+   "navne": {
+    "41": "Dristorf",
+    "273": "Dristorf (købt af Bertram v. Ahlefeldt)"
+   },
+   "ejerforhold": [
+    [
+     129,
+     "Dristorf"
+    ],
+    [
+     2439,
+     "Dristorf (købt af Bertram v. Ahlefeldt)"
+    ]
+   ]
   },
   "G65": {
    "type": "gruppe",
@@ -16286,7 +17367,19 @@
     101
    ],
    "overlever": 101,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    101
+   ],
+   "navne": {
+    "101": "Dueholm Len"
+   },
+   "ejerforhold": [
+    [
+     359,
+     "Dueholm Len"
+    ]
+   ]
   },
   "G66": {
    "type": "gruppe",
@@ -16294,7 +17387,31 @@
     18
    ],
    "overlever": 18,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    18
+   ],
+   "navne": {
+    "18": "Dunkelstorf"
+   },
+   "ejerforhold": [
+    [
+     62,
+     "Dunkelstorf"
+    ],
+    [
+     63,
+     "Dunkelstorf"
+    ],
+    [
+     64,
+     "Dunkelstorf"
+    ],
+    [
+     65,
+     "Dunkelstorf"
+    ]
+   ]
   },
   "G67": {
    "type": "gruppe",
@@ -16302,7 +17419,19 @@
     162
    ],
    "overlever": 162,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    162
+   ],
+   "navne": {
+    "162": "Dybvad"
+   },
+   "ejerforhold": [
+    [
+     681,
+     "Dybvad"
+    ]
+   ]
   },
   "G68": {
    "type": "gruppe",
@@ -16310,7 +17439,27 @@
     60
    ],
    "overlever": 60,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    60
+   ],
+   "navne": {
+    "60": "Dänisch Lindau"
+   },
+   "ejerforhold": [
+    [
+     190,
+     "Dänisch Lindau"
+    ],
+    [
+     202,
+     "Dänisch Lindau"
+    ],
+    [
+     2496,
+     "Dänisch Lindau"
+    ]
+   ]
   },
   "G69": {
    "type": "gruppe",
@@ -16318,7 +17467,19 @@
     351
    ],
    "overlever": 351,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    351
+   ],
+   "navne": {
+    "351": "Dänischenhagen Sogn (til 1780)"
+   },
+   "ejerforhold": [
+    [
+     2577,
+     "Dänischenhagen Sogn (til 1780)"
+    ]
+   ]
   },
   "G70": {
    "type": "gruppe",
@@ -16328,7 +17489,31 @@
     352
    ],
    "overlever": 136,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    93,
+    136,
+    352
+   ],
+   "navne": {
+    "93": "Dörphof",
+    "136": "Dörphof (Torp)",
+    "352": "Dörphof (—1771)"
+   },
+   "ejerforhold": [
+    [
+     318,
+     "Dörphof"
+    ],
+    [
+     498,
+     "Dörphof (Torp)"
+    ],
+    [
+     2578,
+     "Dörphof (—1771)"
+    ]
+   ]
   },
   "G71": {
    "type": "gruppe",
@@ -16336,7 +17521,19 @@
     336
    ],
    "overlever": 336,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    336
+   ],
+   "navne": {
+    "336": "Dörphof (Torp) ved Ekernförde (1723)"
+   },
+   "ejerforhold": [
+    [
+     2558,
+     "Dörphof (Torp) ved Ekernförde (1723)"
+    ]
+   ]
   },
   "G72": {
    "type": "gruppe",
@@ -16344,7 +17541,23 @@
     194
    ],
    "overlever": 194,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    194
+   ],
+   "navne": {
+    "194": "Eckhof"
+   },
+   "ejerforhold": [
+    [
+     793,
+     "Eckhof"
+    ],
+    [
+     803,
+     "Eckhof"
+    ]
+   ]
   },
   "G73": {
    "type": "gruppe",
@@ -16352,7 +17565,23 @@
     63
    ],
    "overlever": 63,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    63
+   ],
+   "navne": {
+    "63": "Ehlerstorf"
+   },
+   "ejerforhold": [
+    [
+     193,
+     "Ehlerstorf"
+    ],
+    [
+     2484,
+     "Ehlerstorf"
+    ]
+   ]
   },
   "G74": {
    "type": "gruppe",
@@ -16360,7 +17589,19 @@
     79
    ],
    "overlever": 79,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    79
+   ],
+   "navne": {
+    "79": "Elmenhorst"
+   },
+   "ejerforhold": [
+    [
+     299,
+     "Elmenhorst"
+    ]
+   ]
   },
   "G75": {
    "type": "gruppe",
@@ -16368,7 +17609,19 @@
     252
    ],
    "overlever": 252,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    252
+   ],
+   "navne": {
+    "252": "Elmenhorst, Amtsger. Grevesmühlen"
+   },
+   "ejerforhold": [
+    [
+     2416,
+     "Elmenhorst, Amtsger. Grevesmühlen"
+    ]
+   ]
   },
   "G76": {
    "type": "gruppe",
@@ -16378,7 +17631,35 @@
     407
    ],
    "overlever": 145,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    145,
+    404,
+    407
+   ],
+   "navne": {
+    "145": "Emkendorf",
+    "404": "Emkendorf (købt 1764 af Geheimeraad Desmercières)",
+    "407": "Emkendorf (1783)"
+   },
+   "ejerforhold": [
+    [
+     536,
+     "Emkendorf"
+    ],
+    [
+     630,
+     "Emkendorf"
+    ],
+    [
+     2645,
+     "Emkendorf (købt 1764 af Geheimeraad Desmercières)"
+    ],
+    [
+     2651,
+     "Emkendorf (1783)"
+    ]
+   ]
   },
   "G77": {
    "type": "gruppe",
@@ -16386,7 +17667,19 @@
     137
    ],
    "overlever": 137,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    137
+   ],
+   "navne": {
+    "137": "Eskær"
+   },
+   "ejerforhold": [
+    [
+     502,
+     "Eskær"
+    ]
+   ]
   },
   "G78": {
    "type": "gruppe",
@@ -16394,7 +17687,19 @@
     338
    ],
    "overlever": 338,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    338
+   ],
+   "navne": {
+    "338": "Eskær, Astrup og Skivehus i Nørre H. (1735-50)"
+   },
+   "ejerforhold": [
+    [
+     2560,
+     "Eskær, Astrup og Skivehus i Nørre H. (1735-50)"
+    ]
+   ]
   },
   "G79": {
    "type": "gruppe",
@@ -16402,7 +17707,39 @@
     73
    ],
    "overlever": 73,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    73
+   ],
+   "navne": {
+    "73": "Fahren"
+   },
+   "ejerforhold": [
+    [
+     215,
+     "Fahren"
+    ],
+    [
+     217,
+     "Fahren"
+    ],
+    [
+     296,
+     "Fahren"
+    ],
+    [
+     2463,
+     "Fahren"
+    ],
+    [
+     2508,
+     "Fahren"
+    ],
+    [
+     2510,
+     "Fahren"
+    ]
+   ]
   },
   "G80": {
    "type": "gruppe",
@@ -16410,7 +17747,19 @@
     160
    ],
    "overlever": 160,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    160
+   ],
+   "navne": {
+    "160": "Falkenberg"
+   },
+   "ejerforhold": [
+    [
+     679,
+     "Falkenberg"
+    ]
+   ]
   },
   "G81": {
    "type": "gruppe",
@@ -16418,7 +17767,19 @@
     409
    ],
    "overlever": 409,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    409
+   ],
+   "navne": {
+    "409": "Falkenberg ved Slesvig"
+   },
+   "ejerforhold": [
+    [
+     2656,
+     "Falkenberg ved Slesvig"
+    ]
+   ]
   },
   "G82": {
    "type": "gruppe",
@@ -16426,7 +17787,19 @@
     10
    ],
    "overlever": 10,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    10
+   ],
+   "navne": {
+    "10": "Farenstedgaard"
+   },
+   "ejerforhold": [
+    [
+     32,
+     "Farenstedgaard"
+    ]
+   ]
   },
   "G83": {
    "type": "gruppe",
@@ -16434,7 +17807,19 @@
     312
    ],
    "overlever": 312,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    312
+   ],
+   "navne": {
+    "312": "Farenstedgaard ved Slesvig (1754–63)"
+   },
+   "ejerforhold": [
+    [
+     2507,
+     "Farenstedgaard ved Slesvig (1754–63)"
+    ]
+   ]
   },
   "G84": {
    "type": "gruppe",
@@ -16442,7 +17827,19 @@
     207
    ],
    "overlever": 207,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    207
+   ],
+   "navne": {
+    "207": "Farumgaard"
+   },
+   "ejerforhold": [
+    [
+     831,
+     "Farumgaard"
+    ]
+   ]
   },
   "G85": {
    "type": "gruppe",
@@ -16450,7 +17847,35 @@
     155
    ],
    "overlever": 155,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    155
+   ],
+   "navne": {
+    "155": "Farve"
+   },
+   "ejerforhold": [
+    [
+     598,
+     "Farve"
+    ],
+    [
+     657,
+     "Farve"
+    ],
+    [
+     692,
+     "Farve"
+    ],
+    [
+     2666,
+     "Farve"
+    ],
+    [
+     2668,
+     "Farve"
+    ]
+   ]
   },
   "G86": {
    "type": "gruppe",
@@ -16458,7 +17883,19 @@
     395
    ],
    "overlever": 395,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    395
+   ],
+   "navne": {
+    "395": "Fideikommisgodserne Varste-Polle og Koppel"
+   },
+   "ejerforhold": [
+    [
+     2636,
+     "Fideikommisgodserne Varste-Polle og Koppel"
+    ]
+   ]
   },
   "G87": {
    "type": "gruppe",
@@ -16467,7 +17904,29 @@
     388
    ],
    "overlever": 220,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    220,
+    388
+   ],
+   "navne": {
+    "220": "Finnhult",
+    "388": "til Finnhult (Gudmundtorp S.)"
+   },
+   "ejerforhold": [
+    [
+     918,
+     "Finnhult"
+    ],
+    [
+     959,
+     "Finnhult"
+    ],
+    [
+     2627,
+     "til Finnhult (Gudmundtorp S.)"
+    ]
+   ]
   },
   "G88": {
    "type": "gruppe",
@@ -16475,7 +17934,19 @@
     9
    ],
    "overlever": 9,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    9
+   ],
+   "navne": {
+    "9": "fogderiet i Tørning"
+   },
+   "ejerforhold": [
+    [
+     13,
+     "fogderiet i Tørning"
+    ]
+   ]
   },
   "G89": {
    "type": "gruppe",
@@ -16484,7 +17955,25 @@
     248
    ],
    "overlever": 246,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    246,
+    248
+   ],
+   "navne": {
+    "246": "Fogderiet Tørning (i Pant, sammen med Hr. Claus)",
+    "248": "Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)"
+   },
+   "ejerforhold": [
+    [
+     2410,
+     "Fogderiet Tørning (i Pant, sammen med Hr. Claus)"
+    ],
+    [
+     999,
+     "Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)"
+    ]
+   ]
   },
   "G90": {
    "type": "gruppe",
@@ -16492,7 +17981,19 @@
     251
    ],
    "overlever": 251,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    251
+   ],
+   "navne": {
+    "251": "Forlening af Preetz Kloster (1399)"
+   },
+   "ejerforhold": [
+    [
+     2415,
+     "Forlening af Preetz Kloster (1399)"
+    ]
+   ]
   },
   "G91": {
    "type": "gruppe",
@@ -16500,7 +18001,19 @@
     253
    ],
    "overlever": 253,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    253
+   ],
+   "navne": {
+    "253": "Forpagter af Gjelskov i Fyen (1670)"
+   },
+   "ejerforhold": [
+    [
+     2417,
+     "Forpagter af Gjelskov i Fyen (1670)"
+    ]
+   ]
   },
   "G92": {
    "type": "gruppe",
@@ -16508,7 +18021,19 @@
     349
    ],
    "overlever": 349,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    349
+   ],
+   "navne": {
+    "349": "Fredsholm (Vestenskov Sogn, købt 1755)"
+   },
+   "ejerforhold": [
+    [
+     2574,
+     "Fredsholm (Vestenskov Sogn, købt 1755)"
+    ]
+   ]
   },
   "G93": {
    "type": "gruppe",
@@ -16517,7 +18042,25 @@
     329
    ],
    "overlever": 131,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    131,
+    329
+   ],
+   "navne": {
+    "131": "Fresenburg",
+    "329": "Fresenburg (-1699)"
+   },
+   "ejerforhold": [
+    [
+     468,
+     "Fresenburg"
+    ],
+    [
+     2549,
+     "Fresenburg (-1699)"
+    ]
+   ]
   },
   "G94": {
    "type": "gruppe",
@@ -16525,7 +18068,19 @@
     358
    ],
    "overlever": 358,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    358
+   ],
+   "navne": {
+    "358": "Friisenvold"
+   },
+   "ejerforhold": [
+    [
+     2584,
+     "Friisenvold"
+    ]
+   ]
   },
   "G95": {
    "type": "gruppe",
@@ -16533,7 +18088,19 @@
     166
    ],
    "overlever": 166,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    166
+   ],
+   "navne": {
+    "166": "Frisenvold"
+   },
+   "ejerforhold": [
+    [
+     708,
+     "Frisenvold"
+    ]
+   ]
   },
   "G96": {
    "type": "gruppe",
@@ -16541,7 +18108,19 @@
     215
    ],
    "overlever": 215,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    215
+   ],
+   "navne": {
+    "215": "Frugården"
+   },
+   "ejerforhold": [
+    [
+     913,
+     "Frugården"
+    ]
+   ]
   },
   "G97": {
    "type": "gruppe",
@@ -16549,7 +18128,19 @@
     381
    ],
    "overlever": 381,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    381
+   ],
+   "navne": {
+    "381": "Frugården og Vänersnäs (V. Vrams S.) (1845)"
+   },
+   "ejerforhold": [
+    [
+     2618,
+     "Frugården og Vänersnäs (V. Vrams S.) (1845)"
+    ]
+   ]
   },
   "G98": {
    "type": "gruppe",
@@ -16560,7 +18151,64 @@
     353
    ],
    "overlever": 57,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    283,
+    300,
+    353
+   ],
+   "navne": {
+    "57": "Futterkamp",
+    "283": "Futterkamp (1602 købt af Jesper Rantzau)",
+    "300": "Futterkamp (solgt 1648 til Ditlev Reventlow)",
+    "353": "Futterkamp (tilskødet 1660, solgt 1672 til Henning Buchwald)"
+   },
+   "ejerforhold": [
+    [
+     172,
+     "Futterkamp"
+    ],
+    [
+     185,
+     "Futterkamp"
+    ],
+    [
+     198,
+     "Futterkamp"
+    ],
+    [
+     380,
+     "Futterkamp"
+    ],
+    [
+     706,
+     "Futterkamp"
+    ],
+    [
+     1078,
+     "Futterkamp"
+    ],
+    [
+     2477,
+     "Futterkamp"
+    ],
+    [
+     2533,
+     "Futterkamp"
+    ],
+    [
+     2456,
+     "Futterkamp (1602 købt af Jesper Rantzau)"
+    ],
+    [
+     2487,
+     "Futterkamp (solgt 1648 til Ditlev Reventlow)"
+    ],
+    [
+     2579,
+     "Futterkamp (tilskødet 1660, solgt 1672 til Henning Buchwald)"
+    ]
+   ]
   },
   "G99": {
    "type": "gruppe",
@@ -16570,7 +18218,35 @@
     257
    ],
    "overlever": 27,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    27,
+    254,
+    257
+   ],
+   "navne": {
+    "27": "Gaarz",
+    "254": "Gaarz (Oldenburg Sogn, nævnt 1472)",
+    "257": "Gaarz (genkøbt af Cismar Kloster)"
+   },
+   "ejerforhold": [
+    [
+     84,
+     "Gaarz"
+    ],
+    [
+     87,
+     "Gaarz"
+    ],
+    [
+     2419,
+     "Gaarz (Oldenburg Sogn, nævnt 1472)"
+    ],
+    [
+     2422,
+     "Gaarz (genkøbt af Cismar Kloster)"
+    ]
+   ]
   },
   "G100": {
    "type": "gruppe",
@@ -16578,7 +18254,19 @@
     267
    ],
    "overlever": 267,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    267
+   ],
+   "navne": {
+    "267": "Gaarz og Kaden (arvekrav 1528, trætte med Hr. Iven Reventlow)"
+   },
+   "ejerforhold": [
+    [
+     2432,
+     "Gaarz og Kaden (arvekrav 1528, trætte med Hr. Iven Reventlow)"
+    ]
+   ]
   },
   "G101": {
    "type": "gruppe",
@@ -16586,7 +18274,47 @@
     69
    ],
    "overlever": 69,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    69
+   ],
+   "navne": {
+    "69": "Gallentin"
+   },
+   "ejerforhold": [
+    [
+     210,
+     "Gallentin"
+    ],
+    [
+     262,
+     "Gallentin"
+    ],
+    [
+     279,
+     "Gallentin"
+    ],
+    [
+     291,
+     "Gallentin"
+    ],
+    [
+     293,
+     "Gallentin"
+    ],
+    [
+     294,
+     "Gallentin"
+    ],
+    [
+     2461,
+     "Gallentin"
+    ],
+    [
+     2466,
+     "Gallentin"
+    ]
+   ]
   },
   "G102": {
    "type": "gruppe",
@@ -16594,7 +18322,19 @@
     107
    ],
    "overlever": 107,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    107
+   ],
+   "navne": {
+    "107": "Gerdshagen"
+   },
+   "ejerforhold": [
+    [
+     395,
+     "Gerdshagen"
+    ]
+   ]
   },
   "G103": {
    "type": "gruppe",
@@ -16603,7 +18343,25 @@
     386
    ],
    "overlever": 227,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    227,
+    386
+   ],
+   "navne": {
+    "227": "Getå",
+    "386": "Getå (Krokels S.)"
+   },
+   "ejerforhold": [
+    [
+     957,
+     "Getå"
+    ],
+    [
+     2625,
+     "Getå (Krokels S.)"
+    ]
+   ]
   },
   "G104": {
    "type": "gruppe",
@@ -16611,7 +18369,55 @@
     102
    ],
    "overlever": 102,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    102
+   ],
+   "navne": {
+    "102": "Gischow"
+   },
+   "ejerforhold": [
+    [
+     368,
+     "Gischow"
+    ],
+    [
+     376,
+     "Gischow"
+    ],
+    [
+     382,
+     "Gischow"
+    ],
+    [
+     404,
+     "Gischow"
+    ],
+    [
+     407,
+     "Gischow"
+    ],
+    [
+     435,
+     "Gischow"
+    ],
+    [
+     2523,
+     "Gischow"
+    ],
+    [
+     2526,
+     "Gischow"
+    ],
+    [
+     2528,
+     "Gischow"
+    ],
+    [
+     2535,
+     "Gischow"
+    ]
+   ]
   },
   "G105": {
    "type": "gruppe",
@@ -16619,7 +18425,19 @@
     245
    ],
    "overlever": 245,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    245
+   ],
+   "navne": {
+    "245": "Glambæk (Høvedsmand)"
+   },
+   "ejerforhold": [
+    [
+     2409,
+     "Glambæk (Høvedsmand)"
+    ]
+   ]
   },
   "G106": {
    "type": "gruppe",
@@ -16631,7 +18449,75 @@
     403
    ],
    "overlever": 118,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    118,
+    320,
+    335,
+    337,
+    403
+   ],
+   "navne": {
+    "118": "Glasau",
+    "320": "Glasau (1689)",
+    "335": "Glasau (solgt 1728 ved hans konkurs af kreditorerne til Broderen Cay Friederich)",
+    "337": "Glasau (1728)",
+    "403": "Glasau (1762)"
+   },
+   "ejerforhold": [
+    [
+     420,
+     "Glasau"
+    ],
+    [
+     488,
+     "Glasau"
+    ],
+    [
+     499,
+     "Glasau"
+    ],
+    [
+     535,
+     "Glasau"
+    ],
+    [
+     554,
+     "Glasau"
+    ],
+    [
+     609,
+     "Glasau"
+    ],
+    [
+     664,
+     "Glasau"
+    ],
+    [
+     2649,
+     "Glasau"
+    ],
+    [
+     2658,
+     "Glasau"
+    ],
+    [
+     2539,
+     "Glasau (1689)"
+    ],
+    [
+     2556,
+     "Glasau (solgt 1728 ved hans konkurs af kreditorerne til Broderen Cay Friederich)"
+    ],
+    [
+     2559,
+     "Glasau (1728)"
+    ],
+    [
+     2644,
+     "Glasau (1762)"
+    ]
+   ]
   },
   "G107": {
    "type": "gruppe",
@@ -16639,7 +18525,19 @@
     32
    ],
    "overlever": 32,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    32
+   ],
+   "navne": {
+    "32": "Glibstrup"
+   },
+   "ejerforhold": [
+    [
+     99,
+     "Glibstrup"
+    ]
+   ]
   },
   "G108": {
    "type": "gruppe",
@@ -16647,7 +18545,19 @@
     264
    ],
    "overlever": 264,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    264
+   ],
+   "navne": {
+    "264": "Glibstrup Gaard i Andst Sogn"
+   },
+   "ejerforhold": [
+    [
+     2429,
+     "Glibstrup Gaard i Andst Sogn"
+    ]
+   ]
   },
   "G109": {
    "type": "gruppe",
@@ -16655,7 +18565,19 @@
     314
    ],
    "overlever": 314,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    314
+   ],
+   "navne": {
+    "314": "Glücksborg (hofmester)"
+   },
+   "ejerforhold": [
+    [
+     2511,
+     "Glücksborg (hofmester)"
+    ]
+   ]
   },
   "G110": {
    "type": "gruppe",
@@ -16663,7 +18585,39 @@
     103
    ],
    "overlever": 103,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    103
+   ],
+   "navne": {
+    "103": "Gnemern"
+   },
+   "ejerforhold": [
+    [
+     369,
+     "Gnemern"
+    ],
+    [
+     403,
+     "Gnemern"
+    ],
+    [
+     406,
+     "Gnemern"
+    ],
+    [
+     2522,
+     "Gnemern"
+    ],
+    [
+     2525,
+     "Gnemern"
+    ],
+    [
+     2527,
+     "Gnemern"
+    ]
+   ]
   },
   "G111": {
    "type": "gruppe",
@@ -16672,7 +18626,37 @@
     274
    ],
    "overlever": 44,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    44,
+    274
+   ],
+   "navne": {
+    "44": "Gneningen",
+    "274": "Gneningen (Hansiihn S., arvet med hustru)"
+   },
+   "ejerforhold": [
+    [
+     148,
+     "Gneningen"
+    ],
+    [
+     177,
+     "Gneningen"
+    ],
+    [
+     1051,
+     "Gneningen"
+    ],
+    [
+     2471,
+     "Gneningen"
+    ],
+    [
+     2442,
+     "Gneningen (Hansiihn S., arvet med hustru)"
+    ]
+   ]
   },
   "G112": {
    "type": "gruppe",
@@ -16680,7 +18664,23 @@
     71
    ],
    "overlever": 71,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    71
+   ],
+   "navne": {
+    "71": "Gnissow"
+   },
+   "ejerforhold": [
+    [
+     212,
+     "Gnissow"
+    ],
+    [
+     2412,
+     "Gnissow"
+    ]
+   ]
   },
   "G113": {
    "type": "gruppe",
@@ -16689,7 +18689,25 @@
     288
    ],
    "overlever": 77,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    77,
+    288
+   ],
+   "navne": {
+    "77": "Goldebeck",
+    "288": "Goldebeck (–1635)"
+   },
+   "ejerforhold": [
+    [
+     297,
+     "Goldebeck"
+    ],
+    [
+     2464,
+     "Goldebeck (–1635)"
+    ]
+   ]
   },
   "G114": {
    "type": "gruppe",
@@ -16697,7 +18715,19 @@
     111
    ],
    "overlever": 111,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    111
+   ],
+   "navne": {
+    "111": "Gorow"
+   },
+   "ejerforhold": [
+    [
+     400,
+     "Gorow"
+    ]
+   ]
   },
   "G115": {
    "type": "gruppe",
@@ -16708,7 +18738,41 @@
     348
    ],
    "overlever": 90,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    90,
+    120,
+    334,
+    348
+   ],
+   "navne": {
+    "90": "Gottesgabe",
+    "120": "Gottesgabe (Sterdebølgaard)",
+    "334": "Gottesgabe (solgt 1708 paa hans vegne af Broderen Cai Frederik for 11.333 Rdlr.)",
+    "348": "Gottesgabe (Kappel Herred)"
+   },
+   "ejerforhold": [
+    [
+     313,
+     "Gottesgabe"
+    ],
+    [
+     487,
+     "Gottesgabe"
+    ],
+    [
+     422,
+     "Gottesgabe (Sterdebølgaard)"
+    ],
+    [
+     2555,
+     "Gottesgabe (solgt 1708 paa hans vegne af Broderen Cai Frederik for 11.333 Rdlr.)"
+    ],
+    [
+     2573,
+     "Gottesgabe (Kappel Herred)"
+    ]
+   ]
   },
   "G116": {
    "type": "gruppe",
@@ -16716,7 +18780,19 @@
     322
    ],
    "overlever": 322,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    322
+   ],
+   "navne": {
+    "322": "Gottesgabe ved Bredsted (bygget af ham 1688)"
+   },
+   "ejerforhold": [
+    [
+     2541,
+     "Gottesgabe ved Bredsted (bygget af ham 1688)"
+    ]
+   ]
   },
   "G117": {
    "type": "gruppe",
@@ -16725,7 +18801,25 @@
     240
    ],
    "overlever": 15,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    15,
+    240
+   ],
+   "navne": {
+    "15": "Gowens",
+    "240": "Gowens (Neukirchen Sogn, ved Plön)"
+   },
+   "ejerforhold": [
+    [
+     58,
+     "Gowens"
+    ],
+    [
+     991,
+     "Gowens (Neukirchen Sogn, ved Plön)"
+    ]
+   ]
   },
   "G118": {
    "type": "gruppe",
@@ -16736,7 +18830,61 @@
     269
    ],
    "overlever": 29,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    29,
+    258,
+    265,
+    269
+   ],
+   "navne": {
+    "29": "Gram",
+    "258": "Gram (ejede 1472)",
+    "265": "Gram (arv fra søster Ghese 1496)",
+    "269": "Gram (udskilt af Gram af Detlev Buchwald)"
+   },
+   "ejerforhold": [
+    [
+     91,
+     "Gram"
+    ],
+    [
+     98,
+     "Gram"
+    ],
+    [
+     102,
+     "Gram"
+    ],
+    [
+     106,
+     "Gram"
+    ],
+    [
+     146,
+     "Gram"
+    ],
+    [
+     174,
+     "Gram"
+    ],
+    [
+     2469,
+     "Gram"
+    ],
+    [
+     2423,
+     "Gram (ejede 1472)"
+    ],
+    [
+     2430,
+     "Gram (arv fra søster Ghese 1496)"
+    ],
+    [
+     2434,
+     "Gram (udskilt af Gram af Detlev Buchwald)"
+    ]
+   ]
   },
   "G119": {
    "type": "gruppe",
@@ -16744,7 +18892,19 @@
     291
    ],
    "overlever": 291,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    291
+   ],
+   "navne": {
+    "291": "Gram og Steensgaard (Steensgaard solgt 1493 til Otto Emmiksen; Gram forskrevet 1511 til hustruen)"
+   },
+   "ejerforhold": [
+    [
+     2468,
+     "Gram og Steensgaard (Steensgaard solgt 1493 til Otto Emmiksen; Gram forskrevet 1511 til hustruen)"
+    ]
+   ]
   },
   "G120": {
    "type": "gruppe",
@@ -16752,7 +18912,35 @@
     104
    ],
    "overlever": 104,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    104
+   ],
+   "navne": {
+    "104": "Grese"
+   },
+   "ejerforhold": [
+    [
+     370,
+     "Grese"
+    ],
+    [
+     405,
+     "Grese"
+    ],
+    [
+     408,
+     "Grese"
+    ],
+    [
+     2524,
+     "Grese"
+    ],
+    [
+     2529,
+     "Grese"
+    ]
+   ]
   },
   "G121": {
    "type": "gruppe",
@@ -16765,7 +18953,68 @@
     377
    ],
    "overlever": 170,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    205,
+    208,
+    363,
+    372,
+    377
+   ],
+   "navne": {
+    "170": "grevskabet Christianssæde",
+    "205": "grevskabet Christiansborg (fra 1741 Christianssæde)",
+    "208": "grevskabet Christiansborg (senere Christianssæde)",
+    "363": "Grevskabet Christiansborg (1729)",
+    "372": "Grevskabet Christianssæde (1775)",
+    "377": "Grevskaberne Christianssæde og Reventlow (1827)"
+   },
+   "ejerforhold": [
+    [
+     723,
+     "grevskabet Christianssæde"
+    ],
+    [
+     860,
+     "grevskabet Christianssæde"
+    ],
+    [
+     890,
+     "grevskabet Christianssæde"
+    ],
+    [
+     932,
+     "grevskabet Christianssæde"
+    ],
+    [
+     1035,
+     "grevskabet Christianssæde"
+    ],
+    [
+     2597,
+     "grevskabet Christianssæde"
+    ],
+    [
+     827,
+     "grevskabet Christiansborg (fra 1741 Christianssæde)"
+    ],
+    [
+     837,
+     "grevskabet Christiansborg (senere Christianssæde)"
+    ],
+    [
+     2589,
+     "Grevskabet Christiansborg (1729)"
+    ],
+    [
+     2609,
+     "Grevskabet Christianssæde (1775)"
+    ],
+    [
+     2614,
+     "Grevskaberne Christianssæde og Reventlow (1827)"
+    ]
+   ]
   },
   "G122": {
    "type": "gruppe",
@@ -16777,7 +19026,94 @@
     392
    ],
    "overlever": 163,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    362,
+    373,
+    382,
+    392
+   ],
+   "navne": {
+    "163": "grevskabet Reventlow",
+    "362": "Grevskabet Reventlow (1708)",
+    "373": "Grevskabet Reventlow (1815)",
+    "382": "Grevskaberne Reventlow og Christianssæde (1851)",
+    "392": "til Grevskaberne Reventlow og Christianssæde"
+   },
+   "ejerforhold": [
+    [
+     704,
+     "grevskabet Reventlow"
+    ],
+    [
+     721,
+     "grevskabet Reventlow"
+    ],
+    [
+     816,
+     "grevskabet Reventlow"
+    ],
+    [
+     828,
+     "grevskabet Reventlow"
+    ],
+    [
+     836,
+     "grevskabet Reventlow"
+    ],
+    [
+     852,
+     "grevskabet Reventlow"
+    ],
+    [
+     861,
+     "grevskabet Reventlow"
+    ],
+    [
+     870,
+     "grevskabet Reventlow"
+    ],
+    [
+     891,
+     "grevskabet Reventlow"
+    ],
+    [
+     931,
+     "grevskabet Reventlow"
+    ],
+    [
+     1036,
+     "grevskabet Reventlow"
+    ],
+    [
+     2598,
+     "grevskabet Reventlow"
+    ],
+    [
+     2600,
+     "grevskabet Reventlow"
+    ],
+    [
+     2605,
+     "grevskabet Reventlow"
+    ],
+    [
+     2588,
+     "Grevskabet Reventlow (1708)"
+    ],
+    [
+     2610,
+     "Grevskabet Reventlow (1815)"
+    ],
+    [
+     2620,
+     "Grevskaberne Reventlow og Christianssæde (1851)"
+    ],
+    [
+     2631,
+     "til Grevskaberne Reventlow og Christianssæde"
+    ]
+   ]
   },
   "G123": {
    "type": "gruppe",
@@ -16785,7 +19121,19 @@
     374
    ],
    "overlever": 374,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    374
+   ],
+   "navne": {
+    "374": "Grevskabet Sandberg (1775)"
+   },
+   "ejerforhold": [
+    [
+     2611,
+     "Grevskabet Sandberg (1775)"
+    ]
+   ]
   },
   "G124": {
    "type": "gruppe",
@@ -16793,7 +19141,19 @@
     196
    ],
    "overlever": 196,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    196
+   ],
+   "navne": {
+    "196": "grevskabet Vallø"
+   },
+   "ejerforhold": [
+    [
+     801,
+     "grevskabet Vallø"
+    ]
+   ]
   },
   "G125": {
    "type": "gruppe",
@@ -16801,7 +19161,23 @@
     89
    ],
    "overlever": 89,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    89
+   ],
+   "navne": {
+    "89": "Grimsted"
+   },
+   "ejerforhold": [
+    [
+     312,
+     "Grimsted"
+    ],
+    [
+     2570,
+     "Grimsted"
+    ]
+   ]
   },
   "G126": {
    "type": "gruppe",
@@ -16810,7 +19186,37 @@
     311
    ],
    "overlever": 8,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    8,
+    311
+   ],
+   "navne": {
+    "8": "Grünholz",
+    "311": "Grünholz (tiltraadt 1731)"
+   },
+   "ejerforhold": [
+    [
+     9,
+     "Grünholz"
+    ],
+    [
+     29,
+     "Grünholz"
+    ],
+    [
+     31,
+     "Grünholz"
+    ],
+    [
+     2505,
+     "Grünholz"
+    ],
+    [
+     2506,
+     "Grünholz (tiltraadt 1731)"
+    ]
+   ]
   },
   "G127": {
    "type": "gruppe",
@@ -16818,7 +19224,19 @@
     308
    ],
    "overlever": 308,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    308
+   ],
+   "navne": {
+    "308": "Grünholz ved Slesvig"
+   },
+   "ejerforhold": [
+    [
+     2501,
+     "Grünholz ved Slesvig"
+    ]
+   ]
   },
   "G128": {
    "type": "gruppe",
@@ -16826,7 +19244,19 @@
     28
    ],
    "overlever": 28,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    28
+   ],
+   "navne": {
+    "28": "Guldborggaard"
+   },
+   "ejerforhold": [
+    [
+     90,
+     "Guldborggaard"
+    ]
+   ]
   },
   "G129": {
    "type": "gruppe",
@@ -16834,7 +19264,19 @@
     226
    ],
    "overlever": 226,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    226
+   ],
+   "navne": {
+    "226": "gård i Bistingsmåla"
+   },
+   "ejerforhold": [
+    [
+     955,
+     "gård i Bistingsmåla"
+    ]
+   ]
   },
   "G130": {
    "type": "gruppe",
@@ -16842,7 +19284,31 @@
     83
    ],
    "overlever": 83,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    83
+   ],
+   "navne": {
+    "83": "Harmstorf"
+   },
+   "ejerforhold": [
+    [
+     303,
+     "Harmstorf"
+    ],
+    [
+     316,
+     "Harmstorf"
+    ],
+    [
+     323,
+     "Harmstorf"
+    ],
+    [
+     512,
+     "Harmstorf"
+    ]
+   ]
   },
   "G131": {
    "type": "gruppe",
@@ -16850,7 +19316,19 @@
     214
    ],
    "overlever": 214,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    214
+   ],
+   "navne": {
+    "214": "Havnø"
+   },
+   "ejerforhold": [
+    [
+     872,
+     "Havnø"
+    ]
+   ]
   },
   "G132": {
    "type": "gruppe",
@@ -16859,7 +19337,36 @@
     325
    ],
    "overlever": 116,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    325
+   ],
+   "navne": {
+    "116": "Hemmelmark",
+    "325": "Hemmelmark (1692-97)"
+   },
+   "ejerforhold": [
+    [
+     418,
+     "Hemmelmark"
+    ],
+    [
+     454,
+     "Hemmelmark"
+    ],
+    [
+     477,
+     "Hemmelmark"
+    ],
+    [
+     2544,
+     "Hemmelmark (1692-97)"
+    ],
+    [
+     2553,
+     "Hemmelmark (1692-97)"
+    ]
+   ]
   },
   "G133": {
    "type": "gruppe",
@@ -16867,7 +19374,19 @@
     319
    ],
    "overlever": 319,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    319
+   ],
+   "navne": {
+    "319": "Hemmelmark ved Ekernförde (1675-92)"
+   },
+   "ejerforhold": [
+    [
+     2538,
+     "Hemmelmark ved Ekernförde (1675-92)"
+    ]
+   ]
   },
   "G134": {
    "type": "gruppe",
@@ -16875,7 +19394,19 @@
     236
    ],
    "overlever": 236,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    236
+   ],
+   "navne": {
+    "236": "Hermenstorf (solgt 1378)"
+   },
+   "ejerforhold": [
+    [
+     2407,
+     "Hermenstorf (solgt 1378)"
+    ]
+   ]
   },
   "G135": {
    "type": "gruppe",
@@ -16883,7 +19414,19 @@
     148
    ],
    "overlever": 148,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    148
+   ],
+   "navne": {
+    "148": "Hoffnungsthal"
+   },
+   "ejerforhold": [
+    [
+     555,
+     "Hoffnungsthal"
+    ]
+   ]
   },
   "G136": {
    "type": "gruppe",
@@ -16891,7 +19434,23 @@
     128
    ],
    "overlever": 128,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    128
+   ],
+   "navne": {
+    "128": "Hohenfelde"
+   },
+   "ejerforhold": [
+    [
+     459,
+     "Hohenfelde"
+    ],
+    [
+     525,
+     "Hohenfelde"
+    ]
+   ]
   },
   "G137": {
    "type": "gruppe",
@@ -16899,7 +19458,19 @@
     328
    ],
    "overlever": 328,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    328
+   ],
+   "navne": {
+    "328": "Hohenfelde og Oregaard (Skovby H.)"
+   },
+   "ejerforhold": [
+    [
+     2548,
+     "Hohenfelde og Oregaard (Skovby H.)"
+    ]
+   ]
   },
   "G138": {
    "type": "gruppe",
@@ -16907,7 +19478,19 @@
     82
    ],
    "overlever": 82,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    82
+   ],
+   "navne": {
+    "82": "Holdorf"
+   },
+   "ejerforhold": [
+    [
+     302,
+     "Holdorf"
+    ]
+   ]
   },
   "G139": {
    "type": "gruppe",
@@ -16916,7 +19499,25 @@
     232
    ],
    "overlever": 21,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    21,
+    232
+   ],
+   "navne": {
+    "21": "Holm",
+    "232": "Holm (Schöneberg Sogn, forpagtet 1421)"
+   },
+   "ejerforhold": [
+    [
+     74,
+     "Holm"
+    ],
+    [
+     2403,
+     "Holm (Schöneberg Sogn, forpagtet 1421)"
+    ]
+   ]
   },
   "G140": {
    "type": "gruppe",
@@ -16924,7 +19525,19 @@
     134
    ],
    "overlever": 134,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    134
+   ],
+   "navne": {
+    "134": "Holtenklinken"
+   },
+   "ejerforhold": [
+    [
+     476,
+     "Holtenklinken"
+    ]
+   ]
   },
   "G141": {
    "type": "gruppe",
@@ -16932,7 +19545,19 @@
     235
    ],
    "overlever": 235,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    235
+   ],
+   "navne": {
+    "235": "Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)"
+   },
+   "ejerforhold": [
+    [
+     2406,
+     "Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)"
+    ]
+   ]
   },
   "G142": {
    "type": "gruppe",
@@ -16940,7 +19565,19 @@
     410
    ],
    "overlever": 410,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    410
+   ],
+   "navne": {
+    "410": "Honningsthal"
+   },
+   "ejerforhold": [
+    [
+     2660,
+     "Honningsthal"
+    ]
+   ]
   },
   "G143": {
    "type": "gruppe",
@@ -16948,7 +19585,23 @@
     197
    ],
    "overlever": 197,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    197
+   ],
+   "navne": {
+    "197": "Hverringe"
+   },
+   "ejerforhold": [
+    [
+     805,
+     "Hverringe"
+    ],
+    [
+     811,
+     "Hverringe"
+    ]
+   ]
   },
   "G144": {
    "type": "gruppe",
@@ -16956,7 +19609,19 @@
     200
    ],
    "overlever": 200,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    200
+   ],
+   "navne": {
+    "200": "Hverringe Skovdistrikt"
+   },
+   "ejerforhold": [
+    [
+     812,
+     "Hverringe Skovdistrikt"
+    ]
+   ]
   },
   "G145": {
    "type": "gruppe",
@@ -16965,7 +19630,25 @@
     268
    ],
    "overlever": 37,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    37,
+    268
+   ],
+   "navne": {
+    "37": "Hvidøre Kongsgaard",
+    "268": "Hvidøre Kongsgaard (forlenet 1545)"
+   },
+   "ejerforhold": [
+    [
+     109,
+     "Hvidøre Kongsgaard"
+    ],
+    [
+     2433,
+     "Hvidøre Kongsgaard (forlenet 1545)"
+    ]
+   ]
   },
   "G146": {
    "type": "gruppe",
@@ -16974,7 +19657,25 @@
     332
    ],
    "overlever": 130,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    130,
+    332
+   ],
+   "navne": {
+    "130": "Höltenklinken",
+    "332": "Höltenklinken (boede her 1697-1709)"
+   },
+   "ejerforhold": [
+    [
+     461,
+     "Höltenklinken"
+    ],
+    [
+     2552,
+     "Höltenklinken (boede her 1697-1709)"
+    ]
+   ]
   },
   "G147": {
    "type": "gruppe",
@@ -16982,7 +19683,19 @@
     217
    ],
    "overlever": 217,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    217
+   ],
+   "navne": {
+    "217": "Ilnestorp"
+   },
+   "ejerforhold": [
+    [
+     915,
+     "Ilnestorp"
+    ]
+   ]
   },
   "G148": {
    "type": "gruppe",
@@ -16990,7 +19703,19 @@
     380
    ],
    "overlever": 380,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    380
+   ],
+   "navne": {
+    "380": "Ilrestorp (1856) [OCR-usikker stednavn]"
+   },
+   "ejerforhold": [
+    [
+     2617,
+     "Ilrestorp (1856) [OCR-usikker stednavn]"
+    ]
+   ]
   },
   "G149": {
    "type": "gruppe",
@@ -16999,7 +19724,29 @@
     389
    ],
    "overlever": 223,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    223,
+    389
+   ],
+   "navne": {
+    "223": "Jeppstorp",
+    "389": "Jeppstorp (Strø S.)"
+   },
+   "ejerforhold": [
+    [
+     922,
+     "Jeppstorp"
+    ],
+    [
+     960,
+     "Jeppstorp"
+    ],
+    [
+     2628,
+     "Jeppstorp (Strø S.)"
+    ]
+   ]
   },
   "G150": {
    "type": "gruppe",
@@ -17007,7 +19754,31 @@
     149
    ],
    "overlever": 149,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    149
+   ],
+   "navne": {
+    "149": "Jersbek"
+   },
+   "ejerforhold": [
+    [
+     569,
+     "Jersbek"
+    ],
+    [
+     665,
+     "Jersbek"
+    ],
+    [
+     688,
+     "Jersbek"
+    ],
+    [
+     2673,
+     "Jersbek"
+    ]
+   ]
   },
   "G151": {
    "type": "gruppe",
@@ -17015,7 +19786,19 @@
     411
    ],
    "overlever": 411,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    411
+   ],
+   "navne": {
+    "411": "Jersbek og Stegen ved Oldesloe (1840)"
+   },
+   "ejerforhold": [
+    [
+     2661,
+     "Jersbek og Stegen ved Oldesloe (1840)"
+    ]
+   ]
   },
   "G152": {
    "type": "gruppe",
@@ -17024,7 +19807,25 @@
     313
    ],
    "overlever": 74,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    74,
+    313
+   ],
+   "navne": {
+    "74": "Jesendorf",
+    "313": "Jesendorf (panthaver)"
+   },
+   "ejerforhold": [
+    [
+     216,
+     "Jesendorf"
+    ],
+    [
+     2509,
+     "Jesendorf (panthaver)"
+    ]
+   ]
   },
   "G153": {
    "type": "gruppe",
@@ -17032,7 +19833,19 @@
     360
    ],
    "overlever": 360,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    360
+   ],
+   "navne": {
+    "360": "Kain (1690)"
+   },
+   "ejerforhold": [
+    [
+     2586,
+     "Kain (1690)"
+    ]
+   ]
   },
   "G154": {
    "type": "gruppe",
@@ -17040,7 +19853,35 @@
     157
    ],
    "overlever": 157,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    157
+   ],
+   "navne": {
+    "157": "Kaltenhof"
+   },
+   "ejerforhold": [
+    [
+     660,
+     "Kaltenhof"
+    ],
+    [
+     678,
+     "Kaltenhof"
+    ],
+    [
+     2576,
+     "Kaltenhof"
+    ],
+    [
+     2654,
+     "Kaltenhof"
+    ],
+    [
+     2669,
+     "Kaltenhof"
+    ]
+   ]
   },
   "G155": {
    "type": "gruppe",
@@ -17048,7 +19889,19 @@
     167
    ],
    "overlever": 167,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    167
+   ],
+   "navne": {
+    "167": "Kalø"
+   },
+   "ejerforhold": [
+    [
+     709,
+     "Kalø"
+    ]
+   ]
   },
   "G156": {
    "type": "gruppe",
@@ -17056,7 +19909,23 @@
     72
    ],
    "overlever": 72,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    72
+   ],
+   "navne": {
+    "72": "Katskrog"
+   },
+   "ejerforhold": [
+    [
+     213,
+     "Katskrog"
+    ],
+    [
+     2413,
+     "Katskrog"
+    ]
+   ]
   },
   "G157": {
    "type": "gruppe",
@@ -17065,7 +19934,25 @@
     296
    ],
    "overlever": 61,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    61,
+    296
+   ],
+   "navne": {
+    "61": "Kiesby",
+    "296": "Kiesby (avlsgaard i Boren Sogn, købt 1622)"
+   },
+   "ejerforhold": [
+    [
+     191,
+     "Kiesby"
+    ],
+    [
+     2482,
+     "Kiesby (avlsgaard i Boren Sogn, købt 1622)"
+    ]
+   ]
   },
   "G158": {
    "type": "gruppe",
@@ -17073,7 +19960,19 @@
     67
    ],
    "overlever": 67,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    67
+   ],
+   "navne": {
+    "67": "Klamp"
+   },
+   "ejerforhold": [
+    [
+     201,
+     "Klamp"
+    ]
+   ]
   },
   "G159": {
    "type": "gruppe",
@@ -17081,7 +19980,19 @@
     303
    ],
    "overlever": 303,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    303
+   ],
+   "navne": {
+    "303": "Klampe (købt 1641 af svigermoderen Dorothea v. Ahlefeldt, solgt 1663 til Hans Rantzau)"
+   },
+   "ejerforhold": [
+    [
+     2492,
+     "Klampe (købt 1641 af svigermoderen Dorothea v. Ahlefeldt, solgt 1663 til Hans Rantzau)"
+    ]
+   ]
   },
   "G160": {
    "type": "gruppe",
@@ -17089,7 +20000,19 @@
     141
    ],
    "overlever": 141,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    141
+   ],
+   "navne": {
+    "141": "Kluvensieck"
+   },
+   "ejerforhold": [
+    [
+     506,
+     "Kluvensieck"
+    ]
+   ]
   },
   "G161": {
    "type": "gruppe",
@@ -17097,7 +20020,19 @@
     250
    ],
    "overlever": 250,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    250
+   ],
+   "navne": {
+    "250": "Koden (to der Koden/Köhn), indløst 1384 sammen med broderen Gotskalk"
+   },
+   "ejerforhold": [
+    [
+     2414,
+     "Koden (to der Koden/Köhn), indløst 1384 sammen med broderen Gotskalk"
+    ]
+   ]
   },
   "G162": {
    "type": "gruppe",
@@ -17105,7 +20040,19 @@
     168
    ],
    "overlever": 168,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    168
+   ],
+   "navne": {
+    "168": "Kollerup"
+   },
+   "ejerforhold": [
+    [
+     710,
+     "Kollerup"
+    ]
+   ]
   },
   "G163": {
    "type": "gruppe",
@@ -17113,7 +20060,19 @@
     361
    ],
    "overlever": 361,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    361
+   ],
+   "navne": {
+    "361": "Kollerup, Galten Herred (1692)"
+   },
+   "ejerforhold": [
+    [
+     2587,
+     "Kollerup, Galten Herred (1692)"
+    ]
+   ]
   },
   "G164": {
    "type": "gruppe",
@@ -17121,7 +20080,31 @@
     124
    ],
    "overlever": 124,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    124
+   ],
+   "navne": {
+    "124": "Kollmar"
+   },
+   "ejerforhold": [
+    [
+     438,
+     "Kollmar"
+    ],
+    [
+     455,
+     "Kollmar"
+    ],
+    [
+     514,
+     "Kollmar"
+    ],
+    [
+     529,
+     "Kollmar"
+    ]
+   ]
   },
   "G165": {
    "type": "gruppe",
@@ -17129,7 +20112,19 @@
     266
    ],
    "overlever": 266,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    266
+   ],
+   "navne": {
+    "266": "Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)"
+   },
+   "ejerforhold": [
+    [
+     2431,
+     "Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)"
+    ]
+   ]
   },
   "G166": {
    "type": "gruppe",
@@ -17137,7 +20132,19 @@
     36
    ],
    "overlever": 36,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    36
+   ],
+   "navne": {
+    "36": "kongsgård i Hamburg"
+   },
+   "ejerforhold": [
+    [
+     108,
+     "kongsgård i Hamburg"
+    ]
+   ]
   },
   "G167": {
    "type": "gruppe",
@@ -17145,7 +20152,19 @@
     182
    ],
    "overlever": 182,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    182
+   ],
+   "navne": {
+    "182": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof"
+   },
+   "ejerforhold": [
+    [
+     737,
+     "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof"
+    ]
+   ]
   },
   "G168": {
    "type": "gruppe",
@@ -17153,7 +20172,19 @@
     420
    ],
    "overlever": 420,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    420
+   ],
+   "navne": {
+    "420": "Krengerup (Baag H.)"
+   },
+   "ejerforhold": [
+    [
+     2678,
+     "Krengerup (Baag H.)"
+    ]
+   ]
   },
   "G169": {
    "type": "gruppe",
@@ -17161,7 +20192,19 @@
     210
    ],
    "overlever": 210,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    210
+   ],
+   "navne": {
+    "210": "Krenkerup"
+   },
+   "ejerforhold": [
+    [
+     855,
+     "Krenkerup"
+    ]
+   ]
   },
   "G170": {
    "type": "gruppe",
@@ -17169,7 +20212,19 @@
     343
    ],
    "overlever": 343,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    343
+   ],
+   "navne": {
+    "343": "Kronshagen"
+   },
+   "ejerforhold": [
+    [
+     2566,
+     "Kronshagen"
+    ]
+   ]
   },
   "G171": {
    "type": "gruppe",
@@ -17177,7 +20232,19 @@
     221
    ],
    "overlever": 221,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    221
+   ],
+   "navne": {
+    "221": "Kråkarp"
+   },
+   "ejerforhold": [
+    [
+     920,
+     "Kråkarp"
+    ]
+   ]
   },
   "G172": {
    "type": "gruppe",
@@ -17186,7 +20253,25 @@
     387
    ],
    "overlever": 228,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    228,
+    387
+   ],
+   "navne": {
+    "228": "Kyleberg",
+    "387": "Kyleberg (Svanhals S.)"
+   },
+   "ejerforhold": [
+    [
+     958,
+     "Kyleberg"
+    ],
+    [
+     2626,
+     "Kyleberg (Svanhals S.)"
+    ]
+   ]
   },
   "G173": {
    "type": "gruppe",
@@ -17194,7 +20279,19 @@
     98
    ],
    "overlever": 98,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    98
+   ],
+   "navne": {
+    "98": "Käselin"
+   },
+   "ejerforhold": [
+    [
+     352,
+     "Käselin"
+    ]
+   ]
   },
   "G174": {
    "type": "gruppe",
@@ -17202,7 +20299,23 @@
     53
    ],
    "overlever": 53,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    53
+   ],
+   "navne": {
+    "53": "Küssow"
+   },
+   "ejerforhold": [
+    [
+     163,
+     "Küssow"
+    ],
+    [
+     2446,
+     "Küssow"
+    ]
+   ]
   },
   "G175": {
    "type": "gruppe",
@@ -17212,7 +20325,70 @@
     298
    ],
    "overlever": 1,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    281,
+    298
+   ],
+   "navne": {
+    "1": "Lammershagen",
+    "281": "Lammershagen (1592 købt af Svogeren Henrik Rantzaus Kreditorer)",
+    "298": "Lammershagen (solgt 1668)"
+   },
+   "ejerforhold": [
+    [
+     1,
+     "Lammershagen"
+    ],
+    [
+     130,
+     "Lammershagen"
+    ],
+    [
+     170,
+     "Lammershagen"
+    ],
+    [
+     182,
+     "Lammershagen"
+    ],
+    [
+     187,
+     "Lammershagen"
+    ],
+    [
+     199,
+     "Lammershagen"
+    ],
+    [
+     1077,
+     "Lammershagen"
+    ],
+    [
+     1079,
+     "Lammershagen"
+    ],
+    [
+     2440,
+     "Lammershagen"
+    ],
+    [
+     2475,
+     "Lammershagen"
+    ],
+    [
+     2480,
+     "Lammershagen"
+    ],
+    [
+     2454,
+     "Lammershagen (1592 købt af Svogeren Henrik Rantzaus Kreditorer)"
+    ],
+    [
+     2485,
+     "Lammershagen (solgt 1668)"
+    ]
+   ]
   },
   "G176": {
    "type": "gruppe",
@@ -17220,7 +20396,19 @@
     306
    ],
    "overlever": 306,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    306
+   ],
+   "navne": {
+    "306": "Lammershagen (med Selent, Bäslin og Bauersdorf) — solgt 1668 (Kiel, 8 Maj) til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl."
+   },
+   "ejerforhold": [
+    [
+     2499,
+     "Lammershagen (med Selent, Bäslin og Bauersdorf) — solgt 1668 (Kiel, 8 Maj) til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl."
+    ]
+   ]
   },
   "G177": {
    "type": "gruppe",
@@ -17228,7 +20416,31 @@
     81
    ],
    "overlever": 81,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    81
+   ],
+   "navne": {
+    "81": "Langen Jarchow"
+   },
+   "ejerforhold": [
+    [
+     301,
+     "Langen Jarchow"
+    ],
+    [
+     305,
+     "Langen Jarchow"
+    ],
+    [
+     333,
+     "Langen Jarchow"
+    ],
+    [
+     334,
+     "Langen Jarchow"
+    ]
+   ]
   },
   "G178": {
    "type": "gruppe",
@@ -17237,7 +20449,25 @@
     242
    ],
    "overlever": 17,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    17,
+    242
+   ],
+   "navne": {
+    "17": "Langwedel",
+    "242": "Langwedel (købt 1357 af Otto Schinkel, skænket 1376 til Itzehoe Kloster)"
+   },
+   "ejerforhold": [
+    [
+     60,
+     "Langwedel"
+    ],
+    [
+     993,
+     "Langwedel (købt 1357 af Otto Schinkel, skænket 1376 til Itzehoe Kloster)"
+    ]
+   ]
   },
   "G179": {
    "type": "gruppe",
@@ -17245,7 +20475,23 @@
     51
    ],
    "overlever": 51,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    51
+   ],
+   "navne": {
+    "51": "Lebrade"
+   },
+   "ejerforhold": [
+    [
+     161,
+     "Lebrade"
+    ],
+    [
+     2444,
+     "Lebrade"
+    ]
+   ]
   },
   "G180": {
    "type": "gruppe",
@@ -17254,7 +20500,32 @@
     341
    ],
    "overlever": 142,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    341
+   ],
+   "navne": {
+    "142": "Lehmkulen",
+    "341": "Lehmkulen (1704, købt af H. B. v. Ahlefeldt for 80.000 Rdlr.; udskilte Avlsgaardene Rethwisch og Bredeneck, solgt 1707 til Bertram Rantzau til Ascheberg)"
+   },
+   "ejerforhold": [
+    [
+     515,
+     "Lehmkulen"
+    ],
+    [
+     526,
+     "Lehmkulen"
+    ],
+    [
+     2565,
+     "Lehmkulen"
+    ],
+    [
+     2563,
+     "Lehmkulen (1704, købt af H. B. v. Ahlefeldt for 80.000 Rdlr.; udskilte Avlsgaardene Rethwisch og Bredeneck, solgt 1707 til Bertram Rantzau til Ascheberg)"
+    ]
+   ]
   },
   "G181": {
    "type": "gruppe",
@@ -17262,7 +20533,23 @@
     99
    ],
    "overlever": 99,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    99
+   ],
+   "navne": {
+    "99": "Lelkendorf"
+   },
+   "ejerforhold": [
+    [
+     353,
+     "Lelkendorf"
+    ],
+    [
+     2514,
+     "Lelkendorf"
+    ]
+   ]
   },
   "G182": {
    "type": "gruppe",
@@ -17270,7 +20557,19 @@
     22
    ],
    "overlever": 22,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    22
+   ],
+   "navne": {
+    "22": "Lille Tønder Len"
+   },
+   "ejerforhold": [
+    [
+     75,
+     "Lille Tønder Len"
+    ]
+   ]
   },
   "G183": {
    "type": "gruppe",
@@ -17279,7 +20578,25 @@
     302
    ],
    "overlever": 295,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    295,
+    302
+   ],
+   "navne": {
+    "295": "Lindau",
+    "302": "Lindau (arvet 1652 efter fasteren Dorothea)"
+   },
+   "ejerforhold": [
+    [
+     2481,
+     "Lindau"
+    ],
+    [
+     2490,
+     "Lindau (arvet 1652 efter fasteren Dorothea)"
+    ]
+   ]
   },
   "G184": {
    "type": "gruppe",
@@ -17287,7 +20604,23 @@
     42
    ],
    "overlever": 42,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    42
+   ],
+   "navne": {
+    "42": "Lindved"
+   },
+   "ejerforhold": [
+    [
+     131,
+     "Lindved"
+    ],
+    [
+     2441,
+     "Lindved"
+    ]
+   ]
   },
   "G185": {
    "type": "gruppe",
@@ -17295,7 +20628,19 @@
     192
    ],
    "overlever": 192,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    192
+   ],
+   "navne": {
+    "192": "Lippe"
+   },
+   "ejerforhold": [
+    [
+     767,
+     "Lippe"
+    ]
+   ]
   },
   "G186": {
    "type": "gruppe",
@@ -17303,7 +20648,19 @@
     347
    ],
    "overlever": 347,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    347
+   ],
+   "navne": {
+    "347": "Lollands Sønder Herred (1752)"
+   },
+   "ejerforhold": [
+    [
+     2571,
+     "Lollands Sønder Herred (1752)"
+    ]
+   ]
   },
   "G187": {
    "type": "gruppe",
@@ -17311,7 +20668,19 @@
     46
    ],
    "overlever": 46,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    46
+   ],
+   "navne": {
+    "46": "Luderstorpe"
+   },
+   "ejerforhold": [
+    [
+     154,
+     "Luderstorpe"
+    ]
+   ]
   },
   "G188": {
    "type": "gruppe",
@@ -17319,7 +20688,19 @@
     88
    ],
    "overlever": 88,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    88
+   ],
+   "navne": {
+    "88": "Lundegaard"
+   },
+   "ejerforhold": [
+    [
+     311,
+     "Lundegaard"
+    ]
+   ]
   },
   "G189": {
    "type": "gruppe",
@@ -17329,7 +20710,31 @@
     346
    ],
    "overlever": 75,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    75,
+    315,
+    346
+   ],
+   "navne": {
+    "75": "Lundsgaard med Filipsborg",
+    "315": "Lundsgaard (forpagtet 1700)",
+    "346": "Lundsgaard (1736)"
+   },
+   "ejerforhold": [
+    [
+     229,
+     "Lundsgaard med Filipsborg"
+    ],
+    [
+     2512,
+     "Lundsgaard (forpagtet 1700)"
+    ],
+    [
+     2569,
+     "Lundsgaard (1736)"
+    ]
+   ]
   },
   "G190": {
    "type": "gruppe",
@@ -17337,7 +20742,19 @@
     368
    ],
    "overlever": 368,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    368
+   ],
+   "navne": {
+    "368": "Lungholm (1727)"
+   },
+   "ejerforhold": [
+    [
+     2594,
+     "Lungholm (1727)"
+    ]
+   ]
   },
   "G191": {
    "type": "gruppe",
@@ -17345,7 +20762,19 @@
     225
    ],
    "overlever": 225,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    225
+   ],
+   "navne": {
+    "225": "Lyngdalsgaard (medejer)"
+   },
+   "ejerforhold": [
+    [
+     935,
+     "Lyngdalsgaard (medejer)"
+    ]
+   ]
   },
   "G192": {
    "type": "gruppe",
@@ -17353,7 +20782,19 @@
     177
    ],
    "overlever": 177,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    177
+   ],
+   "navne": {
+    "177": "Lyngsdalsgaard"
+   },
+   "ejerforhold": [
+    [
+     730,
+     "Lyngsdalsgaard"
+    ]
+   ]
   },
   "G193": {
    "type": "gruppe",
@@ -17361,7 +20802,19 @@
     359
    ],
    "overlever": 359,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    359
+   ],
+   "navne": {
+    "359": "Løjstrup"
+   },
+   "ejerforhold": [
+    [
+     2585,
+     "Løjstrup"
+    ]
+   ]
   },
   "G194": {
    "type": "gruppe",
@@ -17369,7 +20822,19 @@
     255
    ],
    "overlever": 255,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    255
+   ],
+   "navne": {
+    "255": "Lütjendorf"
+   },
+   "ejerforhold": [
+    [
+     2420,
+     "Lütjendorf"
+    ]
+   ]
   },
   "G195": {
    "type": "gruppe",
@@ -17377,7 +20842,19 @@
     110
    ],
    "overlever": 110,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    110
+   ],
+   "navne": {
+    "110": "Marin"
+   },
+   "ejerforhold": [
+    [
+     398,
+     "Marin"
+    ]
+   ]
   },
   "G196": {
    "type": "gruppe",
@@ -17386,7 +20863,25 @@
     289
    ],
    "overlever": 78,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    78,
+    289
+   ],
+   "navne": {
+    "78": "Maslow",
+    "289": "Maslow (pant fra 1645)"
+   },
+   "ejerforhold": [
+    [
+     298,
+     "Maslow"
+    ],
+    [
+     2465,
+     "Maslow (pant fra 1645)"
+    ]
+   ]
   },
   "G197": {
    "type": "gruppe",
@@ -17394,7 +20889,19 @@
     117
    ],
    "overlever": 117,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    117
+   ],
+   "navne": {
+    "117": "Möhlhorst (Mølskov)"
+   },
+   "ejerforhold": [
+    [
+     419,
+     "Möhlhorst (Mølskov)"
+    ]
+   ]
   },
   "G198": {
    "type": "gruppe",
@@ -17403,7 +20910,29 @@
     323
    ],
    "overlever": 262,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    262,
+    323
+   ],
+   "navne": {
+    "262": "Neudorf",
+    "323": "Neudorf (arvet efter Faderen, solgt 1719)"
+   },
+   "ejerforhold": [
+    [
+     1040,
+     "Neudorf"
+    ],
+    [
+     2534,
+     "Neudorf"
+    ],
+    [
+     2542,
+     "Neudorf (arvet efter Faderen, solgt 1719)"
+    ]
+   ]
   },
   "G199": {
    "type": "gruppe",
@@ -17411,7 +20940,23 @@
     106
    ],
    "overlever": 106,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    106
+   ],
+   "navne": {
+    "106": "Neudorff"
+   },
+   "ejerforhold": [
+    [
+     379,
+     "Neudorff"
+    ],
+    [
+     436,
+     "Neudorff"
+    ]
+   ]
   },
   "G200": {
    "type": "gruppe",
@@ -17419,7 +20964,19 @@
     151
    ],
    "overlever": 151,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    151
+   ],
+   "navne": {
+    "151": "Neuendorf"
+   },
+   "ejerforhold": [
+    [
+     571,
+     "Neuendorf"
+    ]
+   ]
   },
   "G201": {
    "type": "gruppe",
@@ -17427,7 +20984,19 @@
     412
    ],
    "overlever": 412,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    412
+   ],
+   "navne": {
+    "412": "Neuendorf ved Glückstadt (1835)"
+   },
+   "ejerforhold": [
+    [
+     2662,
+     "Neuendorf ved Glückstadt (1835)"
+    ]
+   ]
   },
   "G202": {
    "type": "gruppe",
@@ -17435,7 +21004,23 @@
     58
    ],
    "overlever": 58,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    58
+   ],
+   "navne": {
+    "58": "Nybøl"
+   },
+   "ejerforhold": [
+    [
+     175,
+     "Nybøl"
+    ],
+    [
+     2470,
+     "Nybøl"
+    ]
+   ]
   },
   "G203": {
    "type": "gruppe",
@@ -17443,7 +21028,19 @@
     224
    ],
    "overlever": 224,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    224
+   ],
+   "navne": {
+    "224": "Nyholm"
+   },
+   "ejerforhold": [
+    [
+     934,
+     "Nyholm"
+    ]
+   ]
   },
   "G204": {
    "type": "gruppe",
@@ -17451,7 +21048,19 @@
     193
    ],
    "overlever": 193,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    193
+   ],
+   "navne": {
+    "193": "Nørre Gyldenbjerg"
+   },
+   "ejerforhold": [
+    [
+     777,
+     "Nørre Gyldenbjerg"
+    ]
+   ]
   },
   "G205": {
    "type": "gruppe",
@@ -17459,7 +21068,19 @@
     401
    ],
    "overlever": 401,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    401
+   ],
+   "navne": {
+    "401": "Nørre-Gyldenbjerg ved Nakskov (til)"
+   },
+   "ejerforhold": [
+    [
+     2641,
+     "Nørre-Gyldenbjerg ved Nakskov (til)"
+    ]
+   ]
   },
   "G206": {
    "type": "gruppe",
@@ -17467,7 +21088,19 @@
     284
    ],
    "overlever": 284,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    284
+   ],
+   "navne": {
+    "284": "o.s.v."
+   },
+   "ejerforhold": [
+    [
+     1082,
+     "o.s.v."
+    ]
+   ]
   },
   "G207": {
    "type": "gruppe",
@@ -17476,7 +21109,25 @@
     416
    ],
    "overlever": 158,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    158,
+    416
+   ],
+   "navne": {
+    "158": "Ober‑Ellguth",
+    "416": "Ober-Ellguth"
+   },
+   "ejerforhold": [
+    [
+     661,
+     "Ober‑Ellguth"
+    ],
+    [
+     2670,
+     "Ober-Ellguth"
+    ]
+   ]
   },
   "G208": {
    "type": "gruppe",
@@ -17484,7 +21135,19 @@
     126
    ],
    "overlever": 126,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    126
+   ],
+   "navne": {
+    "126": "Oregaard"
+   },
+   "ejerforhold": [
+    [
+     456,
+     "Oregaard"
+    ]
+   ]
   },
   "G209": {
    "type": "gruppe",
@@ -17493,7 +21156,25 @@
     147
    ],
    "overlever": 147,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    140,
+    147
+   ],
+   "navne": {
+    "140": "Osterrade med Bovenau",
+    "147": "Osterrade"
+   },
+   "ejerforhold": [
+    [
+     505,
+     "Osterrade med Bovenau"
+    ],
+    [
+     539,
+     "Osterrade"
+    ]
+   ]
   },
   "G210": {
    "type": "gruppe",
@@ -17501,7 +21182,19 @@
     339
    ],
    "overlever": 339,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    339
+   ],
+   "navne": {
+    "339": "Osterrade og Kluvensiek (1753)"
+   },
+   "ejerforhold": [
+    [
+     2561,
+     "Osterrade og Kluvensiek (1753)"
+    ]
+   ]
   },
   "G211": {
    "type": "gruppe",
@@ -17509,7 +21202,23 @@
     66
    ],
    "overlever": 66,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    66
+   ],
+   "navne": {
+    "66": "Panker"
+   },
+   "ejerforhold": [
+    [
+     200,
+     "Panker"
+    ],
+    [
+     2491,
+     "Panker"
+    ]
+   ]
   },
   "G212": {
    "type": "gruppe",
@@ -17517,7 +21226,19 @@
     105
    ],
    "overlever": 105,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    105
+   ],
+   "navne": {
+    "105": "Passee"
+   },
+   "ejerforhold": [
+    [
+     371,
+     "Passee"
+    ]
+   ]
   },
   "G213": {
    "type": "gruppe",
@@ -17525,7 +21246,19 @@
     367
    ],
    "overlever": 367,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    367
+   ],
+   "navne": {
+    "367": "Pederstrup med Skjelstofte (1725)"
+   },
+   "ejerforhold": [
+    [
+     2593,
+     "Pederstrup med Skjelstofte (1725)"
+    ]
+   ]
   },
   "G214": {
    "type": "gruppe",
@@ -17533,7 +21266,19 @@
     425
    ],
    "overlever": 425,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    425
+   ],
+   "navne": {
+    "425": "Peterstrup(?) Birk (1510, som enke)"
+   },
+   "ejerforhold": [
+    [
+     2683,
+     "Peterstrup(?) Birk (1510, som enke)"
+    ]
+   ]
   },
   "G215": {
    "type": "gruppe",
@@ -17541,7 +21286,19 @@
     316
    ],
    "overlever": 316,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    316
+   ],
+   "navne": {
+    "316": "Philipsburg i Angel (forpagtet 1700)"
+   },
+   "ejerforhold": [
+    [
+     2513,
+     "Philipsburg i Angel (forpagtet 1700)"
+    ]
+   ]
   },
   "G216": {
    "type": "gruppe",
@@ -17549,7 +21306,19 @@
     181
    ],
    "overlever": 181,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    181
+   ],
+   "navne": {
+    "181": "Polle"
+   },
+   "ejerforhold": [
+    [
+     736,
+     "Polle"
+    ]
+   ]
   },
   "G217": {
    "type": "gruppe",
@@ -17557,7 +21326,19 @@
     190
    ],
    "overlever": 190,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    190
+   ],
+   "navne": {
+    "190": "Polle I og II"
+   },
+   "ejerforhold": [
+    [
+     765,
+     "Polle I og II"
+    ]
+   ]
   },
   "G218": {
    "type": "gruppe",
@@ -17567,7 +21348,43 @@
     391
    ],
    "overlever": 174,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    174,
+    378,
+    391
+   ],
+   "navne": {
+    "174": "Pugerup",
+    "378": "Pugerup (Gudmunstorp S.) (1845)",
+    "391": "til Pugerup"
+   },
+   "ejerforhold": [
+    [
+     727,
+     "Pugerup"
+    ],
+    [
+     911,
+     "Pugerup"
+    ],
+    [
+     954,
+     "Pugerup"
+    ],
+    [
+     2634,
+     "Pugerup"
+    ],
+    [
+     2615,
+     "Pugerup (Gudmunstorp S.) (1845)"
+    ],
+    [
+     2630,
+     "til Pugerup"
+    ]
+   ]
   },
   "G219": {
    "type": "gruppe",
@@ -17575,7 +21392,19 @@
     256
    ],
    "overlever": 256,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    256
+   ],
+   "navne": {
+    "256": "Quais"
+   },
+   "ejerforhold": [
+    [
+     2421,
+     "Quais"
+    ]
+   ]
   },
   "G220": {
    "type": "gruppe",
@@ -17584,7 +21413,25 @@
     326
    ],
    "overlever": 127,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    127,
+    326
+   ],
+   "navne": {
+    "127": "Quarnbek",
+    "326": "Quarnbek (-1705)"
+   },
+   "ejerforhold": [
+    [
+     457,
+     "Quarnbek"
+    ],
+    [
+     2546,
+     "Quarnbek (-1705)"
+    ]
+   ]
   },
   "G221": {
    "type": "gruppe",
@@ -17592,7 +21439,23 @@
     143
    ],
    "overlever": 143,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    143
+   ],
+   "navne": {
+    "143": "Rantzau"
+   },
+   "ejerforhold": [
+    [
+     516,
+     "Rantzau"
+    ],
+    [
+     528,
+     "Rantzau"
+    ]
+   ]
   },
   "G222": {
    "type": "gruppe",
@@ -17600,7 +21463,19 @@
     344
    ],
    "overlever": 344,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    344
+   ],
+   "navne": {
+    "344": "Rantzau og Colmar (1732)"
+   },
+   "ejerforhold": [
+    [
+     2567,
+     "Rantzau og Colmar (1732)"
+    ]
+   ]
   },
   "G223": {
    "type": "gruppe",
@@ -17608,7 +21483,23 @@
     54
    ],
    "overlever": 54,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    54
+   ],
+   "navne": {
+    "54": "Ratenstorp"
+   },
+   "ejerforhold": [
+    [
+     164,
+     "Ratenstorp"
+    ],
+    [
+     2447,
+     "Ratenstorp"
+    ]
+   ]
   },
   "G224": {
    "type": "gruppe",
@@ -17616,7 +21507,19 @@
     152
    ],
    "overlever": 152,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    152
+   ],
+   "navne": {
+    "152": "Raubart"
+   },
+   "ejerforhold": [
+    [
+     590,
+     "Raubart"
+    ]
+   ]
   },
   "G225": {
    "type": "gruppe",
@@ -17624,7 +21527,19 @@
     415
    ],
    "overlever": 415,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    415
+   ],
+   "navne": {
+    "415": "Raubart, Starzeddel og Vettersfelde (1853-75)"
+   },
+   "ejerforhold": [
+    [
+     2665,
+     "Raubart, Starzeddel og Vettersfelde (1853-75)"
+    ]
+   ]
   },
   "G226": {
    "type": "gruppe",
@@ -17632,7 +21547,19 @@
     48
    ],
    "overlever": 48,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    48
+   ],
+   "navne": {
+    "48": "Reesdorf"
+   },
+   "ejerforhold": [
+    [
+     156,
+     "Reesdorf"
+    ]
+   ]
   },
   "G227": {
    "type": "gruppe",
@@ -17641,7 +21568,52 @@
     324
    ],
    "overlever": 94,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    324
+   ],
+   "navne": {
+    "94": "Reetz",
+    "324": "Reetz (solgt 1684 til Oberst v. Vietinghof)"
+   },
+   "ejerforhold": [
+    [
+     346,
+     "Reetz"
+    ],
+    [
+     356,
+     "Reetz"
+    ],
+    [
+     378,
+     "Reetz"
+    ],
+    [
+     399,
+     "Reetz"
+    ],
+    [
+     401,
+     "Reetz"
+    ],
+    [
+     452,
+     "Reetz"
+    ],
+    [
+     2519,
+     "Reetz"
+    ],
+    [
+     2532,
+     "Reetz"
+    ],
+    [
+     2543,
+     "Reetz (solgt 1684 til Oberst v. Vietinghof)"
+    ]
+   ]
   },
   "G228": {
    "type": "gruppe",
@@ -17653,7 +21625,63 @@
     290
    ],
    "overlever": 34,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    34,
+    270,
+    275,
+    277,
+    290
+   ],
+   "navne": {
+    "34": "Rixdorf",
+    "270": "Rixdorf (erhvervet af Broderen)",
+    "275": "Rixdorf (1561)",
+    "277": "Rixdorf (solgt til Ditlev Brockdorff)",
+    "290": "Rixdorf med landsbyerne Sellin, Küssow, Rastorf, Tramm og Rixdorf (købt af Ditlev v. Ahlefeldt, Heinrich og Schack Rantzau)"
+   },
+   "ejerforhold": [
+    [
+     103,
+     "Rixdorf"
+    ],
+    [
+     117,
+     "Rixdorf"
+    ],
+    [
+     125,
+     "Rixdorf"
+    ],
+    [
+     160,
+     "Rixdorf"
+    ],
+    [
+     179,
+     "Rixdorf"
+    ],
+    [
+     1050,
+     "Rixdorf"
+    ],
+    [
+     2436,
+     "Rixdorf (erhvervet af Broderen)"
+    ],
+    [
+     2443,
+     "Rixdorf (1561)"
+    ],
+    [
+     2449,
+     "Rixdorf (solgt til Ditlev Brockdorff)"
+    ],
+    [
+     2467,
+     "Rixdorf med landsbyerne Sellin, Küssow, Rastorf, Tramm og Rixdorf (købt af Ditlev v. Ahlefeldt, Heinrich og Schack Rantzau)"
+    ]
+   ]
   },
   "G229": {
    "type": "gruppe",
@@ -17661,7 +21689,19 @@
     86
    ],
    "overlever": 86,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    86
+   ],
+   "navne": {
+    "86": "Rosengaard"
+   },
+   "ejerforhold": [
+    [
+     309,
+     "Rosengaard"
+    ]
+   ]
   },
   "G230": {
    "type": "gruppe",
@@ -17670,7 +21710,37 @@
     183
    ],
    "overlever": 183,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    91,
+    183
+   ],
+   "navne": {
+    "91": "Rudbjerggaard med Fredsholm",
+    "183": "Rudbjerggaard"
+   },
+   "ejerforhold": [
+    [
+     314,
+     "Rudbjerggaard med Fredsholm"
+    ],
+    [
+     739,
+     "Rudbjerggaard"
+    ],
+    [
+     778,
+     "Rudbjerggaard"
+    ],
+    [
+     794,
+     "Rudbjerggaard"
+    ],
+    [
+     2572,
+     "Rudbjerggaard"
+    ]
+   ]
   },
   "G231": {
    "type": "gruppe",
@@ -17678,7 +21748,19 @@
     396
    ],
    "overlever": 396,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    396
+   ],
+   "navne": {
+    "396": "til Rudbjerggaard, Maribo Amt (1891)"
+   },
+   "ejerforhold": [
+    [
+     1268,
+     "til Rudbjerggaard, Maribo Amt (1891)"
+    ]
+   ]
   },
   "G232": {
    "type": "gruppe",
@@ -17686,7 +21768,19 @@
     355
    ],
    "overlever": 355,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    355
+   ],
+   "navne": {
+    "355": "Sandberg i Sundeved (1673)"
+   },
+   "ejerforhold": [
+    [
+     2581,
+     "Sandberg i Sundeved (1673)"
+    ]
+   ]
   },
   "G233": {
    "type": "gruppe",
@@ -17694,7 +21788,19 @@
     169
    ],
    "overlever": 169,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    169
+   ],
+   "navne": {
+    "169": "Sandbjerg"
+   },
+   "ejerforhold": [
+    [
+     722,
+     "Sandbjerg"
+    ]
+   ]
   },
   "G234": {
    "type": "gruppe",
@@ -17702,7 +21808,19 @@
     87
    ],
    "overlever": 87,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    87
+   ],
+   "navne": {
+    "87": "Sandbygaard"
+   },
+   "ejerforhold": [
+    [
+     310,
+     "Sandbygaard"
+    ]
+   ]
   },
   "G235": {
    "type": "gruppe",
@@ -17710,7 +21828,27 @@
     24
    ],
    "overlever": 24,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    24
+   ],
+   "navne": {
+    "24": "Schalkendorf"
+   },
+   "ejerforhold": [
+    [
+     77,
+     "Schalkendorf"
+    ],
+    [
+     97,
+     "Schalkendorf"
+    ],
+    [
+     2418,
+     "Schalkendorf"
+    ]
+   ]
   },
   "G236": {
    "type": "gruppe",
@@ -17718,7 +21856,19 @@
     112
    ],
    "overlever": 112,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    112
+   ],
+   "navne": {
+    "112": "Scharstorf"
+   },
+   "ejerforhold": [
+    [
+     402,
+     "Scharstorf"
+    ]
+   ]
   },
   "G237": {
    "type": "gruppe",
@@ -17727,7 +21877,36 @@
     327
    ],
    "overlever": 19,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    327
+   ],
+   "navne": {
+    "19": "Schmoel",
+    "327": "Schmoel (1695)"
+   },
+   "ejerforhold": [
+    [
+     70,
+     "Schmoel"
+    ],
+    [
+     73,
+     "Schmoel"
+    ],
+    [
+     458,
+     "Schmoel"
+    ],
+    [
+     524,
+     "Schmoel"
+    ],
+    [
+     2547,
+     "Schmoel (1695)"
+    ]
+   ]
   },
   "G238": {
    "type": "gruppe",
@@ -17735,7 +21914,19 @@
     342
    ],
    "overlever": 342,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    342
+   ],
+   "navne": {
+    "342": "Schmoel og Hohenfelde (1701)"
+   },
+   "ejerforhold": [
+    [
+     2564,
+     "Schmoel og Hohenfelde (1701)"
+    ]
+   ]
   },
   "G239": {
    "type": "gruppe",
@@ -17743,7 +21934,19 @@
     233
    ],
    "overlever": 233,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    233
+   ],
+   "navne": {
+    "233": "Schmoel/Smolde (boede der 1443, Giekow Sogn)"
+   },
+   "ejerforhold": [
+    [
+     2404,
+     "Schmoel/Smolde (boede der 1443, Giekow Sogn)"
+    ]
+   ]
   },
   "G240": {
    "type": "gruppe",
@@ -17751,7 +21954,19 @@
     129
    ],
    "overlever": 129,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    129
+   ],
+   "navne": {
+    "129": "Schmoeler Hof"
+   },
+   "ejerforhold": [
+    [
+     460,
+     "Schmoeler Hof"
+    ]
+   ]
   },
   "G241": {
    "type": "gruppe",
@@ -17759,7 +21974,23 @@
     96
    ],
    "overlever": 96,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    96
+   ],
+   "navne": {
+    "96": "Schwasdorf"
+   },
+   "ejerforhold": [
+    [
+     350,
+     "Schwasdorf"
+    ],
+    [
+     366,
+     "Schwasdorf"
+    ]
+   ]
   },
   "G242": {
    "type": "gruppe",
@@ -17767,7 +21998,23 @@
     317
    ],
    "overlever": 317,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    317
+   ],
+   "navne": {
+    "317": "Schwastorf"
+   },
+   "ejerforhold": [
+    [
+     2515,
+     "Schwastorf"
+    ],
+    [
+     2520,
+     "Schwastorf"
+    ]
+   ]
   },
   "G243": {
    "type": "gruppe",
@@ -17775,7 +22022,31 @@
     97
    ],
    "overlever": 97,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    97
+   ],
+   "navne": {
+    "97": "Schwetzin"
+   },
+   "ejerforhold": [
+    [
+     351,
+     "Schwetzin"
+    ],
+    [
+     367,
+     "Schwetzin"
+    ],
+    [
+     2516,
+     "Schwetzin"
+    ],
+    [
+     2521,
+     "Schwetzin"
+    ]
+   ]
   },
   "G244": {
    "type": "gruppe",
@@ -17784,7 +22055,25 @@
     279
    ],
    "overlever": 271,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    271,
+    279
+   ],
+   "navne": {
+    "271": "Schöneweide (købt af Hr. Johan Rantzau)",
+    "279": "Schöneweide (1561 ved Lodtrækning)"
+   },
+   "ejerforhold": [
+    [
+     2437,
+     "Schöneweide (købt af Hr. Johan Rantzau)"
+    ],
+    [
+     2451,
+     "Schöneweide (1561 ved Lodtrækning)"
+    ]
+   ]
   },
   "G245": {
    "type": "gruppe",
@@ -17793,7 +22082,25 @@
     243
    ],
    "overlever": 14,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    14,
+    243
+   ],
+   "navne": {
+    "14": "Schönkirchen",
+    "243": "Schönkirchen (solgt 1356 til Greverne Johan og Adolf)"
+   },
+   "ejerforhold": [
+    [
+     57,
+     "Schönkirchen"
+    ],
+    [
+     994,
+     "Schönkirchen (solgt 1356 til Greverne Johan og Adolf)"
+    ]
+   ]
   },
   "G246": {
    "type": "gruppe",
@@ -17801,7 +22108,27 @@
     38
    ],
    "overlever": 38,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    38
+   ],
+   "navne": {
+    "38": "Schönweide"
+   },
+   "ejerforhold": [
+    [
+     126,
+     "Schönweide"
+    ],
+    [
+     168,
+     "Schönweide"
+    ],
+    [
+     437,
+     "Schönweide"
+    ]
+   ]
   },
   "G247": {
    "type": "gruppe",
@@ -17809,7 +22136,19 @@
     354
    ],
    "overlever": 354,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    354
+   ],
+   "navne": {
+    "354": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)"
+   },
+   "ejerforhold": [
+    [
+     2580,
+     "Segeberg Kalkbjerg med Gieschenhagen (1673–84)"
+    ]
+   ]
   },
   "G248": {
    "type": "gruppe",
@@ -17817,7 +22156,19 @@
     209
    ],
    "overlever": 209,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    209
+   ],
+   "navne": {
+    "209": "Sehestedt"
+   },
+   "ejerforhold": [
+    [
+     842,
+     "Sehestedt"
+    ]
+   ]
   },
   "G249": {
    "type": "gruppe",
@@ -17825,7 +22176,19 @@
     2
    ],
    "overlever": 2,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    2
+   ],
+   "navne": {
+    "2": "Selent"
+   },
+   "ejerforhold": [
+    [
+     2,
+     "Selent"
+    ]
+   ]
   },
   "G250": {
    "type": "gruppe",
@@ -17833,7 +22196,23 @@
     52
    ],
    "overlever": 52,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    52
+   ],
+   "navne": {
+    "52": "Sellin"
+   },
+   "ejerforhold": [
+    [
+     162,
+     "Sellin"
+    ],
+    [
+     2445,
+     "Sellin"
+    ]
+   ]
   },
   "G251": {
    "type": "gruppe",
@@ -17841,7 +22220,19 @@
     100
    ],
    "overlever": 100,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    100
+   ],
+   "navne": {
+    "100": "Silkeborg Len"
+   },
+   "ejerforhold": [
+    [
+     358,
+     "Silkeborg Len"
+    ]
+   ]
   },
   "G252": {
    "type": "gruppe",
@@ -17849,7 +22240,19 @@
     222
    ],
    "overlever": 222,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    222
+   ],
+   "navne": {
+    "222": "Skarhult (halvpart)"
+   },
+   "ejerforhold": [
+    [
+     921,
+     "Skarhult (halvpart)"
+    ]
+   ]
   },
   "G253": {
    "type": "gruppe",
@@ -17857,7 +22260,19 @@
     138
    ],
    "overlever": 138,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    138
+   ],
+   "navne": {
+    "138": "Skivehus"
+   },
+   "ejerforhold": [
+    [
+     503,
+     "Skivehus"
+    ]
+   ]
   },
   "G254": {
    "type": "gruppe",
@@ -17865,7 +22280,19 @@
     230
    ],
    "overlever": 230,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    230
+   ],
+   "navne": {
+    "230": "Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje."
+   },
+   "ejerforhold": [
+    [
+     2401,
+     "Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje."
+    ]
+   ]
   },
   "G255": {
    "type": "gruppe",
@@ -17875,7 +22302,51 @@
     376
    ],
    "overlever": 201,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    201,
+    365,
+    376
+   ],
+   "navne": {
+    "201": "stamhuset Frisenvold",
+    "365": "Stamhuset Frisenvold (1731)",
+    "376": "Stamhusene Frisenvold (vundet 1762 ved Højesteretsdom) og Krenkerup"
+   },
+   "ejerforhold": [
+    [
+     818,
+     "stamhuset Frisenvold"
+    ],
+    [
+     839,
+     "stamhuset Frisenvold"
+    ],
+    [
+     854,
+     "stamhuset Frisenvold"
+    ],
+    [
+     889,
+     "stamhuset Frisenvold"
+    ],
+    [
+     2602,
+     "stamhuset Frisenvold"
+    ],
+    [
+     2607,
+     "stamhuset Frisenvold"
+    ],
+    [
+     2591,
+     "Stamhuset Frisenvold (1731)"
+    ],
+    [
+     2613,
+     "Stamhusene Frisenvold (vundet 1762 ved Højesteretsdom) og Krenkerup"
+    ]
+   ]
   },
   "G256": {
    "type": "gruppe",
@@ -17884,7 +22355,41 @@
     366
    ],
    "overlever": 202,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    202,
+    366
+   ],
+   "navne": {
+    "202": "stamhuset Krenkerup",
+    "366": "Stamhuset Krenkerup (1736)"
+   },
+   "ejerforhold": [
+    [
+     819,
+     "stamhuset Krenkerup"
+    ],
+    [
+     840,
+     "stamhuset Krenkerup"
+    ],
+    [
+     888,
+     "stamhuset Krenkerup"
+    ],
+    [
+     2603,
+     "stamhuset Krenkerup"
+    ],
+    [
+     2608,
+     "stamhuset Krenkerup"
+    ],
+    [
+     2592,
+     "Stamhuset Krenkerup (1736)"
+    ]
+   ]
   },
   "G257": {
    "type": "gruppe",
@@ -17892,7 +22397,19 @@
     153
    ],
    "overlever": 153,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    153
+   ],
+   "navne": {
+    "153": "Starzeddel"
+   },
+   "ejerforhold": [
+    [
+     591,
+     "Starzeddel"
+    ]
+   ]
   },
   "G258": {
    "type": "gruppe",
@@ -17900,7 +22417,19 @@
     30
    ],
    "overlever": 30,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    30
+   ],
+   "navne": {
+    "30": "Steensgaard"
+   },
+   "ejerforhold": [
+    [
+     92,
+     "Steensgaard"
+    ]
+   ]
   },
   "G259": {
    "type": "gruppe",
@@ -17908,7 +22437,19 @@
     259
    ],
    "overlever": 259,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    259
+   ],
+   "navne": {
+    "259": "Steensgaard i Fyen (ejede 1472)"
+   },
+   "ejerforhold": [
+    [
+     2424,
+     "Steensgaard i Fyen (ejede 1472)"
+    ]
+   ]
   },
   "G260": {
    "type": "gruppe",
@@ -17916,7 +22457,23 @@
     150
    ],
    "overlever": 150,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    150
+   ],
+   "navne": {
+    "150": "Stegen"
+   },
+   "ejerforhold": [
+    [
+     570,
+     "Stegen"
+    ],
+    [
+     666,
+     "Stegen"
+    ]
+   ]
   },
   "G261": {
    "type": "gruppe",
@@ -17924,7 +22481,19 @@
     272
    ],
    "overlever": 272,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    272
+   ],
+   "navne": {
+    "272": "Stelböck i Selent Sogn"
+   },
+   "ejerforhold": [
+    [
+     2438,
+     "Stelböck i Selent Sogn"
+    ]
+   ]
   },
   "G262": {
    "type": "gruppe",
@@ -17932,7 +22501,19 @@
     40
    ],
    "overlever": 40,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    40
+   ],
+   "navne": {
+    "40": "Stellböken"
+   },
+   "ejerforhold": [
+    [
+     128,
+     "Stellböken"
+    ]
+   ]
   },
   "G263": {
    "type": "gruppe",
@@ -17940,7 +22521,19 @@
     26
    ],
    "overlever": 26,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    26
+   ],
+   "navne": {
+    "26": "Stenfelt"
+   },
+   "ejerforhold": [
+    [
+     81,
+     "Stenfelt"
+    ]
+   ]
   },
   "G264": {
    "type": "gruppe",
@@ -17948,7 +22541,19 @@
     35
    ],
    "overlever": 35,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    35
+   ],
+   "navne": {
+    "35": "Stensgaard"
+   },
+   "ejerforhold": [
+    [
+     105,
+     "Stensgaard"
+    ]
+   ]
   },
   "G265": {
    "type": "gruppe",
@@ -17958,7 +22563,55 @@
     299
    ],
    "overlever": 39,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    39,
+    293,
+    299
+   ],
+   "navne": {
+    "39": "Stocksee",
+    "293": "Stocksee (1606)",
+    "299": "Stocksee (solgt 1643)"
+   },
+   "ejerforhold": [
+    [
+     127,
+     "Stocksee"
+    ],
+    [
+     167,
+     "Stocksee"
+    ],
+    [
+     184,
+     "Stocksee"
+    ],
+    [
+     197,
+     "Stocksee"
+    ],
+    [
+     1075,
+     "Stocksee"
+    ],
+    [
+     1080,
+     "Stocksee"
+    ],
+    [
+     2452,
+     "Stocksee"
+    ],
+    [
+     2473,
+     "Stocksee (1606)"
+    ],
+    [
+     2486,
+     "Stocksee (solgt 1643)"
+    ]
+   ]
   },
   "G266": {
    "type": "gruppe",
@@ -17966,7 +22619,19 @@
     135
    ],
    "overlever": 135,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    135
+   ],
+   "navne": {
+    "135": "Stubbe"
+   },
+   "ejerforhold": [
+    [
+     478,
+     "Stubbe"
+    ]
+   ]
   },
   "G267": {
    "type": "gruppe",
@@ -17974,7 +22639,19 @@
     333
    ],
    "overlever": 333,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    333
+   ],
+   "navne": {
+    "333": "Stubbe i Riseby S. (1722)"
+   },
+   "ejerforhold": [
+    [
+     2554,
+     "Stubbe i Riseby S. (1722)"
+    ]
+   ]
   },
   "G268": {
    "type": "gruppe",
@@ -17985,7 +22662,57 @@
     430
    ],
    "overlever": 419,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    418,
+    419,
+    424,
+    430
+   ],
+   "navne": {
+    "418": "Søbo (siges at have ejet)",
+    "419": "Søbo",
+    "424": "Søbo (1468)",
+    "430": "Søbo (til)"
+   },
+   "ejerforhold": [
+    [
+     2676,
+     "Søbo (siges at have ejet)"
+    ],
+    [
+     2677,
+     "Søbo"
+    ],
+    [
+     2686,
+     "Søbo"
+    ],
+    [
+     2690,
+     "Søbo"
+    ],
+    [
+     2682,
+     "Søbo (1468)"
+    ],
+    [
+     2691,
+     "Søbo (til)"
+    ],
+    [
+     2692,
+     "Søbo (til)"
+    ],
+    [
+     2693,
+     "Søbo (til)"
+    ],
+    [
+     2694,
+     "Søbo (til)"
+    ]
+   ]
   },
   "G269": {
    "type": "gruppe",
@@ -17994,7 +22721,25 @@
     350
    ],
    "overlever": 92,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    92,
+    350
+   ],
+   "navne": {
+    "92": "Søllestedgaard",
+    "350": "Søllestedgaard (1757)"
+   },
+   "ejerforhold": [
+    [
+     315,
+     "Søllestedgaard"
+    ],
+    [
+     2575,
+     "Søllestedgaard (1757)"
+    ]
+   ]
   },
   "G270": {
    "type": "gruppe",
@@ -18003,7 +22748,25 @@
     345
    ],
    "overlever": 85,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    85,
+    345
+   ],
+   "navne": {
+    "85": "Sørup",
+    "345": "Sørup (1736)"
+   },
+   "ejerforhold": [
+    [
+     308,
+     "Sørup"
+    ],
+    [
+     2568,
+     "Sørup (1736)"
+    ]
+   ]
   },
   "G271": {
    "type": "gruppe",
@@ -18011,7 +22774,19 @@
     369
    ],
    "overlever": 369,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    369
+   ],
+   "navne": {
+    "369": "Taastrup og Aalstrup (1728)"
+   },
+   "ejerforhold": [
+    [
+     2595,
+     "Taastrup og Aalstrup (1728)"
+    ]
+   ]
   },
   "G272": {
    "type": "gruppe",
@@ -18021,7 +22796,31 @@
     244
    ],
    "overlever": 12,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    12,
+    238,
+    244
+   ],
+   "navne": {
+    "12": "Techelsdorf",
+    "238": "Techelsdorf (halve landsby, solgt 1352 til Itzehoe Kloster)",
+    "244": "Techelsdorf (sin halvdel skænket til Itzehoe Kloster)"
+   },
+   "ejerforhold": [
+    [
+     55,
+     "Techelsdorf"
+    ],
+    [
+     989,
+     "Techelsdorf (halve landsby, solgt 1352 til Itzehoe Kloster)"
+    ],
+    [
+     995,
+     "Techelsdorf (sin halvdel skænket til Itzehoe Kloster)"
+    ]
+   ]
   },
   "G273": {
    "type": "gruppe",
@@ -18029,7 +22828,19 @@
     125
    ],
    "overlever": 125,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    125
+   ],
+   "navne": {
+    "125": "Tesdorf"
+   },
+   "ejerforhold": [
+    [
+     453,
+     "Tesdorf"
+    ]
+   ]
   },
   "G274": {
    "type": "gruppe",
@@ -18038,7 +22849,29 @@
     305
    ],
    "overlever": 305,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    304,
+    305
+   ],
+   "navne": {
+    "304": "Testorf (afhændet 1667 til broderen Ditlev)",
+    "305": "Testorf"
+   },
+   "ejerforhold": [
+    [
+     2495,
+     "Testorf (afhændet 1667 til broderen Ditlev)"
+    ],
+    [
+     2498,
+     "Testorf"
+    ],
+    [
+     2545,
+     "Testorf"
+    ]
+   ]
   },
   "G275": {
    "type": "gruppe",
@@ -18046,7 +22879,19 @@
     247
    ],
    "overlever": 247,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    247
+   ],
+   "navne": {
+    "247": "Tielenburg (havde i Pant)"
+   },
+   "ejerforhold": [
+    [
+     998,
+     "Tielenburg (havde i Pant)"
+    ]
+   ]
   },
   "G276": {
    "type": "gruppe",
@@ -18054,7 +22899,35 @@
     31
    ],
    "overlever": 31,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    31
+   ],
+   "navne": {
+    "31": "Tovskov"
+   },
+   "ejerforhold": [
+    [
+     93,
+     "Tovskov"
+    ],
+    [
+     104,
+     "Tovskov"
+    ],
+    [
+     147,
+     "Tovskov"
+    ],
+    [
+     176,
+     "Tovskov"
+    ],
+    [
+     2435,
+     "Tovskov"
+    ]
+   ]
   },
   "G277": {
    "type": "gruppe",
@@ -18062,7 +22935,19 @@
     260
    ],
    "overlever": 260,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    260
+   ],
+   "navne": {
+    "260": "Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))"
+   },
+   "ejerforhold": [
+    [
+     2425,
+     "Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))"
+    ]
+   ]
   },
   "G278": {
    "type": "gruppe",
@@ -18072,7 +22957,35 @@
     278
    ],
    "overlever": 55,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    55,
+    276,
+    278
+   ],
+   "navne": {
+    "55": "Tramm",
+    "276": "Tramm (ved lodtrækning)",
+    "278": "Tramm (under Rixdorf, 1597)"
+   },
+   "ejerforhold": [
+    [
+     165,
+     "Tramm"
+    ],
+    [
+     180,
+     "Tramm"
+    ],
+    [
+     2448,
+     "Tramm (ved lodtrækning)"
+    ],
+    [
+     2450,
+     "Tramm (under Rixdorf, 1597)"
+    ]
+   ]
   },
   "G279": {
    "type": "gruppe",
@@ -18080,7 +22993,31 @@
     6
    ],
    "overlever": 6,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    6
+   ],
+   "navne": {
+    "6": "Tresdorf"
+   },
+   "ejerforhold": [
+    [
+     6,
+     "Tresdorf"
+    ],
+    [
+     16,
+     "Tresdorf"
+    ],
+    [
+     21,
+     "Tresdorf"
+    ],
+    [
+     205,
+     "Tresdorf"
+    ]
+   ]
   },
   "G280": {
    "type": "gruppe",
@@ -18088,7 +23025,19 @@
     385
    ],
    "overlever": 385,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    385
+   ],
+   "navne": {
+    "385": "til Truelstorp"
+   },
+   "ejerforhold": [
+    [
+     2624,
+     "til Truelstorp"
+    ]
+   ]
   },
   "G281": {
    "type": "gruppe",
@@ -18096,7 +23045,23 @@
     218
    ],
    "overlever": 218,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    218
+   ],
+   "navne": {
+    "218": "Trulstorp"
+   },
+   "ejerforhold": [
+    [
+     916,
+     "Trulstorp"
+    ],
+    [
+     956,
+     "Trulstorp"
+    ]
+   ]
   },
   "G282": {
    "type": "gruppe",
@@ -18104,7 +23069,19 @@
     379
    ],
    "overlever": 379,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    379
+   ],
+   "navne": {
+    "379": "Trulstorp og Ugerup (Köpinge S.) (1865)"
+   },
+   "ejerforhold": [
+    [
+     2616,
+     "Trulstorp og Ugerup (Köpinge S.) (1865)"
+    ]
+   ]
   },
   "G283": {
    "type": "gruppe",
@@ -18112,7 +23089,19 @@
     356
    ],
    "overlever": 356,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    356
+   ],
+   "navne": {
+    "356": "Turø, Sunds Herred (—1674)"
+   },
+   "ejerforhold": [
+    [
+     2582,
+     "Turø, Sunds Herred (—1674)"
+    ]
+   ]
   },
   "G284": {
    "type": "gruppe",
@@ -18121,7 +23110,25 @@
     371
    ],
    "overlever": 371,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    370,
+    371
+   ],
+   "navne": {
+    "370": "Tølløse (1728)",
+    "371": "Tølløse"
+   },
+   "ejerforhold": [
+    [
+     2596,
+     "Tølløse (1728)"
+    ],
+    [
+     2604,
+     "Tølløse"
+    ]
+   ]
   },
   "G285": {
    "type": "gruppe",
@@ -18129,7 +23136,27 @@
     203
    ],
    "overlever": 203,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    203
+   ],
+   "navne": {
+    "203": "Tølløsegaard"
+   },
+   "ejerforhold": [
+    [
+     820,
+     "Tølløsegaard"
+    ],
+    [
+     841,
+     "Tølløsegaard"
+    ],
+    [
+     851,
+     "Tølløsegaard"
+    ]
+   ]
   },
   "G286": {
    "type": "gruppe",
@@ -18138,7 +23165,25 @@
     231
    ],
    "overlever": 23,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    23,
+    231
+   ],
+   "navne": {
+    "23": "Tønder Slot, Herreder og Fogderi",
+    "231": "Tønder Slot, Herreder og Fogderi (i Pant fra 1431)"
+   },
+   "ejerforhold": [
+    [
+     76,
+     "Tønder Slot, Herreder og Fogderi"
+    ],
+    [
+     2402,
+     "Tønder Slot, Herreder og Fogderi (i Pant fra 1431)"
+    ]
+   ]
   },
   "G287": {
    "type": "gruppe",
@@ -18146,7 +23191,19 @@
     45
    ],
    "overlever": 45,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    45
+   ],
+   "navne": {
+    "45": "Tørning"
+   },
+   "ejerforhold": [
+    [
+     153,
+     "Tørning"
+    ]
+   ]
   },
   "G288": {
    "type": "gruppe",
@@ -18154,7 +23211,27 @@
     219
    ],
    "overlever": 219,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    219
+   ],
+   "navne": {
+    "219": "Ugerup"
+   },
+   "ejerforhold": [
+    [
+     917,
+     "Ugerup"
+    ],
+    [
+     970,
+     "Ugerup"
+    ],
+    [
+     2622,
+     "Ugerup"
+    ]
+   ]
   },
   "G289": {
    "type": "gruppe",
@@ -18162,7 +23239,19 @@
     123
    ],
    "overlever": 123,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    123
+   ],
+   "navne": {
+    "123": "Vandlinggaard"
+   },
+   "ejerforhold": [
+    [
+     434,
+     "Vandlinggaard"
+    ]
+   ]
   },
   "G290": {
    "type": "gruppe",
@@ -18170,7 +23259,19 @@
     180
    ],
    "overlever": 180,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    180
+   ],
+   "navne": {
+    "180": "Varste"
+   },
+   "ejerforhold": [
+    [
+     735,
+     "Varste"
+    ]
+   ]
   },
   "G291": {
    "type": "gruppe",
@@ -18178,7 +23279,19 @@
     154
    ],
    "overlever": 154,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    154
+   ],
+   "navne": {
+    "154": "Vettersfelde"
+   },
+   "ejerforhold": [
+    [
+     592,
+     "Vettersfelde"
+    ]
+   ]
   },
   "G292": {
    "type": "gruppe",
@@ -18188,7 +23301,47 @@
     402
    ],
    "overlever": 184,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    184,
+    397,
+    402
+   ],
+   "navne": {
+    "184": "Vindeholme",
+    "397": "til Vindeholme (udskilt 1909 af Rudbjerggaard)",
+    "402": "Vindeholme (medejer fra 1929)"
+   },
+   "ejerforhold": [
+    [
+     742,
+     "Vindeholme"
+    ],
+    [
+     776,
+     "Vindeholme"
+    ],
+    [
+     781,
+     "Vindeholme"
+    ],
+    [
+     782,
+     "Vindeholme"
+    ],
+    [
+     795,
+     "Vindeholme"
+    ],
+    [
+     1269,
+     "til Vindeholme (udskilt 1909 af Rudbjerggaard)"
+    ],
+    [
+     2642,
+     "Vindeholme (medejer fra 1929)"
+    ]
+   ]
   },
   "G293": {
    "type": "gruppe",
@@ -18197,7 +23350,29 @@
     426
    ],
    "overlever": 426,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    422,
+    426
+   ],
+   "navne": {
+    "422": "Vingegaard (Sønder Dyrs H.)",
+    "426": "Vingegaard (til)"
+   },
+   "ejerforhold": [
+    [
+     2680,
+     "Vingegaard (Sønder Dyrs H.)"
+    ],
+    [
+     2684,
+     "Vingegaard (til)"
+    ],
+    [
+     2685,
+     "Vingegaard (til)"
+    ]
+   ]
   },
   "G294": {
    "type": "gruppe",
@@ -18205,7 +23380,19 @@
     43
    ],
    "overlever": 43,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    43
+   ],
+   "navne": {
+    "43": "Visgaarde"
+   },
+   "ejerforhold": [
+    [
+     132,
+     "Visgaarde"
+    ]
+   ]
   },
   "G295": {
    "type": "gruppe",
@@ -18213,7 +23400,19 @@
     216
    ],
    "overlever": 216,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    216
+   ],
+   "navne": {
+    "216": "Vänersnäs"
+   },
+   "ejerforhold": [
+    [
+     914,
+     "Vänersnäs"
+    ]
+   ]
   },
   "G296": {
    "type": "gruppe",
@@ -18221,7 +23420,23 @@
     175
    ],
    "overlever": 175,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    175
+   ],
+   "navne": {
+    "175": "Vännberga"
+   },
+   "ejerforhold": [
+    [
+     728,
+     "Vännberga"
+    ],
+    [
+     912,
+     "Vännberga"
+    ]
+   ]
   },
   "G297": {
    "type": "gruppe",
@@ -18229,7 +23444,23 @@
     59
    ],
    "overlever": 59,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    59
+   ],
+   "navne": {
+    "59": "Waschbuk"
+   },
+   "ejerforhold": [
+    [
+     178,
+     "Waschbuk"
+    ],
+    [
+     189,
+     "Waschbuk"
+    ]
+   ]
   },
   "G298": {
    "type": "gruppe",
@@ -18237,7 +23468,19 @@
     292
    ],
    "overlever": 292,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    292
+   ],
+   "navne": {
+    "292": "Waschbuk i Hansühn Sogn"
+   },
+   "ejerforhold": [
+    [
+     2472,
+     "Waschbuk i Hansühn Sogn"
+    ]
+   ]
   },
   "G299": {
    "type": "gruppe",
@@ -18247,7 +23490,66 @@
     301
    ],
    "overlever": 56,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    294,
+    301
+   ],
+   "navne": {
+    "56": "Waterneverstorf",
+    "294": "Waterneverstorf (1608)",
+    "301": "Waterneverstorf (solgt til H. Blome)"
+   },
+   "ejerforhold": [
+    [
+     171,
+     "Waterneverstorf"
+    ],
+    [
+     183,
+     "Waterneverstorf"
+    ],
+    [
+     188,
+     "Waterneverstorf"
+    ],
+    [
+     195,
+     "Waterneverstorf"
+    ],
+    [
+     381,
+     "Waterneverstorf"
+    ],
+    [
+     1076,
+     "Waterneverstorf"
+    ],
+    [
+     1081,
+     "Waterneverstorf"
+    ],
+    [
+     2479,
+     "Waterneverstorf"
+    ],
+    [
+     2494,
+     "Waterneverstorf"
+    ],
+    [
+     2536,
+     "Waterneverstorf"
+    ],
+    [
+     2474,
+     "Waterneverstorf (1608)"
+    ],
+    [
+     2488,
+     "Waterneverstorf (solgt til H. Blome)"
+    ]
+   ]
   },
   "G300": {
    "type": "gruppe",
@@ -18255,7 +23557,19 @@
     280
    ],
    "overlever": 280,
-   "kategori": "tvivl"
+   "kategori": "tvivl",
+   "flytbare": [
+    280
+   ],
+   "navne": {
+    "280": "Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)"
+   },
+   "ejerforhold": [
+    [
+     2453,
+     "Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)"
+    ]
+   ]
   },
   "G301": {
    "type": "gruppe",
@@ -18263,7 +23577,19 @@
     20
    ],
    "overlever": 20,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    20
+   ],
+   "navne": {
+    "20": "Wellsee"
+   },
+   "ejerforhold": [
+    [
+     71,
+     "Wellsee"
+    ]
+   ]
   },
   "G302": {
    "type": "gruppe",
@@ -18271,7 +23597,23 @@
     70
    ],
    "overlever": 70,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    70
+   ],
+   "navne": {
+    "70": "Wendisch Rambow"
+   },
+   "ejerforhold": [
+    [
+     211,
+     "Wendisch Rambow"
+    ],
+    [
+     263,
+     "Wendisch Rambow"
+    ]
+   ]
   },
   "G303": {
    "type": "gruppe",
@@ -18279,7 +23621,23 @@
     76
    ],
    "overlever": 76,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    76
+   ],
+   "navne": {
+    "76": "Wendisch Zülow"
+   },
+   "ejerforhold": [
+    [
+     280,
+     "Wendisch Zülow"
+    ],
+    [
+     292,
+     "Wendisch Zülow"
+    ]
+   ]
   },
   "G304": {
    "type": "gruppe",
@@ -18287,7 +23645,19 @@
     287
    ],
    "overlever": 287,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    287
+   ],
+   "navne": {
+    "287": "Wendischen Zülow (bortpantet 1490)"
+   },
+   "ejerforhold": [
+    [
+     2462,
+     "Wendischen Zülow (bortpantet 1490)"
+    ]
+   ]
   },
   "G305": {
    "type": "gruppe",
@@ -18295,7 +23665,19 @@
     390
    ],
    "overlever": 390,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    390
+   ],
+   "navne": {
+    "390": "til Wennberga i Brostorp i Frosta Herred"
+   },
+   "ejerforhold": [
+    [
+     2629,
+     "til Wennberga i Brostorp i Frosta Herred"
+    ]
+   ]
   },
   "G306": {
    "type": "gruppe",
@@ -18311,7 +23693,178 @@
     417
    ],
    "overlever": 5,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    64,
+    282,
+    309,
+    310,
+    405,
+    413,
+    414,
+    417
+   ],
+   "navne": {
+    "5": "Wittenberg",
+    "64": "Wittenberg med Tresdorf",
+    "282": "Wittenberg (1592 købt af Christopher Rantzau og Ditlev Brockdorff)",
+    "309": "Wittenberg (afstaaet til Broderen)",
+    "310": "Wittenberg (1712–38)",
+    "405": "Wittenberg (1779)",
+    "413": "Wittenberg (1816)",
+    "414": "Wittenberg (1842-51)",
+    "417": "Wittenberg (til)"
+   },
+   "ejerforhold": [
+    [
+     5,
+     "Wittenberg"
+    ],
+    [
+     15,
+     "Wittenberg"
+    ],
+    [
+     20,
+     "Wittenberg"
+    ],
+    [
+     33,
+     "Wittenberg"
+    ],
+    [
+     45,
+     "Wittenberg"
+    ],
+    [
+     47,
+     "Wittenberg"
+    ],
+    [
+     169,
+     "Wittenberg"
+    ],
+    [
+     181,
+     "Wittenberg"
+    ],
+    [
+     186,
+     "Wittenberg"
+    ],
+    [
+     204,
+     "Wittenberg"
+    ],
+    [
+     537,
+     "Wittenberg"
+    ],
+    [
+     589,
+     "Wittenberg"
+    ],
+    [
+     599,
+     "Wittenberg"
+    ],
+    [
+     638,
+     "Wittenberg"
+    ],
+    [
+     649,
+     "Wittenberg"
+    ],
+    [
+     672,
+     "Wittenberg"
+    ],
+    [
+     682,
+     "Wittenberg"
+    ],
+    [
+     689,
+     "Wittenberg"
+    ],
+    [
+     693,
+     "Wittenberg"
+    ],
+    [
+     800,
+     "Wittenberg"
+    ],
+    [
+     2476,
+     "Wittenberg"
+    ],
+    [
+     2478,
+     "Wittenberg"
+    ],
+    [
+     2489,
+     "Wittenberg"
+    ],
+    [
+     2493,
+     "Wittenberg"
+    ],
+    [
+     2497,
+     "Wittenberg"
+    ],
+    [
+     2652,
+     "Wittenberg"
+    ],
+    [
+     2653,
+     "Wittenberg"
+    ],
+    [
+     2667,
+     "Wittenberg"
+    ],
+    [
+     2674,
+     "Wittenberg"
+    ],
+    [
+     194,
+     "Wittenberg med Tresdorf"
+    ],
+    [
+     2455,
+     "Wittenberg (1592 købt af Christopher Rantzau og Ditlev Brockdorff)"
+    ],
+    [
+     2502,
+     "Wittenberg (afstaaet til Broderen)"
+    ],
+    [
+     2503,
+     "Wittenberg (1712–38)"
+    ],
+    [
+     2646,
+     "Wittenberg (1779)"
+    ],
+    [
+     2663,
+     "Wittenberg (1816)"
+    ],
+    [
+     2664,
+     "Wittenberg (1842-51)"
+    ],
+    [
+     2675,
+     "Wittenberg (til)"
+    ]
+   ]
   },
   "G307": {
    "type": "gruppe",
@@ -18319,7 +23872,19 @@
     133
    ],
    "overlever": 133,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    133
+   ],
+   "navne": {
+    "133": "Wittmold"
+   },
+   "ejerforhold": [
+    [
+     475,
+     "Wittmold"
+    ]
+   ]
   },
   "G308": {
    "type": "gruppe",
@@ -18327,7 +23892,19 @@
     50
    ],
    "overlever": 50,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    50
+   ],
+   "navne": {
+    "50": "Wulfsborstel"
+   },
+   "ejerforhold": [
+    [
+     159,
+     "Wulfsborstel"
+    ]
+   ]
   },
   "G309": {
    "type": "gruppe",
@@ -18336,7 +23913,45 @@
     398
    ],
    "overlever": 185,
-   "kategori": "aendring"
+   "kategori": "aendring",
+   "flytbare": [
+    185,
+    398
+   ],
+   "navne": {
+    "185": "Wulfshagen",
+    "398": "Wulfshagen (til)"
+   },
+   "ejerforhold": [
+    [
+     754,
+     "Wulfshagen"
+    ],
+    [
+     758,
+     "Wulfshagen"
+    ],
+    [
+     792,
+     "Wulfshagen"
+    ],
+    [
+     804,
+     "Wulfshagen"
+    ],
+    [
+     947,
+     "Wulfshagen"
+    ],
+    [
+     2637,
+     "Wulfshagen (til)"
+    ],
+    [
+     2639,
+     "Wulfshagen (til)"
+    ]
+   ]
   },
   "G310": {
    "type": "gruppe",
@@ -18344,7 +23959,19 @@
     229
    ],
    "overlever": 229,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    229
+   ],
+   "navne": {
+    "229": "Wännberga"
+   },
+   "ejerforhold": [
+    [
+     965,
+     "Wännberga"
+    ]
+   ]
   },
   "G311": {
    "type": "gruppe",
@@ -18352,7 +23979,19 @@
     80
    ],
    "overlever": 80,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    80
+   ],
+   "navne": {
+    "80": "Zahrenstorf"
+   },
+   "ejerforhold": [
+    [
+     300,
+     "Zahrenstorf"
+    ]
+   ]
   },
   "G312": {
    "type": "gruppe",
@@ -18360,7 +23999,19 @@
     109
    ],
    "overlever": 109,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [
+    109
+   ],
+   "navne": {
+    "109": "Zierow"
+   },
+   "ejerforhold": [
+    [
+     397,
+     "Zierow"
+    ]
+   ]
   },
   "G313": {
    "type": "gruppe",
@@ -18368,7 +24019,73 @@
     84
    ],
    "overlever": 84,
-   "kategori": "enkel"
+   "kategori": "enkel",
+   "flytbare": [],
+   "navne": {
+    "84": "Ziesendorf"
+   },
+   "ejerforhold": [
+    [
+     304,
+     "Ziesendorf"
+    ],
+    [
+     335,
+     "Ziesendorf"
+    ],
+    [
+     339,
+     "Ziesendorf"
+    ],
+    [
+     340,
+     "Ziesendorf"
+    ],
+    [
+     341,
+     "Ziesendorf"
+    ],
+    [
+     345,
+     "Ziesendorf"
+    ],
+    [
+     349,
+     "Ziesendorf"
+    ],
+    [
+     355,
+     "Ziesendorf"
+    ],
+    [
+     374,
+     "Ziesendorf"
+    ],
+    [
+     409,
+     "Ziesendorf"
+    ],
+    [
+     2426,
+     "Ziesendorf"
+    ],
+    [
+     2427,
+     "Ziesendorf"
+    ],
+    [
+     2457,
+     "Ziesendorf"
+    ],
+    [
+     2517,
+     "Ziesendorf"
+    ],
+    [
+     2530,
+     "Ziesendorf"
+    ]
+   ]
   },
   "H1": {
    "type": "H",

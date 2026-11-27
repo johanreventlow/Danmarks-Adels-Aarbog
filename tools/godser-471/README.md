@@ -88,6 +88,22 @@ Svaret indeholder kun besvarede poster og ændrede forslag; uændrede forslag er
 mere end to grupper kan besvares »kun nogle« med flueben: `{"svar": "delvis", "grupper": ["G198", "G199"]}`.
 N-spørgsmål (to grupper vil oprette en ny gård med samme navn) besvares `"ja"` (én fælles ny side) eller `"nej"`.
 Hvor et kopimål er usikkert (ligner en eksisterende gruppe), er »eksisterende gruppe« og »ny gård« hver sit valg.
+Enhver gruppe kan desuden **deles op i flere godser** (valget »Del«):
+`{"svar": "del", "dele": [{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"},
+{"navn": "Koppel", "slags": "gård", "maal": "G167"}]}`.
+
+- **Del 1:** gruppens overlevende række får del 1's navn og slags, og gruppens andre rækker lægges ind i den. Peger del
+  1 på en eksisterende gruppe, lægges alle rækkerne i stedet ind i dennes række.
+- **Del 2 og frem:** hvert kopierbart ejerforhold i gruppen kopieres til den valgte gruppes række eller til en ny gård
+  (`ny:G86:<navn>`), med bogens fulde navn som citat.
+- **`--flet` afviser:**
+  - færre end to dele;
+  - tomme navne og navne, der ikke kun er godsets navn;
+  - ukendt slags eller ukendt mål;
+  - en del, der peger på gruppen selv, og to dele med samme mål;
+  - en del, der peger på en gruppe, som et S-»ja« lægger ind i en anden;
+  - del 1 til en eksisterende gruppe, når gruppens række har slettede ejerforhold i historikken.
+- Arkets konflikt- og afgørelseslogik regner opdelingen med; JS'en er en ordret kopi (`delAlt`).
 
 ## Fletning til plan.json (fail-closed)
 
