@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../lib/supabase';
-import { erAdelsTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
+import { erAdelsTitel, feminiserTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -84,18 +84,7 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 // for adelstitlen. Alle afklarede titel-fakta filtreres derfor gennem denne lukkede liste.
 // Listen bor i @daa/core (adelsTitler.ts) — delt med bogens formelle navneform; re-eksporteret her, så
 // eksisterende imports (og SQL-paritetstesten) er uændrede.
-export { erAdelsTitel } from '@daa/core';
-
-const FEMININ_TITEL: Record<string, string> = {
-  greve: 'Grevinde',
-  lensgreve: 'Lensgrevinde',
-  baron: 'Baronesse',
-  friherre: 'Friherreinde',
-  rigsgreve: 'Rigsgrevinde',
-};
-
-export const feminiserTitel = (mandsTitel: string): string | null =>
-  FEMININ_TITEL[mandsTitel.trim().toLowerCase()] ?? null;
+export { erAdelsTitel, feminiserTitel } from '@daa/core';
 
 function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefined {
   if (!egetEfternavn) return undefined;

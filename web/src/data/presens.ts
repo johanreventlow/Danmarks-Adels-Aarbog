@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../supabase';
-import { erAdelsTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
+import { erAdelsTitel, feminiserTitel, getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -84,19 +84,13 @@ type RawNavneDele = { id: number | string; visning_navn: string | null; visning_
 // Derfor slås alle afklarede titel-fakta op direkte og filtreres til en lukket adels-titel-liste.
 // Listen bor i @daa/core (adelsTitler.ts) — delt med bogens formelle navneform; re-eksporteret her, så
 // eksisterende imports (og SQL-paritetstesten) er uændrede.
-export { ADELS_TITLER, erAdelsTitel } from '@daa/core';
+export { ADELS_TITLER, erAdelsTitel, feminiserTitel } from '@daa/core';
 
 type RawTitelFact = { subjekt_id: number | string; vaerdi_tekst: string };
 
 // Køns-bøjning af adelstitler — gift-ind kvinder overtager ægtefællens RANG (ikke egen fødetitel)
 // som deres visnings-titel; kun mænd-formerne fra ADELS_TITLER er nøgler her, da 'komtesse' (ugift
 // datter) og de kvindelige varianter i øvrigt ikke er noget en kvinde "gifter sig til" via ægtefællen.
-const FEMININ_TITEL: Record<string, string> = {
-  greve: 'Grevinde', lensgreve: 'Lensgrevinde', baron: 'Baronesse',
-  friherre: 'Friherreinde', rigsgreve: 'Rigsgrevinde',
-};
-// Eksporteret til test.
-export const feminiserTitel = (mandsTitel: string): string | null => FEMININ_TITEL[mandsTitel.trim().toLowerCase()] ?? null;
 
 // Født-klausul af EGEN (ikke ægtefællens) titel+efternavn — titel med lille forbogstav som i
 // hovedrække-formatet ("født komtesse Ahlefeldt-Laurvig"), aldrig stort (det ville fejlagtigt
