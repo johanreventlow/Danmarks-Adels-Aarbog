@@ -8,7 +8,7 @@
 -- Tekst: narrative (person, source = udgaven) på de tællende partnere; mønstret
 --   (?:skilt|ægteskabet (?:er )?opløst|ægteskabet ophævet)\s+(<dag måned år>|<år>)   (store/små bogstaver ligegyldigt)
 -- Fortolkning: »12. okt. 1901« -> date_min = date_max = dagen (måned = de tre første bogstaver: jan feb mar apr maj jun
---   jul aug sep okt nov dec); »2020« -> 1901-01-01..1901-12-31. date_raw = den fundne tekst ordret. Ukendt måned eller
+--   jul aug sep okt nov dec); »1901« -> 1901-01-01..1901-12-31. date_raw = den fundne tekst ordret. Ukendt måned eller
 --   ugyldig dag -> udfaldet 'ukendt_maaned'.
 -- Skriver kun ved: præcis ÉN distinkt fortolket dato (på tværs af begge partnere), og hvis vielsen har en dato
 --   (afklaret valgt påstand), er den nye date_min >= vielsens date_min (ellers 'foer_vielse').

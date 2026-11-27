@@ -28,7 +28,7 @@ describe('skilsmisse', () => {
     expect(fmtSkilt(s, 'aar')).toBe('skilt 1901');
     expect(fmtSkilt(s, 'ord')).toBe('skilt');
     expect(fmtSkilt({ dateMin: '1901-01-01', dateMax: '1901-12-31' }, 'dag')).toBe('skilt 1901');
-    expect(fmtSkilt({ dateMin: '2019-01-01', dateMax: '1901-12-31' }, 'aar')).toBe('skilt');
+    expect(fmtSkilt({ dateMin: '1900-01-01', dateMax: '1901-12-31' }, 'aar')).toBe('skilt');
     expect(fmtSkilt({ dateMin: 'xx', dateMax: 'xx' }, 'dag')).toBe('skilt');
     expect(fmtSkilt({ dateMin: null, dateMax: null }, 'dag')).toBe('skilt');
   });

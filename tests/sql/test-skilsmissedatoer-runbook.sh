@@ -107,6 +107,6 @@ for k in '"kandidater":7' '"skrevet":2' '"flertydig":1' '"uden_dato":0' '"ingen_
   '"flere_skilte_familier":[9306,9307]' '"foer_vielse":[9304]'; do
   case "$rep" in *"$k"*) ;; *) fail "rapporten mangler $k";; esac
 done
-case "$rep" in *2020*|*1921*|*jan.*) fail "rapporten lækker dato/tekst";; esac
+case "$rep" in *1901*|*1921*|*okt.*) fail "rapporten lækker dato/tekst";; esac
 echo "SKIL_TEST_OK: prøve uændret; skriv satte A=1901-10-12 og B=1921; 4+2 på listen; gentagelse 0; fortryd gendannede"
 dropdb "$db"

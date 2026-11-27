@@ -1,7 +1,7 @@
 # Navnevisning på personsiden og i stamtræet — design
 
-**Dato:** 2026-11-27 · **Gren:** `docs/personside-navnevisning-spec` · Bygger på #499 (linjernes adelsnavn, §56).
-**Status:** godkendt af projektejeren 2026-11-27. Intet bygget.
+**Dato:** 2026-11-27 · **Gren:** `feat/personside-navnevisning` · Bygger på #499 (linjernes adelsnavn, §56).
+**Status:** godkendt af projektejeren 2026-11-27. Bygget på grenen `feat/personside-navnevisning` (core, web, mobil og to runbooks; runbookene er ikke kørt i prod).
 
 ## Hvorfor
 Personsiden skrev navnet seks gange og »Greve« tre gange (brødkrumme, H1, titellinje, »I Aarbogen«, Fakta·Navn med
@@ -199,7 +199,7 @@ importen tabte datoen. 2018-20's råtekst har ca. 18 omtaler af »skilt«, heraf
   — en **ny påstand** med afklaret konklusion; den gamle (»skilt«) bevares (invariant 1). Kilden er fritekst, der
   nævner »Dansk Adels Aarbog 2018-20« (`red_upsert_fakta` sætter `source_id` NULL, kendt begrænsning #389).
   OCR-rettelsens veje passer ikke: `red_ret_ocr_paastand` tager kun personfakta, og `red_ret_paastand` kræver et
-  fortolkningsforslag. `date_raw` = bogens tekst (»12. okt. 1901« / »2020«); `date_min`/`date_max` = dagen eller
+  fortolkningsforslag. `date_raw` = bogens tekst (»12. okt. 1901« / »1901«); `date_min`/`date_max` = dagen eller
   året.
 - Runbook som køn-rettelsen: prøvekørsel som standard, ét ændringssæt, kan fortrydes, backup før, kørt via MCP efter
   projektejerens ja. **Output er kun antal** — datoer og navne vises aldrig i chat eller repo.

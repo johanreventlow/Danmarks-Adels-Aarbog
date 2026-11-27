@@ -150,7 +150,7 @@ describe('PersonSide', () => {
     const m = { ...model, skilsmisser: { '1': { dateMin: '1901-10-12', dateMax: '1901-10-12' } } } as unknown as Model;
     vielser.svar = { '1': '⚭ 3. maj 1890' };
     render(<PersonSide {...props({ model: m })} />);
-    expect(await screen.findByText(/⚭ 2\. aug\. 2008, skilt 15\. jan\. 2020/)).toBeTruthy();
+    expect(await screen.findByText(/⚭ 3\. maj 1890, skilt 12\. okt\. 1901/)).toBeTruthy();
   });
 
   it('floruit vises som Nævnes; uden år ingen årslinje', () => {
