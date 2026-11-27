@@ -4,6 +4,7 @@
 import { antalEjere, compareDanish, type EjerRelation, type Model } from '@daa/core';
 import type { supabase } from '../lib/supabase';
 import type { EstateListEntry, OwnerRef } from './types';
+import { hentGodsNarrativ } from './about';
 
 export function besiddelserVist(liste: readonly EstateListEntry[], model: Model | null): EstateListEntry[] {
   return liste
@@ -34,8 +35,7 @@ export async function hentBesiddelseInfo(
 ): Promise<BesiddelseInfo> {
   if (!sb) return { narrativ: '', sted: '' };
   const [narr, pl] = await Promise.all([
-    sb.from('narrative').select('tekst').eq('subjekt_type', 'estate').eq('subjekt_id', Number(estateId))
-      .eq('privat', false).order('id', { ascending: true }).limit(1),
+    hentGodsNarrativ(sb, estateId),
     stedId ? sb.from('place').select('navn').eq('id', Number(stedId)).maybeSingle() : Promise.resolve({ data: null, error: null }),
   ]);
   if (narr.error) throw new Error(narr.error.message);
