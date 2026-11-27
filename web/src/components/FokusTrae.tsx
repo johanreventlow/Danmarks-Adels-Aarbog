@@ -51,6 +51,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
     if (e.key === 'ArrowRight' && naeste) { e.preventDefault(); gaaTil(naeste, true); }
   };
   const f = model.byId[focusId];
+  const egenTitel = traeTitel(model, focusId);
   const linje = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk)).map((lk) => model.lineage?.navn[lk]).find(Boolean);
 
   const fokusKort = (
@@ -60,7 +61,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
         <span style={{ ...etiketStil, color: T.bordeaux }}>I fokus{smal && linje ? ` · ${linje}` : ''}</span>
         <span style={{ fontFamily: T.serif, fontSize: smal ? 23 : 22, fontWeight: 600, lineHeight: 1.1, color: T.ink }}>{f.name}</span>
         {f.years && <span style={aarStil}>{f.years}</span>}
-        {traeTitel(model, focusId) && <span style={{ fontSize: 13, color: T.bordeaux }}>{traeTitel(model, focusId)}</span>}
+        {egenTitel && <span style={{ fontSize: 13, color: T.bordeaux }}>{egenTitel}</span>}
         {!smal && <Link href={personPath(focusId)} style={{ marginTop: 4, fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Åbn personsiden</Link>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>

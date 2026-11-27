@@ -3,7 +3,7 @@
 // egen side. Mangler siges med ord; henter, tom og fejl er tre tilstande; usikkert slægtskab vises med ordet.
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { buildModel, type AppPerson, type BioSourceVersionV2, type PublicPersonFactRow, type Udgave, type UdgaveFaktaInput } from '@daa/core';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
 import type { MediaItem } from '../../data/media';
@@ -99,6 +99,7 @@ const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
 });
 
 describe('PersonSide', () => {
+  beforeEach(() => { vielser.svar = {}; vielser.kald = []; });
   it('statuslinjen: én linje under årene med titel og adelsnavn; »I Aarbogen« og den gamle titellinje er væk', () => {
     const kV = 'slaegt:1:lineage:5:scheme:canonical';
     const m = {
@@ -129,11 +130,27 @@ describe('PersonSide', () => {
     expect(screen.getAllByText('Kammerherre').some((e) => e.tagName === 'P' && e.style.fontWeight === '600')).toBe(true);
   });
 
-  it('skilt ægteskab: vielse og skilsmisse efter ægtefællens år', () => {
+  it('hof-del: embedsrolle bidrager; frasorteret eller uafklaret titel-række gør ikke', () => {
+    const m = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], koen: 'mand', title: 'Greve' } } } as unknown as Model;
+    const statusP = () => screen.queryAllByText(/Kammerherre/).find((e) => e.tagName === 'P' && e.style.fontWeight === '600');
+    const medRolle = detalje({ faktaInput: faktaInput([]), offices: [{ rolle: 'Kammerherre' } as unknown as PersonDetailData['offices'][number]] });
+    const r1 = render(<PersonSide {...props({ model: m, detail: medRolle })} />);
+    expect(statusP()?.textContent).toMatch(/^Kammerherre, /);
+    r1.unmount();
+    const ikkeValgt = detalje({ faktaInput: faktaInput([row({ faktatype: 'titel', vaerdi_tekst: 'Kammerherre', chosen: false })]) });
+    const r2 = render(<PersonSide {...props({ model: m, detail: ikkeValgt })} />);
+    expect(statusP()).toBeUndefined();
+    r2.unmount();
+    const uafklaret = detalje({ faktaInput: faktaInput([row({ faktatype: 'titel', vaerdi_tekst: 'Kammerherre', conclusion_status: 'foreslaaet' })]) });
+    render(<PersonSide {...props({ model: m, detail: uafklaret })} />);
+    expect(statusP()).toBeUndefined();
+  });
+
+  it('skilt ægteskab: vielse og skilsmisse efter ægtefællens år', async () => {
     const m = { ...model, skilsmisser: { '1': { dateMin: '1901-10-12', dateMax: '1901-10-12' } } } as unknown as Model;
     vielser.svar = { '1': '⚭ 3. maj 1890' };
     render(<PersonSide {...props({ model: m })} />);
-    return screen.findByText(/⚭ 2\. aug\. 2008, skilt 15\. jan\. 2020/).then((el) => expect(el).toBeTruthy());
+    expect(await screen.findByText(/⚭ 2\. aug\. 2008, skilt 15\. jan\. 2020/)).toBeTruthy();
   });
 
   it('floruit vises som Nævnes; uden år ingen årslinje', () => {

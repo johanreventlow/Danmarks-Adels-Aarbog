@@ -130,4 +130,14 @@ describe('FokusTrae: egen titel og skilsmisse', () => {
     render(<FokusTrae model={skilt} focusId="B" onPick={vi.fn()} onFocus={vi.fn()} hasBookmark={() => false} onToggleBookmark={vi.fn()} smal={false} />);
     expect(screen.getByText(/, skilt/)).toBeTruthy();
   });
+
+  it('ægteskabstitel (Grevinde = feminin af mandens Greve) er ikke egen titel: intet titelord på kortet', () => {
+    const m = buildModel({
+      persons: [{ ...P('G', 'Gift', 'kvinde'), title: 'Grevinde' }, { ...P('H', 'Husbond', 'mand'), title: 'Greve' }],
+      unions: [{ id: 'fu2', p1: 'H', p2: 'G', p2_name: null, year: null }],
+      parentChild: [],
+    }) as unknown as Model;
+    render(<FokusTrae model={m} focusId="G" onPick={vi.fn()} onFocus={vi.fn()} hasBookmark={() => false} onToggleBookmark={vi.fn()} smal={false} />);
+    expect(screen.queryByText('Grevinde')).toBeNull();
+  });
 });
