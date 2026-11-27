@@ -19,6 +19,7 @@ import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import {
   bookmarkPersonId, createFeedStream, TEMP_DISABLED_KINDS, type FeedCard, type FeedStream,
 } from '@daa/feed';
+import { personerMedBillede } from '../../data/personerMedBillede';
 import { counts } from '../../data/selectors';
 import { epochDay, newSeed, todayISO } from '../../lib/feedSession';
 import { FEED_FOERSTE_UDDELING_FRIST_MS, foersteUddeling, genoptag, naesteSide } from '../../lib/feedUddeling';
@@ -152,6 +153,8 @@ export default function HomeScreen() {
     setDone(false);
   }, [model]);
 
+  const billedPersoner = useMemo(() => (aux ? personerMedBillede(aux) : null), [aux]);
+
   useEffect(() => {
     if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return;
     // Intet at uddele endnu: stop en evt. pull-to-refresh-spinner; de viste kort bliver stående (review fund 2).
@@ -166,8 +169,10 @@ export default function HomeScreen() {
       storieBy,
       pins: feedPins,
       disabledKinds: TEMP_DISABLED_KINDS,
-      // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web.
+      // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web. Et billede tæller
+      // som indhold (krav 8) som på web; sættet bygges af de allerede hentede medier (data/personerMedBillede.ts).
       forsideKrav: true,
+      personerMedBillede: billedPersoner ?? undefined,
     });
     // loadEpoch i nøglen: en ny indlæsning (fx live efter offline-seed) starter forfra, så eksempelpersonernes kort
     // ikke bliver hængende i det levende feed (review fund 1). Biografierne skifter ikke epoken og genoptager blot.
@@ -190,7 +195,7 @@ export default function HomeScreen() {
     // »Du har mødt hele slægten« først, når biografierne er afgjort — en tidlig pulje er ikke dagens pulje.
     setDone(alleAfgjort && streamRef.current.done());
     setRefreshing(false);
-  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, alleAfgjort, fristUdloebet, loadEpoch]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, alleAfgjort, fristUdloebet, loadEpoch, billedPersoner]);
 
   const handleEndReached = useCallback(() => {
     if (!streamRef.current || appendingRef.current || streamRef.current.done()) return;

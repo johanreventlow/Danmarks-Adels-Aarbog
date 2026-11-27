@@ -18943,6 +18943,9 @@ DECLARE
     'public.red_set_story_status(bigint,text)'::regprocedure,
     'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
     'public.red_slet_medierelation_uden_evidens(bigint)'::regprocedure,
+    -- Review 37 R37S8-1: oprettes i blokken review37-c5a sidst i filen; findes kun her, når schema.sql er kørt først.
+    to_regprocedure('public.red_media_interne_felter(bigint[])'),
+    to_regprocedure('public.red_media_efter_sha(text)'),
     'public.red_slet_oplysning(bigint)'::regprocedure,
     'public.red_slet_person(bigint)'::regprocedure,
     'public.red_slet_person_preview(bigint)'::regprocedure,
@@ -50701,3 +50704,97 @@ BEGIN
 END
 $purge_outbox_ack$;
 -- END review37-p8
+
+-- BEGIN review37-c5a
+-- Review 37 R37B-3 + R37S8-1 (#397), blok A af to (additiv). red_slet_medierelation_uden_evidens accepterer også
+-- familie- og stedbilleder (media → family/place, samme kanoniske par som red_relation og CHECK'en
+-- relation_afbildet_kanonisk); samme signatur og ACL. To nye rolle-gatede læse-RPC'er til redaktionens interne
+-- mediefelter: red_media_interne_felter (original_filnavn/sha256 på id, højst 1000 id'er) og red_media_efter_sha
+-- (dublettjekket). Kun authenticated får EXECUTE (redaktionens allow-liste i db-rls.sql); anon aldrig. Ingen data og
+-- ingen tabelretter ændres: den gamle klient virker uændret efter blokken. Kroppene er kopieret fra schema.sql og er
+-- de endelige definitioner.
+-- Deploy-rækkefølge: blok A → ny klient (web) deployet → blok B (review37-c5b). Kør hverken hele db-rls.sql eller hele
+-- db-migrations.sql mellem A og B: begge har allerede B's slutform (authenticated mister original_filnavn/sha256) og
+-- ville bryde den gamle klient. Kør kun denne navngivne blok.
+CREATE OR REPLACE FUNCTION public.red_slet_medierelation_uden_evidens(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_relation relation%ROWTYPE;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- FOR UPDATE konflikter med evidens-triggerens FOR KEY SHARE på præcis denne relation.
+  SELECT * INTO v_relation FROM relation WHERE id=p_relation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Relation % findes ikke', p_relation_id; END IF;
+  IF NOT (
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='person'
+      AND v_relation.objekt_type='media')
+    OR
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='media'
+      AND v_relation.objekt_type IN ('estate','coat_of_arms','lineage','family','place'))
+  ) THEN
+    RAISE EXCEPTION 'Relation % er ikke en kanonisk medie-afbildning', p_relation_id;
+  END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='relation' AND target_id=p_relation_id) THEN
+    RAISE EXCEPTION 'Medierelationen % har evidens og kan ikke fjernes ved blød flet', p_relation_id;
+  END IF;
+  PERFORM begin_change_set(
+    'red_slet_medierelation_uden_evidens',
+    format('Fjernede evidensfri medierelation %s ved blød flet', p_relation_id), NULL, NULL
+  );
+  DELETE FROM relation WHERE id=p_relation_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_media_interne_felter(p_ids bigint[])
+RETURNS TABLE(id bigint, original_filnavn text, sha256 text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $red_media_interne_felter$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_ids IS NULL OR cardinality(p_ids) > 1000 THEN
+    RAISE EXCEPTION 'MEDIA_IDS_UGYLDIG' USING ERRCODE='22023',
+      DETAIL='p_ids skal være et array med højst 1000 media-id''er.';
+  END IF;
+  RETURN QUERY SELECT m.id, m.original_filnavn, m.sha256 FROM public.media m WHERE m.id = ANY(p_ids) ORDER BY m.id;
+END
+$red_media_interne_felter$;
+REVOKE ALL ON FUNCTION public.red_media_interne_felter(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_media_interne_felter(bigint[]) TO authenticated;
+
+-- Dublettjekket før upload: findes de samme bytes allerede? sha256 er unik (media_sha256_uidx), så der er højst én
+-- række; ORDER BY id LIMIT 1 gør svaret entydigt, også hvis indekset en dag skulle mangle. Input skal være en hex-sha256
+-- med små bogstaver, som begge klienter beregner den.
+CREATE OR REPLACE FUNCTION public.red_media_efter_sha(p_sha256 text)
+RETURNS TABLE(id bigint, titel text, upload_status text, storage_path text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $red_media_efter_sha$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_sha256 IS NULL OR p_sha256 !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'MEDIA_SHA_UGYLDIG' USING ERRCODE='22023',
+      DETAIL='p_sha256 skal være 64 hex-tegn med små bogstaver.';
+  END IF;
+  RETURN QUERY SELECT m.id, m.titel, m.upload_status, m.storage_path
+    FROM public.media m WHERE m.sha256 = p_sha256 ORDER BY m.id LIMIT 1;
+END
+$red_media_efter_sha$;
+REVOKE ALL ON FUNCTION public.red_media_efter_sha(text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_media_efter_sha(text) TO authenticated;
+-- END review37-c5a
+
+-- BEGIN review37-c5b
+-- Review 37 R37S8-1 (#397), blok B af to: authenticated mister tabelretten på media og får PRÆCIS gæsternes
+-- kolonneliste (original_filnavn og sha256 er ude). Medlemmer og redaktion deler rollen authenticated, så det er kun
+-- de rolle-gatede red_media_interne_felter/red_media_efter_sha (blok A), der fortsat giver redaktionen de to felter.
+-- KØRES FØRST, NÅR DEN NYE KLIENT ER DEPLOYET (web efter blok A): den gamle klient læser original_filnavn/sha256 direkte og
+-- får »permission denied« efter blokken. Samme rækkefølge af REVOKE/GRANT som db-rls.sql's $review37_s8_anon_kolonner$
+-- (media-delen), så ACL-teksten ender ens ad begge veje; REVOKE af tabelretten fjerner også eksisterende kolonneret, så
+-- blokken er idempotent. Ingen data ændres.
+DO $review37_c5b_media_kolonner$
+BEGIN
+  REVOKE ALL ON TABLE public.media FROM anon;
+  REVOKE ALL ON TABLE public.media FROM authenticated;
+  GRANT SELECT (id, slags, titel, kunstner, datering, bucket, storage_path, mime_type, byte_size,
+                bredde, hoejde, upload_status, maa_publiceres, rettigheder_status, created_at)
+    ON TABLE public.media TO anon, authenticated;
+END
+$review37_c5b_media_kolonner$;
+-- END review37-c5b

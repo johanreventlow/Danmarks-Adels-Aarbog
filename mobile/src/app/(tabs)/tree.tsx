@@ -11,8 +11,8 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildBidirectionalColumns, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer } from '@daa/core';
-import { childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { buildBidirectionalColumns, byggFokusRaekker, kanoniskeLinjerPrPerson, kunIAeldreTekst, synligeLinjer } from '@daa/core';
+import { boernIBogensOrden, childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -68,6 +68,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
   const focusId = useStore((s) => s.focusId);
   const setFocus = useStore((s) => s.setFocus);
   const view = useMemo(() => (focusId ? treeFocusA(model, focusId) : null), [model, focusId]);
+  const fam = useMemo(() => (view?.focus ? byggFokusRaekker(model, view.focus.id) : null), [model, view]);
   if (!view || !view.focus) {
     return <View style={{ padding: 24 }}><Kicker color={Colors.inkMuted}>Vælg en linje eller person.</Kicker></View>;
   }
@@ -102,27 +103,44 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
           <SiblingCard key={s.id} person={s} childCount={childrenOf(model, s.id).length} kunI={kunIAeldreTekst(model, s.id)?.maerke} selected={s.id === view.focus!.id} onFocus={() => setFocus(s.id)} onOpen={() => router.push(`/person/${s.id}`)} />
         ))}
       </ScrollView>
-      {view.spouseName ? (
-        <Serif size={15} italic color={Colors.inkMuted} style={{ textAlign: 'center', marginTop: 10, fontFamily: Fonts.serifItalic }}>⚭ gift med {view.spouseName}</Serif>
+      {/* Ægteskaber og børn pr. ægteskab fra @daa/core's byggFokusRaekker — samme rækker som personskærmen og web's
+          fokus-stamtræ: alle ægteskaber på ⚭-linjen, og ved flere ægteskaber en overskrift »Med …« over hver børneflok
+          (bogens rækkefølge); børn uden kendt ægteskab samles under »Ægteskab ikke angivet« med bogens forbehold. */}
+      {fam?.aegteskaber.length ? (
+        <Serif size={15} italic color={Colors.inkMuted} style={{ textAlign: 'center', marginTop: 10, fontFamily: Fonts.serifItalic }}>
+          {fam.aegteskaber.map((a) => `⚭ ${a.navn}`).join('  ·  ')}
+        </Serif>
       ) : null}
-      {view.children.length ? (
+      {fam?.antalBoern ? (
         <>
           <Connector height={18} style={{ marginTop: 14 }} />
           <CenterKicker text="Børn & grene ▾" style={{ marginVertical: 8 }} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 2, paddingBottom: 6 }}>
-            {view.children.map((c) => {
-              // »Kun i DAA 1939« på stamtræets kort som på web's fokus-stamtræ (aldrig for en levende, core-reglen).
-              const kunI = kunIAeldreTekst(model, c.id);
-              return (
-                <Pressable key={c.id} style={styles.childCard} onPress={() => setFocus(c.id)}>
-                  <View style={styles.childAvatar}><Serif size={17} color={Colors.bordeaux}>{initial(c.name)}</Serif></View>
-                  <Serif size={18} style={{ marginTop: 9, lineHeight: 19 }}>{c.name}</Serif>
-                  {c.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
-                  {kunI ? <Mono size={8.5} color={Colors.goldInk} style={{ marginTop: 4, letterSpacing: 0.6, textTransform: 'uppercase' }}>{kunI.maerke}</Mono> : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          {fam.boerneGrupper.map((g, gi) => (
+            <View key={g.aegteskab?.unionId ?? g.aegteskab?.navn ?? `uden-${gi}`} style={{ marginTop: gi > 0 ? 12 : 0 }}>
+              {fam.aegteskaber.length > 1 ? (
+                <Serif size={15} italic color={Colors.inkSecondary} style={{ fontFamily: Fonts.serifItalic, marginBottom: 6, paddingHorizontal: 2 }}>
+                  {g.aegteskab ? `Med ${g.aegteskab.navn}` : 'Ægteskab ikke angivet'}
+                </Serif>
+              ) : null}
+              {!g.aegteskab && fam.boerneNote ? (
+                <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6, paddingHorizontal: 2 }}>{fam.boerneNote}</Mono>
+              ) : null}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 2, paddingBottom: 6 }}>
+                {g.boern.map(({ person: c }) => {
+                  // »Kun i DAA 1939« på stamtræets kort som på web's fokus-stamtræ (aldrig for en levende, core-reglen).
+                  const kunI = kunIAeldreTekst(model, c.id);
+                  return (
+                    <Pressable key={c.id} style={styles.childCard} onPress={() => setFocus(c.id)}>
+                      <View style={styles.childAvatar}><Serif size={17} color={Colors.bordeaux}>{initial(c.name)}</Serif></View>
+                      <Serif size={18} style={{ marginTop: 9, lineHeight: 19 }}>{c.name}</Serif>
+                      {c.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
+                      {kunI ? <Mono size={8.5} color={Colors.goldInk} style={{ marginTop: 4, letterSpacing: 0.6, textTransform: 'uppercase' }}>{kunI.maerke}</Mono> : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ))}
         </>
       ) : null}
     </ScrollView>
@@ -293,11 +311,11 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const moveSnapSib = useStore((s) => s.moveSnapSib);
 
   // Hver generation (depth d) = en vandret snap-ScrollView med ALLE søskende; den valgte
-  // centreres. d=0 er kun roden. Førstefødt = indeks 0.
+  // centreres. d=0 er kun roden. Rækkefølgen er bogens (boernIBogensOrden); først i bogen = indeks 0.
   const rows = useMemo(() => {
     const out: { d: number; sibIds: string[]; selIndex: number }[] = [];
     for (let d = 0; d < snapPath.length; d++) {
-      const sibIds = d === 0 ? [snapPath[0]] : childrenOf(model, snapPath[d - 1]).map((p) => p.id);
+      const sibIds = d === 0 ? [snapPath[0]] : boernIBogensOrden(model, snapPath[d - 1]).map((p) => p.id);
       const selIndex = Math.max(0, sibIds.indexOf(snapPath[d]));
       out.push({ d, sibIds, selIndex });
     }

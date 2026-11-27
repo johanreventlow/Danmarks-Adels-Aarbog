@@ -39,7 +39,7 @@ function MediaTilknytPicker({ mediaId, udelukkedeMaal, onClose, onVaelg }: {
   useEffect(() => {
     let aktiv = true; setStatus('loading'); setItems([]);
     const hent: Promise<PickerItem[]> = maalType === 'person'
-      ? Promise.resolve((model?.persons ?? []).map((p) => ({ id: p.id, label: p.name, sub: [p.born, p.died].filter(Boolean).join('–') || '—' })))
+      ? Promise.resolve((model?.persons ?? []).map((p) => ({ id: p.id, label: p.name, sub: p.years || '—' })))
       : maalType === 'lineage'
         ? fetchLineages().then((rows) => rows.map((l) => ({ id: String(l.id), label: l.navn ?? `Linje ${l.kode}`, sub: `Linje ${l.kode}` })))
         : maalType === 'estate'

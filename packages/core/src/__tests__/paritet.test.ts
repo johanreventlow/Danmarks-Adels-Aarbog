@@ -38,7 +38,7 @@ const TABELLER: Record<string, Post> = {
 const RPCER: Record<string, Post> = {
   hist_for_subjekt: B, narrative_record_contract_version: B, public_haendelse_feed: B,
   public_person_bio_source_versions: B, public_person_bio_source_versions_v2: B,
-  red_bekraeft_media_upload: B, red_match_personer: B, red_person_narrative_records: B,
+  red_bekraeft_media_upload: B, red_match_personer: B, red_media_efter_sha: B, red_media_interne_felter: B, red_person_narrative_records: B,
   red_registrer_media_variant: B, red_slet_person_preview: B, red_udrens_media_preview: B,
   public_person_facts: B,
   hist_for_subjekter: web('mobilen viser kun historik for ét subjekt ad gangen; samlet historik er ikke planlagt (paritetsrapport 2.6)'),

@@ -258,7 +258,7 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
   }
   if (c.art === 'sletRelation') {
-    const rid = c.relationId != null ? Number(c.relationId) : null;
+    const rid = parsePostgresBigintId(c.relationId);
     if (rid == null) return null;
     return { fn: 'red_slet_relation', args: { p_relation_id: rid } };
   }
@@ -351,11 +351,13 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'opretKilde') {
     const p = c.payload || {};
     if (!p.titel) return null;
-    const args: Record<string, unknown> = { p_titel: p.titel };
-    if (p.slags) args.p_slags = p.slags;
-    if (p.udgave) args.p_udgave = p.udgave;
-    if (p.ekstern != null) args.p_ekstern = p.ekstern;
-    return { fn: 'red_opret_kilde', args };
+    // Tom tekst → null: OpretSheet sender udgave.trim() (kan være ''), og red_opret_kilde gemmer '' ordret.
+    // Før review 37 M10 blev tomme felter udeladt (DB-default null); web's UI sender selv `|| null`.
+    return { fn: 'red_opret_kilde', args: {
+      p_titel: p.titel, p_slags: (p.slags as string | null | undefined) || null,
+      p_udgave: (p.udgave as string | null | undefined) || null,
+      p_ekstern: Boolean(p.ekstern ?? false),
+      p_aar: (p.aar as number | null | undefined) ?? null } };
   }
   if (c.art === 'opretOrganisation') {
     const p = c.payload || {};
@@ -444,8 +446,9 @@ if (c.art === 'mediaRettigheder') {
   // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod
   // bare en almindelig 'sletRelation' på den specifikke afbildet-relation (håndteret ovenfor).
   if (c.art === 'fjernMedia') {
-    if (c.mediaId == null) return null;
-    return { fn: 'red_fjern_media', args: { p_media_id: Number(c.mediaId) } };
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    if (mediaId == null) return null;
+    return { fn: 'red_fjern_media', args: { p_media_id: mediaId } };
   }
   // Fase 4 (M4): URI-referencer bruges kun til klient-upload. RPC'en modtager udelukkende
   // metadata, så hverken localUri eller variantens uri kan lække ind i JSON-argumenterne.
@@ -521,7 +524,7 @@ export async function submitChange(
     await upload(String(p.localUri), String(p.storagePath), String(p.mimeType ?? 'application/octet-stream'));
   }
   const { data, error } = await client.rpc(call.fn, call.args);
-  if (error) throw new Error(error.message);
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
   if (c.art === 'uploadMedia') {
     // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (§ media_variant),
     // ikke en del af red_upload_media selv. Bevar 'kladde', indtil alle varianter er uploadet

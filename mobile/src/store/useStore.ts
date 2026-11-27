@@ -12,7 +12,7 @@ import { fetchProfile, signIn, signOut, type Rolle } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
-import { childrenOf } from '../data/selectors';
+import { boernIBogensOrden } from '../data/selectors';
 import { buildModel, EMPTY_GEO, type GenCoord, type ParentsUnknown } from '@daa/core';
 import type { FeedPinInput, HaendelserBy, LivsdatoBy, StorieBy } from '@daa/feed';
 import type { Aux, Geo, Model } from '../data/types';
@@ -472,7 +472,7 @@ export const useStore = create<State>((set, get) => ({
   moveSnapSib: (delta) => {
     const { model, snapPath, snapDepth } = get();
     if (!model || snapDepth === 0) return;
-    const sibs = childrenOf(model, snapPath[snapDepth - 1]).map((p) => p.id);
+    const sibs = boernIBogensOrden(model, snapPath[snapDepth - 1]).map((p) => p.id);
     if (sibs.length < 2) return;
     const idx = sibs.indexOf(snapPath[snapDepth]);
     if (idx === -1) return; // fokus ikke blandt de beregnede søskende → undgå spring til sibs[0]
@@ -483,7 +483,7 @@ export const useStore = create<State>((set, get) => ({
     let cur = sibs[i];
     let g = snapDepth;
     while (g < 40) {
-      const kids = childrenOf(model, cur);
+      const kids = boernIBogensOrden(model, cur);
       if (!kids.length) break;
       cur = kids[0].id;
       np[g + 1] = cur;

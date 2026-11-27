@@ -6,6 +6,8 @@ import { parseYear, fmtYears, getAll, buildMatchPersoner, parseIkkeSammeSomPar, 
 import type { SletAarsag } from '@daa/core';
 import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
+import { MEDIA_AFBILDET_OBJEKT_TYPER, MEDIA_INTERNE_FELTER_BID } from './mediaKontrakt';
+import { orThrow } from './orThrow';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
 
@@ -239,12 +241,12 @@ export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlo
   const sb = supabase;
   if (!sb || !personId) return null;
   const pid = Number(personId);
-  const { data: facts } = await sb.from('fact').select('id')
-    .eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældrefamilie');
+  const facts = orThrow(await sb.from('fact').select('id')
+    .eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældrefamilie'), 'fetchForaeldreSlot/fact');
   const factId = (facts ?? [])[0]?.id;
   if (factId == null) return null;
-  const { data: assertions } = await sb.from('assertion').select('id,objekt_id')
-    .eq('target_type', 'fact').eq('target_id', factId).eq('objekt_type', 'family');
+  const assertions = orThrow(await sb.from('assertion').select('id,objekt_id')
+    .eq('target_type', 'fact').eq('target_id', factId).eq('objekt_type', 'family'), 'fetchForaeldreSlot/assertion');
   const aList = (assertions ?? []) as RawSlotAssert[];
   const aids = aList.map((a) => a.id);
   const famIds = aList.map((a) => a.objekt_id).filter((x): x is number => x != null);
@@ -253,9 +255,12 @@ export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlo
     sb.from('conclusion').select('valgt_assertion_id,status').eq('target_type', 'fact').eq('target_id', factId).maybeSingle(),
     famIds.length ? sb.from('family_member').select('family_id,person_id,person(visning_navn)').in('family_id', famIds).eq('rolle', 'partner') : Promise.resolve({ data: [] as unknown[] }),
   ]);
-  const flatPartners: RawFamPartner[] = ((partRes.data ?? []) as { family_id: number; person_id: number; person: { visning_navn: string | null } | null }[])
+  const citData = orThrow(citRes as { data: unknown[] | null; error?: unknown }, 'fetchForaeldreSlot/citation');
+  const concData = orThrow(concRes as { data: unknown; error?: unknown }, 'fetchForaeldreSlot/conclusion');
+  const partData = orThrow(partRes as { data: unknown[] | null; error?: unknown }, 'fetchForaeldreSlot/family_member');
+  const flatPartners: RawFamPartner[] = ((partData ?? []) as { family_id: number; person_id: number; person: { visning_navn: string | null } | null }[])
     .map((p) => ({ family_id: p.family_id, person_id: p.person_id, visning_navn: p.person?.visning_navn ?? null }));
-  return buildForaeldreSlot(Number(factId), aList, (citRes.data ?? []) as RawSlotCit[], (concRes.data ?? null) as RawSlotConc | null, flatPartners);
+  return buildForaeldreSlot(Number(factId), aList, (citData ?? []) as RawSlotCit[], (concData ?? null) as RawSlotConc | null, flatPartners);
 }
 
 // En persons EGEN fødselsfamilie + kildeudgave — bruges til §6 trin (a): importér en samme_som-
@@ -266,16 +271,16 @@ export async function fetchBarnFamilie(personId: string): Promise<BarnFamilie | 
   const sb = supabase;
   if (!sb || !personId) return null;
   const pid = Number(personId);
-  const { data: bm } = await sb.from('family_member').select('family_id').eq('person_id', pid).eq('rolle', 'barn').maybeSingle();
+  const bm = orThrow(await sb.from('family_member').select('family_id').eq('person_id', pid).eq('rolle', 'barn').maybeSingle(), 'fetchBarnFamilie/family_member');
   const familyId = (bm as { family_id: number } | null)?.family_id;
   if (familyId == null) return null;
   const [partRes, extRes] = await Promise.all([
     sb.from('family_member').select('person_id,person(visning_navn)').eq('family_id', familyId).eq('rolle', 'partner'),
     sb.from('person_external_id').select('source_id,source(udgave,titel)').eq('person_id', pid).order('source_id').limit(1).maybeSingle(),
   ]);
-  const foraeldre: ForaeldreForaelder[] = ((partRes.data ?? []) as unknown as { person_id: number; person: { visning_navn: string | null } | null }[])
+  const foraeldre: ForaeldreForaelder[] = ((orThrow(partRes, 'fetchBarnFamilie/partnere') ?? []) as unknown as { person_id: number; person: { visning_navn: string | null } | null }[])
     .map((p) => ({ personId: p.person_id, navn: p.person?.visning_navn ?? '(ukendt)' }));
-  const ext = extRes.data as unknown as { source_id: number | null; source: { udgave: string | null; titel: string | null } | null } | null;
+  const ext = orThrow(extRes, 'fetchBarnFamilie/person_external_id') as unknown as { source_id: number | null; source: { udgave: string | null; titel: string | null } | null } | null;
   return { familyId, foraeldre, sourceId: ext?.source_id ?? null, udgave: ext?.source?.udgave ?? ext?.source?.titel ?? null };
 }
 
@@ -289,7 +294,7 @@ export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
   if (error) throw error;
   const rows = (data ?? []) as { person_id: number; fact_id: number; antal_familier: number; antal_paastande: number; status: string | null }[];
   if (!rows.length) return [];
-  const { data: persons } = await sb.from('person').select('id,visning_navn').in('id', rows.map((r) => r.person_id));
+  const persons = orThrow(await sb.from('person').select('id,visning_navn').in('id', rows.map((r) => r.person_id)), 'fetchForaeldreKonflikter/person');
   const navnById = new Map(((persons ?? []) as { id: number; visning_navn: string | null }[]).map((p) => [p.id, p.visning_navn]));
   return rows.map((r) => ({ personId: r.person_id, factId: r.fact_id, antalFamilier: r.antal_familier,
     antalPaastande: r.antal_paastande, status: r.status, navn: navnById.get(r.person_id) ?? null }));
@@ -755,26 +760,29 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;
   const pid = Number(personId);
-  const { data: facts } = await supabase
-    .from('fact').select('id,faktatype').eq('subjekt_type', 'person').eq('subjekt_id', pid);
+  const facts = orThrow(await supabase
+    .from('fact').select('id,faktatype').eq('subjekt_type', 'person').eq('subjekt_id', pid), 'fetchPersonEvidence/fact');
   const factIds = (facts ?? []).map((f: RawFact) => f.id);
   if (!factIds.length) {
-    const { data: p0 } = await supabase.from('person').select('koen').eq('id', pid).maybeSingle();
+    const p0 = orThrow(await supabase.from('person').select('koen').eq('id', pid).maybeSingle(), 'fetchPersonEvidence/person');
     return { felter: {}, koen: p0?.koen ?? null };
   }
-  const [{ data: assertions }, { data: conclusions }, { data: person }] = await Promise.all([
+  const [assertionsRes, conclusionsRes, personRes] = await Promise.all([
     supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw')
       .eq('target_type', 'fact').in('target_id', factIds),
     supabase.from('conclusion').select('target_id,valgt_assertion_id,status')
       .eq('target_type', 'fact').in('target_id', factIds),
     supabase.from('person').select('koen').eq('id', pid).maybeSingle(),
   ]);
+  const assertions = orThrow(assertionsRes, 'fetchPersonEvidence/assertion');
+  const conclusions = orThrow(conclusionsRes, 'fetchPersonEvidence/conclusion');
+  const person = orThrow(personRes, 'fetchPersonEvidence/person');
   const assertIds = (assertions ?? []).map((a: RawAssert) => a.id);
-  const { data: citations } = assertIds.length
-    ? await supabase.from('citation')
+  const citations = assertIds.length
+    ? orThrow(await supabase.from('citation')
         .select('assertion_id,source_id,side,citat_tekst,citat_dato,source(titel)')
-        .in('assertion_id', assertIds)
-    : { data: [] };
+        .in('assertion_id', assertIds), 'fetchPersonEvidence/citation')
+    : [];
   return joinEvidence({
     facts: (facts ?? []) as RawFact[],
     assertions: (assertions ?? []) as RawAssert[],
@@ -983,7 +991,7 @@ export function mapMediaBibliotekRows(
     if (r.rolle !== 'afbildet') continue;
     const pair = r.subjekt_type === 'person' && r.objekt_type === 'media'
       ? { mediaId: String(r.objekt_id), target: `person:${r.subjekt_id}` }
-      : r.subjekt_type === 'media' && ['estate','coat_of_arms','lineage'].includes(r.objekt_type)
+      : r.subjekt_type === 'media' && (MEDIA_AFBILDET_OBJEKT_TYPER as readonly string[]).includes(r.objekt_type)
         ? { mediaId: String(r.subjekt_id), target: `${r.objekt_type}:${r.objekt_id}` }
         : null;
     if (pair) {
@@ -1015,23 +1023,27 @@ export function mapMediaBibliotekRows(
 export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   if (!supabase) return [];
   const sb = supabase;
-  const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').order('id')),
+  const [tabelRows, personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn'>>(() =>
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
         .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
-        .eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet').order('id')),
+        .eq('subjekt_type', 'media').in('objekt_type', [...MEDIA_AFBILDET_OBJEKT_TYPER]).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMentionRow>(() =>
       sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id').eq('maal_type', 'media').order('kilde_type').order('kilde_id').order('maal_type').order('maal_id')),
   ]);
-  const mediaIds = mediaRows.map((m) => m.id);
-  const variants = mediaIds.length
-    ? await getAll<{ media_id: number; storage_path: string }>(() =>
-        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id'))
-    : [];
+  const mediaIds = tabelRows.map((m) => m.id);
+  const [interne, variants] = await Promise.all([
+    fetchMediaInterneFelter(mediaIds),
+    mediaIds.length
+      ? getAll<{ media_id: number; storage_path: string }>(() =>
+          sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id'))
+      : Promise.resolve([] as { media_id: number; storage_path: string }[]),
+  ]);
+  const mediaRows = flettInterneFelter(tabelRows, interne);
   return mapMediaBibliotekRows(
     mediaRows,
     [...personRelationer, ...objektRelationer],
@@ -1228,6 +1240,51 @@ export async function fetchUdrensPreview(mediaId: string): Promise<UdrensPreview
   return mapUdrensPreview(data);
 }
 
+// Review 37 R37S8-1 (#397): original_filnavn er ikke læsbar direkte på media (kolonne-kontrakten i mediaKontrakt.ts);
+// redaktionen henter det gennem den rolle-gatede red_media_interne_felter i bidder à højst MEDIA_INTERNE_FELTER_BID
+// id'er (serverens loft er 1000). Svaret caster id til tekst; et id over 2^53 sendes som streng.
+type RawMediaInterneFelter = { id: number | string; original_filnavn: string | null; sha256: string | null };
+type InterneFelterRpc = (ids: (number | string)[]) => Promise<{ data: RawMediaInterneFelter[] | null; error: { message: string } | null }>;
+
+const defaultInterneFelterRpc: InterneFelterRpc = async (ids) => {
+  if (!supabase) return { data: null, error: { message: 'Supabase ikke konfigureret' } };
+  const { data, error } = await supabase.rpc('red_media_interne_felter', { p_ids: ids })
+    .select('id::text,original_filnavn,sha256');
+  return { data: data as RawMediaInterneFelter[] | null, error };
+};
+
+const bigintArg = (id: number | string): number | string => {
+  if (typeof id === 'number') return id;
+  const n = Number(id);
+  return Number.isSafeInteger(n) ? n : id;
+};
+
+// Et medlem kan åbne redaktionen i forslagstilstand og se de medier, RLS viser det; serverens gate svarer da
+// »Kun redaktion«. Det er ikke en fejl i listen, men netop skellet: medlemmet får listen uden de interne felter (null).
+// Alle andre fejl kastes frem.
+const erIkkeRedaktion = (error: { message?: string } | null | undefined) => error?.message === 'Kun redaktion';
+export async function fetchMediaInterneFelter(
+  ids: readonly (number | string)[],
+  rpc: InterneFelterRpc = defaultInterneFelterRpc,
+): Promise<Map<string, { originalFilnavn: string | null }>> {
+  const unikke = [...new Map(ids.map((id) => [String(id), id])).values()];
+  const out = new Map<string, { originalFilnavn: string | null }>();
+  for (let i = 0; i < unikke.length; i += MEDIA_INTERNE_FELTER_BID) {
+    const { data, error } = await rpc(unikke.slice(i, i + MEDIA_INTERNE_FELTER_BID).map(bigintArg));
+    if (erIkkeRedaktion(error)) return new Map();
+    if (error) throw new Error(`red_media_interne_felter: ${error.message}`);
+    for (const r of data ?? []) out.set(String(r.id), { originalFilnavn: r.original_filnavn });
+  }
+  return out;
+}
+
+/** Fletter original_filnavn ind på id; et medie uden svar (fx slettet imellem) får null. */
+export function flettInterneFelter<T extends { id: number | string }>(
+  rows: readonly T[], felter: ReadonlyMap<string, { originalFilnavn: string | null }>,
+): (T & { original_filnavn: string | null })[] {
+  return rows.map((r) => ({ ...r, original_filnavn: felter.get(String(r.id))?.originalFilnavn ?? null }));
+}
+
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
 async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number; primaer?: boolean }[]): Promise<PersonMedia[]> {
@@ -1235,12 +1292,14 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
   const primaerByMediaId = new Map(pairs.map((p) => [String(p.mediaId), p.primaer === true]));
   const mediaIds = pairs.map((p) => p.mediaId);
-  const [rows, variants] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds).order('id')),
+  const [tabelRows, interne, variants] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn'>>(() =>
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at').in('id', mediaIds).order('id')),
+    fetchMediaInterneFelter(mediaIds),
     getAll<{ media_id: number; storage_path: string }>(() =>
       sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id')),
   ]);
+  const rows = flettInterneFelter(tabelRows, interne);
   const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
   return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId)
     .map((media) => ({ ...media, primaer: primaerByMediaId.get(media.id) === true }));
@@ -1290,13 +1349,13 @@ export function mapSammeSomLinks(
 // Hent alle samme_som-links der involverer personId (begge retninger).
 export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink[]> {
   if (!supabase) return [];
-  const { data } = await supabase
+  const data = orThrow(await supabase
     .from('relation')
     .select('id,subjekt_id,objekt_id')
     .eq('rolle', 'samme_som')
     .eq('subjekt_type', 'person')
     .eq('objekt_type', 'person')
-    .or(`subjekt_id.eq.${Number(personId)},objekt_id.eq.${Number(personId)}`);
+    .or(`subjekt_id.eq.${Number(personId)},objekt_id.eq.${Number(personId)}`), 'fetchSammeSomLinks');
   return mapSammeSomLinks(personId, (data ?? []) as never);
 }
 

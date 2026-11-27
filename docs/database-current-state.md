@@ -529,6 +529,45 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 58. Review 37 ceremoni 5 (R37S8-1 + R37B-3): mediernes interne felter kun for redaktionen, flet af familie- og stedbilleder — LIVE i prod (2026-11-26/27)
+
+**Grundlag:** PR #509 (CI grøn i alle 10 jobs på `7e1771c9`; merget `77eb01b9` mellem blok A og B). Privat runner
+`~/.private/review37-c5/prod.zsh`, fastlåst på `7e1771c9` (blok-sha A `33413189…`, B `89dc4049…`), base `b9d2c508`
+(prods SQL efter §57). To trin, fordi medlemmer og redaktion deler rollen `authenticated`: blok A (additiv) før merge,
+blok B (revoke) først efter Vercel-deployet af den nye klient.
+
+- **Hvorfor:** medlemmer kunne læse `media.original_filnavn`/`sha256` (R37S8-1), fordi redaktionens medieliste og
+  dublettjek læste dem direkte fra tabellen; skulle lukkes, før medlemmer lukkes ind (prod: 0 medlemmer, 1 redaktør, 212
+  media). Blød medieflet kendte kun estate/coat_of_arms/lineage (R37B-3; 0 familie-/stedrelationer i prod, latent).
+- **Blok A `review37-c5a` (2026-11-26, 3,6 s, ingen data):**
+  - `red_media_interne_felter(bigint[])` → `(id, original_filnavn, sha256)`; NULL eller over 1000 id'er → `22023`.
+  - `red_media_efter_sha(text)` → `(id, titel, upload_status, storage_path)`; kræver `^[0-9a-f]{64}$`, ellers `22023`.
+  - Begge SECURITY DEFINER med gate `Kun redaktion` (`current_rolle()`); EXECUTE kun til `authenticated` (på db-rls'
+    allow-liste, db-verify's liste og db-migrations' red_*-ACL-blok).
+  - `red_slet_medierelation_uden_evidens` accepterer også `family`/`place`.
+  - I transaktionen: facit OK (3 kroppe); katalog-delta præcis de 3 funktioner; den gamle klient læste stadig begge
+    kolonner; RPC'erne som redaktør 50/50 felter og 1 kendt dublet, som medlem afvist; anon 1725 personer og fakta-md5 før
+    = efter. Via REST som gæst: begge RPC'er `42501` (ikke `PGRST202`, dvs. PostgREST' schema-cache kender dem).
+- **Web (ved merge `77eb01b9`):** medieliste, bibliotek og same-file-tjek fletter de interne felter ind fra RPC'en i
+  bidder à 500; dublettjekket går via `red_media_efter_sha`; flet, `tilknytMedia`, tælling og navne kender family/place.
+  Røgtest som redaktør på preview før merge (projektejeren). Vercel `success`; den live bundle kalder begge RPC'er.
+- **Blok B `review37-c5b` (2026-11-27, 3,9 s):** `authenticated` mister tabelretten på `media` og får præcis gæsternes
+  kolonneliste (15 kolonner). Katalog-delta: tabellens ACL + de 15 kolonne-ACL'er. Som medlem: `titel`/`storage_path`
+  ok, `original_filnavn`/`sha256` nægtet; RPC'erne uændrede (50/50). `tal`: tilstand AB, anon og authenticated ens.
+  REST som gæst: `select=titel` 200; `original_filnavn`, `sha256=eq.…` og begge RPC'er `42501`.
+- **Efterkontrol:** `get_advisors` (security): samme 4 lint-typer som efter §57; sitet 200.
+- **Bevis:** verify-enhederne `r37c5a` og strammet `r37s8`; `tests/sql/test-review37-c5-kaldere.sql`;
+  `tests/sql/test-review37-c5-upgrade.sh <db> b9d2c508` (A → A → B → B/A/B → hele db-rls oveni → kaldermatrice → fuld
+  db-verify); kolonnekontrakt i `packages/core`. Generalprøve på stand-in: B afvist i tilstand 0, A, `tal`, A afvist igen,
+  fortryd-a, A; B, `tal`, fortryd-a afvist i AB, fortryd-b, B.
+- **Fortryd:** `fortryd-b` (prods ACL fra `~/.private/review37-c5/fortryd-definitioner-b.prod.sql`) giver den gamle
+  klient adgang igen; `fortryd-a` kun i tilstand A og efter revert af #509 (ellers kalder webben funktioner, der ikke
+  findes).
+- **Mellem A og B** måtte hverken hele `db-rls.sql` eller hele `db-migrations.sql` køres (blok B ligger sidst i
+  db-migrations og ville have lukket kolonnerne for den gamle klient).
+- **Åbent:** dedup-målet og mobilens læserflade har stadig de gamle 3 typer (først relevant, når upload til familie/sted
+  bygges).
+
 ## 57. Review 37 ceremoni 4 (R37P11-2 + P8): redaktøren retter »levende«, filkvittering kræver objektbevis — LIVE i prod (2026-11-26)
 
 **Grundlag:** PR #500 (CI grøn i alle jobs på `3462819d`; merget `c8511ecb` efter DDL). Privat runner
@@ -871,8 +910,8 @@ prod-kørslen, der tog den endelige blok fra main. Privat runner `~/.private/rev
 - **Øvelse:** stand-in `…_s8oev2`: prøve → commit → fortryd-prøve → fortryd → commit. Prod: prøve, derefter commit.
 - **Fortryd:** `/bin/zsh -f ~/.private/review37-s8/prod.zsh fortryd [--jeg-mener-det]` (prods ACL fra før apply:
   `~/.private/review37-s8/fortryd-definitioner.prod.sql`).
-- **Kendte rester (#397):** medlemmer læser stadig `media.original_filnavn/sha256` (redaktionens medieliste og dublettjek
-  læser dem direkte → rolle-gated RPC, før medlemmer lukkes ind; prod har 0 medlemmer). `media_variant` har stadig
+- **Kendte rester (#397):** ~~medlemmer læser stadig `media.original_filnavn/sha256`~~ (lukket i §58, 2026-11-27:
+  rolle-gatede RPC'er + gæsternes kolonneliste til `authenticated`). `media_variant` har stadig
   Supabases standard-ALL for `anon`/`authenticated`, og `story_kilde` har MAINTAIN.
 
 ### P11 (PR #443)
