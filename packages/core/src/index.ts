@@ -100,3 +100,7 @@ export * from './faktaVisning';
 export * from './slaegtskab';
 export * from './omSlaegten';
 export * from './godserIUdgave';
+// Besiddelsens ejerrække og ejertal — flyttet fra web/src/data (mobil-paritet, bid 9).
+export * from './ejerraekke';
+// Søgningens match, levetid, filtre og stavemåder — flyttet fra web/src/data/soeg.ts (mobil-paritet, bid 9).
+export * from './soeg';

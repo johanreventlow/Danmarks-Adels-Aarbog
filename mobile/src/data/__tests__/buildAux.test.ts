@@ -31,7 +31,18 @@ test('buildAux: godsListe komplet (inkl. ejerløse) m. ownerCount', () => {
   const brahe = aux.godsListe.find((g) => g.id === '1');
   const ejerloes = aux.godsListe.find((g) => g.id === '2');
   expect(brahe?.ownerCount).toBe(1);
-  expect(ejerloes?.ownerCount).toBe(0); // ejerløs gods er MED (modsat estateList)
+  expect(ejerloes?.ownerCount).toBe(0); // ejerløs gods er MED
+});
+
+test('buildAux: estateList og estateById rummer alle godser, også ejerløse (som web)', () => {
+  const aux = buildAux({ ...base,
+    estates: [{ id: 1, navn: 'Brahetrolleborg', slags: 'gods' }, { id: 2, navn: 'Ejerløs', slags: null }] as never,
+    relations: [{ subjekt_type: 'person', subjekt_id: 9, objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: '(1700-†)' }] as never,
+  });
+  expect(aux.estateList.map((e) => [e.id, e.ownerCount, e.ejerIds])).toEqual([['1', 1, ['9']], ['2', 0, []]]);
+  expect(aux.estateById['2']).toEqual({ id: '2', navn: 'Ejerløs', slags: '', stedId: null });
+  // Bogens periodetekst bevares til ejerrækken; period er uden parenteser som før.
+  expect(aux.ownersByEstate['1']?.[0]).toMatchObject({ period: '1700-†', periodeRaw: '(1700-†)' });
 });
 
 test('buildAux: orgListe + medieListe felt-map', () => {
@@ -184,4 +195,27 @@ test('buildAux: ownerCount tæller personer, ikke perioder (ejer med to perioder
   });
   expect(aux.godsListe.find((g) => g.id === '1')?.ownerCount).toBe(1);
   expect(aux.estateList.find((g) => g.id === '1')?.ownerCount).toBe(1);
+  expect(aux.estateList.find((g) => g.id === '1')?.ejerIds).toEqual(['9']);
+});
+
+test('buildAux: mediaByObjekt samler billeder pr. gods/våben fra media→objekt-relationerne, ét medie én gang', () => {
+  const aux = buildAux({ ...base,
+    media: [{ id: 1, titel: 'Gård' }, { id: 2, titel: 'Våben' }] as never,
+    mediaRelations: [
+      { subjekt_type: 'media', subjekt_id: 1, objekt_type: 'estate', objekt_id: 9, rolle: 'afbildet', periode_raw: null },
+      { subjekt_type: 'media', subjekt_id: 1, objekt_type: 'estate', objekt_id: 9, rolle: 'afbildet', periode_raw: null },
+      { subjekt_type: 'media', subjekt_id: 2, objekt_type: 'coat_of_arms', objekt_id: 3, rolle: 'afbildet', periode_raw: null },
+      { subjekt_type: 'media', subjekt_id: 404, objekt_type: 'estate', objekt_id: 9, rolle: 'afbildet', periode_raw: null }, // skjult/slettet
+    ] as never,
+  });
+  expect(aux.mediaByObjekt['estate:9']?.map((m) => m.id)).toEqual([1]);
+  expect(aux.mediaByObjekt['coat_of_arms:3']?.map((m) => m.id)).toEqual([2]);
+});
+
+test('buildAux: vaaben i id-orden (våbensidens hovedvåben er det første), vaabenListe stadig dansk-sorteret', () => {
+  const aux = buildAux({ ...base, arms: [
+    { id: 7, blasonering: 'Bjørn', note: '' }, { id: 5, blasonering: 'Ørn', note: 'hoved' },
+  ] as never });
+  expect(aux.vaaben.map((v) => v.id)).toEqual(['5', '7']);
+  expect(aux.vaabenListe.map((v) => v.id)).toEqual(['7', '5']);
 });

@@ -202,3 +202,20 @@ export function usePersonMedia(media: RawMedia[]): {
   ];
   return { portraitItem, gallery, lightboxItems };
 }
+
+// Objekt-billeder (gods, våben, bogens våbengalleri — mobil-paritet, bid 9): kun de signerbare, i den givne rækkefølge
+// (web viser også kun billeder med signeret url), med thumb til listen og fuld størrelse til Lightbox. Samme signering
+// som usePersonMedia, men intet portrætvalg: objektets billeder står, som de er knyttet.
+export function useObjektMedia(media: RawMedia[]): {
+  items: { media: RawMedia; uri: string; thumbUri: string }[];
+  lightboxItems: PersonMediaItem[];
+} {
+  const { uris, thumbUris } = useMediaAndThumbUris(media, (m) => m.thumb_storage_path);
+  const items = media
+    .filter((m) => uris[String(m.id)])
+    .map((m) => {
+      const uri = uris[String(m.id)];
+      return { media: m, uri, thumbUri: thumbUris[String(m.id)] ?? uri };
+    });
+  return { items, lightboxItems: items.map((g) => toLightboxItem(g.media, g.uri)) };
+}

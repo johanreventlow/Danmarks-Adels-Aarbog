@@ -22,3 +22,12 @@ export async function fetchAbout(): Promise<AboutSection[]> {
   if (lin.error) throw new Error(lin.error.message);
   return byggAboutSections((narr.data ?? []) as unknown as RawAboutRow[], (lin.data ?? []) as RawAboutLineage[]);
 }
+
+// Godsets historie (første offentlige narrativ på godset) til gods-detaljen (besiddelser.ts, hentBesiddelseInfo).
+// Ligger her, fordi de direkte narrativ-læsere er en lukket, klassificeret liste (cutover-kontrakten: R-testen
+// test-narrative-record-source-inventory.R, verify_narrative_record_cutover_postverify.R og SQL-inventaret i
+// db-migrations.sql); denne fil er klassificeret »non_person_control«, og et gods er ikke en person.
+export function hentGodsNarrativ(sb: NonNullable<typeof supabase>, estateId: string) {
+  return sb.from('narrative').select('tekst').eq('subjekt_type', 'estate').eq('subjekt_id', Number(estateId))
+    .eq('privat', false).order('id', { ascending: true }).limit(1);
+}

@@ -34,6 +34,7 @@ const aux: Aux = {
   officesBy: {},
   mediaBy: {},
   mediaById: {},
+  mediaByObjekt: {},
   ownersByEstate: {},
   estateList: [],
   estateById: {},
@@ -43,6 +44,7 @@ const aux: Aux = {
   medieKoeTaellere: { rettigheder: 0, loese: 0, strandede: 0, papirkurv: 0, dubletter: 0 },
   godsListe: [],
   vaabenListe: [],
+  vaaben: [],
 };
 
 // Linjelaget som en uden skemaer (ingen udgaver, trykt kode som nøgle) — samme form som en live-base, hvor

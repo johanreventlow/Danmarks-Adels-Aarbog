@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildModel, type AppPerson } from '@daa/core';
+import { buildModel, type AppPerson } from '../index';
 import type { Model } from '../types';
 import { antalEjere, byggEjerraekke, periodeTekst } from '../ejerraekke';
 

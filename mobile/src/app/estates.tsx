@@ -1,16 +1,17 @@
-// Godser & ejendomme — liste (README §5.7). Port af v2-designet (linje 170-185).
-// Intro + liste af gods-kort (⌂-badge, navn, "N registrerede ejere", chevron). Data fra
-// aux.estateList (relation rolle 'ejer' → estate). Tryk → gods-detalje.
+// Besiddelser — liste (README §5.7, ord og regler som web's EstatesView). Intro + liste af gods-kort (⌂-badge, navn,
+// »N ejere i Aarbogen«, chevron). Data fra aux.estateList: ALLE godser, også uden ejere; ejertallet tælles om mod
+// modellen (besiddelserVist). Tryk → gods-detalje.
 // Liste/Kort-toggle (spejler web/src/Folgesvend.tsx's EstatesView): kort-tilstand bruger
 // geo.byEstate (estate.sted_id → place) — kun godser med koordinater vises som nåle.
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel, Serif } from '../components/Typography';
 import { estatePoints } from '@daa/core';
+import { besiddelserVist, ejerTekst } from '../data/besiddelser';
 import { useGeoOnMount } from '../hooks/useGeoOnMount';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Shadow } from '../theme/tokens';
@@ -18,9 +19,10 @@ import { Border, Colors, Shadow } from '../theme/tokens';
 export default function EstatesScreen() {
   const router = useRouter();
   const aux = useStore((s) => s.aux);
+  const model = useStore((s) => s.model);
   const geo = useStore((s) => s.geo);
   const geoLoading = useStore((s) => s.geoLoading);
-  const estateList = aux?.estateList ?? [];
+  const estateList = useMemo(() => besiddelserVist(aux?.estateList ?? [], model), [aux, model]);
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
   const points = estatePoints(geo);
 
@@ -31,7 +33,7 @@ export default function EstatesScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <TopBar title="Godser & ejendomme" />
+      <TopBar title="Besiddelser" />
       <View style={styles.toggleRow}>
         {(['liste', 'kort'] as const).map((m) => (
           <Pressable key={m} onPress={() => setViewMode(m)} style={[styles.toggleBtn, viewMode === m && styles.toggleBtnActive]}>
@@ -55,7 +57,7 @@ export default function EstatesScreen() {
             />
           ) : (
             <View style={{ padding: 22 }}>
-              <Body size={13} color={Colors.inkMuted}>Ingen godser er kortlagt endnu.</Body>
+              <Body size={13} color={Colors.inkMuted}>Ingen besiddelser er kortlagt endnu.</Body>
             </View>
           )
         ) : (
@@ -64,9 +66,10 @@ export default function EstatesScreen() {
             data={estateList}
             keyExtractor={(e) => e.id}
             contentContainerStyle={{ padding: 18, paddingBottom: 40 }}
+            ListEmptyComponent={<Body size={13} color={Colors.inkMuted}>Ingen besiddelser registreret.</Body>}
             ListHeaderComponent={
               <Body size={13} color={Colors.inkMuted} style={{ marginBottom: 14 }}>
-                Godser, herregårde og len knyttet til slægten — med de slægtsmedlemmer der har ejet dem.
+                Godser, gårde, len og stamhuse, slægten har ejet. Vælg en for ejerrækken gennem tiden.
               </Body>
             }
             renderItem={({ item }) => (
@@ -77,7 +80,7 @@ export default function EstatesScreen() {
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={20} style={{ lineHeight: 21 }}>{item.navn}</Serif>
                   <Body size={12} color={Colors.inkMuted} style={{ marginTop: 2 }}>
-                    {item.ownerCount} {item.ownerCount === 1 ? 'registreret ejer' : 'registrerede ejere'}
+                    {ejerTekst(item.ownerCount)}
                   </Body>
                 </View>
                 <Serif size={18} color="#bcae93">›</Serif>
