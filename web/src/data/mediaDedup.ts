@@ -20,11 +20,9 @@ type RelationLookup = (filters: Record<string, string>) => Promise<{ data: { id:
 type RawMediaHit = { id: number | string; titel: string | null; upload_status: string; storage_path: string | null };
 type MediaLookup = (sha: string) => Promise<{ data: RawMediaHit | null; error: LookupError }>;
 type MediaShaQueryClient = {
-  from: (table: string) => {
+  rpc: (fn: 'red_media_efter_sha', args: { p_sha256: string }) => {
     select: (columns: string) => {
-      eq: (column: string, value: string) => {
-        maybeSingle: () => Promise<{ data: RawMediaHit | null; error: LookupError }>;
-      };
+      maybeSingle: () => Promise<{ data: RawMediaHit | null; error: LookupError }>;
     };
   };
 };
@@ -73,18 +71,19 @@ export async function fetchMediaLinked(
 
 const MEDIA_DEDUP_SELECT = 'id::text,titel,upload_status,storage_path';
 
-// PostgREST-castet sker i SELECT'en, før JSON dekodes, så bigint-id'et aldrig passerer gennem et
-// JavaScript number. Den injicerbare query-builder er den samme adapter, som default-vejen bruger.
+// Review 37 R37S8-1 (#397): sha256 er ikke læsbar direkte på media (heller ikke som filter), så dublettjekket går
+// gennem den rolle-gatede red_media_efter_sha (højst én række; sha256 er unik). PostgREST-castet sker i SELECT'en,
+// før JSON dekodes, så bigint-id'et aldrig passerer gennem et JavaScript number. Den injicerbare klient er den samme
+// adapter, som default-vejen bruger.
 export async function queryMediaBySha(
   sha: string,
   client?: MediaShaQueryClient,
 ): ReturnType<MediaLookup> {
   if (client) {
-    return client.from('media').select(MEDIA_DEDUP_SELECT).eq('sha256', sha).maybeSingle();
+    return client.rpc('red_media_efter_sha', { p_sha256: sha }).select(MEDIA_DEDUP_SELECT).maybeSingle();
   }
-  const { data, error } = await supabase.from('media')
+  const { data, error } = await supabase.rpc('red_media_efter_sha', { p_sha256: sha })
     .select(MEDIA_DEDUP_SELECT)
-    .eq('sha256', sha)
     .maybeSingle();
   return { data: data as unknown as RawMediaHit | null, error };
 }

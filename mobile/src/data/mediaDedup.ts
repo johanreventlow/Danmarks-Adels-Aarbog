@@ -21,11 +21,9 @@ type RelationLookup = (filters: Record<string, string>) => Promise<{ data: { id:
 type MediaLookup = (sha: string) => Promise<{ data: RawMediaHit | null; error: LookupError }>;
 type ThumbPathLookup = (mediaId: string) => Promise<string | null>;
 type MediaShaQueryClient = {
-  from: (table: string) => {
+  rpc: (fn: 'red_media_efter_sha', args: { p_sha256: string }) => {
     select: (columns: string) => {
-      eq: (column: string, value: string) => {
-        maybeSingle: () => Promise<{ data: RawMediaHit | null; error: LookupError }>;
-      };
+      maybeSingle: () => Promise<{ data: RawMediaHit | null; error: LookupError }>;
     };
   };
 };
@@ -75,15 +73,16 @@ export async function fetchMediaLinked(
 
 const MEDIA_DEDUP_SELECT = 'id::text,titel,upload_status,storage_path';
 
+// Review 37 R37S8-1 (#397): sha256 er ikke læsbar direkte på media (heller ikke som filter), så dublettjekket går
+// gennem den rolle-gatede red_media_efter_sha (højst én række; sha256 er unik). id castes til tekst i SELECT'en.
 export async function queryMediaBySha(
   sha: string,
   client?: MediaShaQueryClient,
 ): ReturnType<MediaLookup> {
-  if (client) return client.from('media').select(MEDIA_DEDUP_SELECT).eq('sha256', sha).maybeSingle();
+  if (client) return client.rpc('red_media_efter_sha', { p_sha256: sha }).select(MEDIA_DEDUP_SELECT).maybeSingle();
   if (!supabase) return { data: null, error: { message: 'Supabase ikke konfigureret' } };
-  const { data, error } = await supabase.from('media')
+  const { data, error } = await supabase.rpc('red_media_efter_sha', { p_sha256: sha })
     .select(MEDIA_DEDUP_SELECT)
-    .eq('sha256', sha)
     .maybeSingle();
   return { data: data as unknown as RawMediaHit | null, error };
 }

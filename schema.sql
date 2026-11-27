@@ -7894,6 +7894,8 @@ CREATE OR REPLACE TRIGGER trg_relation_evidence_delete
 -- Medieflet må aldrig arve red_slet_relation's tilsigtede "slet relation + evidens"-semantik.
 -- Relationens rækkelås serialiserer mod evidens-triggerens KEY SHARE uden at blokere
 -- writes til andre relationer. Almindelig red_slet_relation er uændret.
+-- Review 37 R37B-3 (#397): de kanoniske afbildninger er de samme som i red_relation og CHECK'en
+-- relation_afbildet_kanonisk (S4), også familie- og stedbilleder (media → family/place).
 CREATE OR REPLACE FUNCTION red_slet_medierelation_uden_evidens(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_relation relation%ROWTYPE;
@@ -7907,7 +7909,7 @@ BEGIN
       AND v_relation.objekt_type='media')
     OR
     (v_relation.rolle='afbildet' AND v_relation.subjekt_type='media'
-      AND v_relation.objekt_type IN ('estate','coat_of_arms','lineage'))
+      AND v_relation.objekt_type IN ('estate','coat_of_arms','lineage','family','place'))
   ) THEN
     RAISE EXCEPTION 'Relation % er ikke en kanonisk medie-afbildning', p_relation_id;
   END IF;
@@ -7925,6 +7927,45 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) TO authenticated;
+
+-- Review 37 R37S8-1 (#397): redaktionens interne mediefelter. Medlemmer og redaktion deler databaserollen
+-- authenticated, så kolonneretten på media kan ikke skelne dem; original_filnavn (uploadens filnavn kan bære navne) og
+-- sha256 (dublettjekket) læses derfor kun gennem disse to rolle-gatede SECURITY DEFINER-RPC'er. Medielisten fletter
+-- felterne ind på id (klienterne sender bidder à højst 500 id'er); loftet er 1000, så en enkelt anmodning ikke kan
+-- bede om hele tabellen og mere til. Kun authenticated har EXECUTE (redaktionens allow-liste i db-rls.sql).
+CREATE OR REPLACE FUNCTION public.red_media_interne_felter(p_ids bigint[])
+RETURNS TABLE(id bigint, original_filnavn text, sha256 text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $red_media_interne_felter$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_ids IS NULL OR cardinality(p_ids) > 1000 THEN
+    RAISE EXCEPTION 'MEDIA_IDS_UGYLDIG' USING ERRCODE='22023',
+      DETAIL='p_ids skal være et array med højst 1000 media-id''er.';
+  END IF;
+  RETURN QUERY SELECT m.id, m.original_filnavn, m.sha256 FROM public.media m WHERE m.id = ANY(p_ids) ORDER BY m.id;
+END
+$red_media_interne_felter$;
+REVOKE ALL ON FUNCTION public.red_media_interne_felter(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_media_interne_felter(bigint[]) TO authenticated;
+
+-- Dublettjekket før upload: findes de samme bytes allerede? sha256 er unik (media_sha256_uidx), så der er højst én
+-- række; ORDER BY id LIMIT 1 gør svaret entydigt, også hvis indekset en dag skulle mangle. Input skal være en hex-sha256
+-- med små bogstaver, som begge klienter beregner den.
+CREATE OR REPLACE FUNCTION public.red_media_efter_sha(p_sha256 text)
+RETURNS TABLE(id bigint, titel text, upload_status text, storage_path text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $red_media_efter_sha$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_sha256 IS NULL OR p_sha256 !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'MEDIA_SHA_UGYLDIG' USING ERRCODE='22023',
+      DETAIL='p_sha256 skal være 64 hex-tegn med små bogstaver.';
+  END IF;
+  RETURN QUERY SELECT m.id, m.titel, m.upload_status, m.storage_path
+    FROM public.media m WHERE m.sha256 = p_sha256 ORDER BY m.id LIMIT 1;
+END
+$red_media_efter_sha$;
+REVOKE ALL ON FUNCTION public.red_media_efter_sha(text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_media_efter_sha(text) TO authenticated;
 
 -- ============================================================================
 -- Redaktionel identitets-sammenkædning (samme_som) — spec 2026-07-02, Codex-3.
