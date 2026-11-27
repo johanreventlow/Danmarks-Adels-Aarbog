@@ -57,22 +57,64 @@ Arket og planen indeholder gods-, relations- og medie-id'er, godsnavne, perioder
    tyder på en gård (len, herred, sogn, fogderi, birk, palæ, hus, kongsgård, kloster, forlening, »o.s.v.« …),
    lister med mærkelige led, kopimål der kun ligner en eksisterende gård, billeder med en anden gårds titel.
 
+## Arket: projektejeren svarer i browseren
+
+Arket er én lokal HTML-fil (ingen netværk, ingen CDN). Hvert kort har radioknapper:
+
+- »Du skal vælge« (grupper uden forvalg, alle S- og H-spørgsmål) har intet valgt på forhånd.
+- »Forslag« har forslaget valgt, men det kan ændres.
+- Enkle rækker har kun et »ret«, når der findes et alternativ.
+
+H-»ja« kræver udgave og bogens ord; perioden er forudfyldt, hvor værktøjet har den. Standardvisningen viser kun
+det, der skal besvares. Der er filtre (Skal afgøres/Forslag/Enkle/Alle), søgning, en fremdriftslinje og taster
+(`n` næste ubesvarede, `j`/`k` næste/forrige, `1`-`9` vælger svar). Knappen »Alle ubesvarede S-spørgsmål: nej«
+spørger først.
+
+Svarene gemmes i browseren (localStorage, nøglet på `kilde_hash` + planens sha256). »Gem svar« henter
+`471-svar.json`, og »Kopiér svar« kopierer samme JSON:
+
+```json
+{"version": 1, "kilde_hash": {...}, "plan_forslag_sha256": "...",
+ "svar": {"G12": "C", "S3": "nej", "H2": {"svar": "ja", "periode": "1729-1924", "citat": "…", "kilde": 1}}}
+```
+
+Svaret indeholder kun besvarede poster og ændrede forslag; uændrede forslag er accepteret.
+
+## Fletning til plan.json (fail-closed)
+
+```bash
+python3 -I tools/godser-471/forslag.py --flet 471-svar.json --plan-ud tools/godser-471/plan.json
+```
+
+Fletningen læser `plan.forslag.json` (standard: ved siden af værktøjet; ellers `--plan`) og svarfilen. Den afviser
+– og skriver intet – ved:
+
+- ukendte nøgler eller poster;
+- forkert `kilde_hash` eller sha256 af `plan.forslag.json`;
+- manglende svar på en åben post;
+- ugyldige valg;
+- H-»ja« uden udgave eller citat;
+- et S-»ja«, hvor en af grupperne er valgt »behold rækkerne adskilt«;
+- en række, der lægges sammen to steder eller får to navne;
+- en plan, som `valider_plan` afviser.
+
+Et S-»ja« erstatter de øvrige gruppers egne sammenlægninger og navne, og alle mål (kopier, flytninger, »hører
+under«), der pegede på deres rækker, peger om på den første gruppes række. Værktøjet udskriver et dansk resumé
+(antal pr. operation mod forslaget, ændrede forslag) og planens sha256 til hash-bindingen.
+
 ## Plan-filen
 
 `plan.forslag.json` har Task 10's format (`version`, `kilde_db`, `kilde_hash`, `opret`, `saet`, `sammenlaeg`,
 `kopier`, `hoerer_under`, `flyt`) med **kun de forvalgte** operationer, plus:
 
-- `gruppe` på hver operation (gruppenummer, `S…` eller `H…`), så planen kan rettes pr. svar;
+- `gruppe` på hver operation;
 - `aabne`: grupper og spørgsmål uden forvalg (de står ikke i operationslisterne);
 - `forvalg`: det valgte alternativ pr. gruppe;
 - `alternativer`: alle alternativer pr. gruppe/spørgsmål med tekst og operationer.
 
-Efter projektejerens svar: tag for hver gruppe det valgte alternativs operationer (fjern de forvalgte, hvis svaret
-er et andet). Et »ja« til et S-spørgsmål **erstatter** de berørte gruppers egne sammenlægninger og navne (ellers
-opstår en kæde A→B→C, som DB-vagten afviser); kopier og flytninger, der pegede på en af dem, skal pege på den
-række, der bliver stående. Et »ja« til et H-spørgsmål kræver periode, `source` (1 = DAA 2018-20, 3 = DAA 1939) og
-bogens ord som `citat`. Kør `valider_plan` (fx via et lille kald i Python) på den endelige `plan.json`: den afviser
-kæder, snapshot-rækker i `sammenlaeg.fra`, mål der selv lægges sammen væk, `ny:`-nøgler uden oprettelse og
-»hører under« uden gård/majorat-art, kilde eller citat.
+Post-id'er er `G<nr>`, `S<n>` og `H<n>` (i `aabne`, `forvalg`, `alternativer`, `poster`); operationernes `gruppe`
+er gruppenummeret (tal) eller `S…`/`H…`. `poster` beskriver gruppernes rækker og overlevende række og S/H-spørgsmålenes
+grupper; `snapshots` er rækkerne med slettede ejerforhold. Den endelige `plan.json` laves med `--flet` (ovenfor) og
+har kun operationerne plus `grundlag` (sha256 af forslaget og svaret).
 
 `opret` slår Task 10 op på navn + art; `saet` sender altid `slags` (NULL = »art ukendt«, ikke »uændret«).

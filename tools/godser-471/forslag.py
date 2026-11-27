@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import html
 import json
 import os
@@ -370,6 +371,7 @@ class Alternativ:
     kode: str
     tekst: str
     ops: dict
+    adskilt: bool = False  # »Behold rækkerne adskilt«: kan ikke forenes med et S-»ja«
 
 
 @dataclass
@@ -425,21 +427,37 @@ class Forslag:
     ejer_pr_gods: dict
     media_pr_gods: dict
     sprunget_over: list
+    kilder: dict = field(default_factory=dict)
 
     def poster(self):
         return list(self.grupper) + list(self.hoerer) + list(self.sammenhaenge)
 
     def plan(self, kilde_db: str, kilde_hash: dict) -> dict:
-        ops, aabne, forvalg, alternativer = _tomme_ops(), [], {}, {}
+        ops, aabne, forvalg, alternativer, poster = _tomme_ops(), [], {}, {}, {}
         for p in self.poster():
-            alternativer[str(p.nr)] = {k: {"tekst": a.tekst, **a.ops} for k, a in p.alternativer.items()}
+            pid = post_id(p)
+            alternativer[pid] = {k: {"tekst": a.tekst, **({"adskilt": True} if a.adskilt else {}), **a.ops}
+                                 for k, a in p.alternativer.items()}
+            if isinstance(p, Gruppe):
+                poster[pid] = {"type": "gruppe", "medlemmer": p.medlemmer, "overlever": p.overlever,
+                               "kategori": p.kategori}
+            elif p.nr.startswith("S"):
+                poster[pid] = {"type": "S", "grupper": [f"G{n}" for n in p.grupper]}
+            else:
+                poster[pid] = {"type": "H", "grupper": [f"G{n}" for n in p.grupper]}
             if p.forvalg:
-                forvalg[str(p.nr)] = p.forvalg
+                forvalg[pid] = p.forvalg
                 _laeg_til(ops, p.alternativer[p.forvalg].ops)
             else:
-                aabne.append(p.nr)
+                aabne.append(pid)
         return {"version": 1, "kilde_db": kilde_db, "kilde_hash": kilde_hash, **ops,
-                "aabne": aabne, "forvalg": forvalg, "alternativer": alternativer}
+                "aabne": aabne, "forvalg": forvalg, "alternativer": alternativer, "poster": poster,
+                "snapshots": sorted(self.snapshots)}
+
+
+def post_id(p) -> str:
+    """Postens id i arket, svaret og planen: »G12« for gruppe 12, ellers »S3«/»H2«."""
+    return f"G{p.nr}" if isinstance(p, Gruppe) else p.nr
 
 
 def byg_forslag(data: dict) -> Forslag:
@@ -800,7 +818,8 @@ def byg_forslag(data: dict) -> Forslag:
             alts += ekstra
         for i, (tekst, ops) in enumerate(alts):
             kode = "ABCDEFGHIJKLMNOP"[i]
-            g.alternativer[kode] = Alternativ(kode, f"{tekst}: {beskriv(ops)}", ops)
+            g.alternativer[kode] = Alternativ(kode, f"{tekst}: {beskriv(ops)}", ops,
+                                             adskilt=tekst.startswith("Behold rækkerne adskilt"))
         g.forvalg = None if tvivl else "A"
         ændrer = (len(medl) > 1 or any(g.alternativer["A"].ops[k] for k in ("kopier", "flyt", "opret"))
                   or g.alternativer["A"].ops["saet"][0]["navn"] != navne[ov].original)
@@ -978,7 +997,7 @@ def byg_forslag(data: dict) -> Forslag:
 
     return Forslag(grupper=grupper, sammenhaenge=sammenhaenge, hoerer=hoerer, raekker=estates, navne=navne,
                    snapshots=snapshots, ejer_pr_gods=ejer_pr_gods, media_pr_gods=media_pr_gods,
-                   sprunget_over=sorted(sammenlagt_allerede))
+                   sprunget_over=sorted(sammenlagt_allerede), kilder=dict(data.get("kilder", {})))
 
 
 # ---------------------------------------------------------------- planens vagter
@@ -1027,36 +1046,48 @@ def _e(x) -> str:
 
 CSS = """
 :root{--bg:#fbfaf7;--fg:#1d1b17;--muted:#6b665c;--card:#ffffff;--line:#e4e0d6;--accent:#7a4b12;
---warn-bg:#fff3e0;--warn-fg:#8a4b00;--ok-bg:#eaf5ea;--ok-fg:#25622b;--chip:#f1ede4}
+--warn-bg:#fff3e0;--warn-fg:#8a4b00;--ok-bg:#eaf5ea;--ok-fg:#25622b;--chip:#f1ede4;--fokus:#2f6fd6;--fejl:#b3261e}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#16150f;--fg:#ece8de;--muted:#a59f92;
 --card:#1f1e17;--line:#38352b;--accent:#e0a85a;--warn-bg:#3a2a12;--warn-fg:#ffc77a;--ok-bg:#1c3220;--ok-fg:#8fd69a;
---chip:#2a2820}}
+--chip:#2a2820;--fokus:#7fb0ff;--fejl:#ff8a80}}
 :root[data-theme="dark"]{--bg:#16150f;--fg:#ece8de;--muted:#a59f92;--card:#1f1e17;--line:#38352b;--accent:#e0a85a;
---warn-bg:#3a2a12;--warn-fg:#ffc77a;--ok-bg:#1c3220;--ok-fg:#8fd69a;--chip:#2a2820}
-*{box-sizing:border-box}
+--warn-bg:#3a2a12;--warn-fg:#ffc77a;--ok-bg:#1c3220;--ok-fg:#8fd69a;--chip:#2a2820;--fokus:#7fb0ff;--fejl:#ff8a80}
+*{box-sizing:border-box}html,body{overflow-x:hidden}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:980px;margin:0 auto;padding:16px;overflow-wrap:anywhere}
-html,body{overflow-x:hidden}
-h1{font-size:1.6rem;margin:.2em 0}h2{margin-top:2em;border-bottom:2px solid var(--line);padding-bottom:.2em}
+main{max-width:980px;margin:0 auto;padding:0 16px 80px;overflow-wrap:anywhere}
+header.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 16px}
+header.top .indre{max-width:980px;margin:0 auto;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.bar{flex:1 1 180px;height:10px;background:var(--chip);border-radius:999px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok-fg);width:0}
+button,select,input[type=search],input[type=text],textarea{font:inherit;color:inherit;background:var(--card);
+border:1px solid var(--line);border-radius:8px;padding:4px 10px}
+button{cursor:pointer}button.primaer{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.filtre label{margin-right:8px;white-space:nowrap}
+h1{font-size:1.5rem;margin:.6em 0 .2em}h2{margin-top:1.6em;border-bottom:2px solid var(--line);padding-bottom:.2em}
 .muted{color:var(--muted)}.kort{background:var(--card);border:1px solid var(--line);border-radius:10px;
-padding:12px 14px;margin:12px 0}
+padding:12px 14px;margin:12px 0;scroll-margin-top:120px}
+.kort.aktiv{outline:3px solid var(--fokus);outline-offset:2px}.kort.besvaret{border-left:6px solid var(--ok-fg)}
+.kort.mangler{border-left:6px solid var(--warn-fg)}
 .kort h3{margin:0 0 .4em;font-size:1.1rem}.nr{color:var(--accent);font-weight:700;margin-right:.3em}
-.chip{display:inline-block;background:var(--chip);border-radius:999px;padding:0 .6em;font-size:.85rem;
-margin-left:.3em}
+.chip{display:inline-block;background:var(--chip);border-radius:999px;padding:0 .6em;font-size:.85rem;margin-left:.3em}
 .tvivl{background:var(--warn-bg);color:var(--warn-fg);border-radius:8px;padding:6px 10px;margin:6px 0}
-.forslag{background:var(--ok-bg);color:var(--ok-fg);border-radius:999px;padding:0 .6em;font-size:.8rem;
-font-weight:600}.vaelg{background:var(--warn-bg);color:var(--warn-fg);border-radius:999px;padding:0 .6em;
-font-size:.8rem;font-weight:600}
-.tabel{overflow-x:auto;max-width:100%}table{border-collapse:collapse;width:100%;font-size:.92rem}
-@media (max-width:600px){table{font-size:.82rem}th,td{padding:3px 4px}}
+.forslag{background:var(--ok-bg);color:var(--ok-fg);border-radius:999px;padding:0 .6em;font-size:.8rem;font-weight:600}
+.vaelg{background:var(--warn-bg);color:var(--warn-fg);border-radius:999px;padding:0 .6em;font-size:.8rem;font-weight:600}
+.tabel{overflow-x:auto;max-width:100%}table{border-collapse:collapse;width:100%;font-size:.9rem}
+@media (max-width:600px){table{font-size:.8rem}th,td{padding:3px 4px}}
 th,td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid var(--line)}
 th{color:var(--muted);font-weight:600}ul{margin:.3em 0;padding-left:1.2em}
-.alt{margin:.3em 0}.alt b{color:var(--accent)}details summary{cursor:pointer;font-weight:600}
-code{font-size:.9em}
+fieldset.valg{border:1px solid var(--line);border-radius:8px;margin:8px 0 0;padding:6px 10px}
+fieldset.valg legend{font-weight:600;padding:0 4px}
+fieldset.valg label{display:block;padding:4px 0;cursor:pointer}fieldset.valg label b{color:var(--accent)}
+.hfelter{display:none;margin:6px 0 0 24px}.hfelter.vis{display:block}.hfelter label{display:block;margin:4px 0}
+.hfelter input,.hfelter textarea,.hfelter select{width:100%}.fejl{color:var(--fejl);font-weight:600}
+details summary{cursor:pointer;font-weight:600}code,kbd{font-size:.9em}
+.skjult{display:none}#kopiboks{width:100%;height:8em;display:none}
 """
 
 
-def _raekker_html(f: Forslag, medl: list, overlever: int | None) -> str:
+def _raekker_html(f, medl, overlever):
     rk = []
     for m in medl:
         e = f.raekker[m]
@@ -1069,46 +1100,258 @@ def _raekker_html(f: Forslag, medl: list, overlever: int | None) -> str:
         per = "; ".join(f"{x['rid']}: {_e((x['periode'] or '').strip() or 'uden periode')}" for x in ejer)
         bil = ", ".join(f"media {_e(b['media_id'])} ({_e(b['slags'])}, relation {_e(b['rid'])})"
                         for b in f.media_pr_gods.get(m, []))
-        mærker = []
+        maerker = []
         if m == overlever:
-            mærker.append("bliver stående")
+            maerker.append("bliver stående")
         if m in f.snapshots:
-            mærker.append("slettet ejerforhold i historikken")
-        rk.append(f"<tr><td>{m}</td><td>{_e(e['navn'])}{''.join(f'<span class=chip>{_e(x)}</span>' for x in mærker)}"
+            maerker.append("slettet ejerforhold i historikken")
+        rk.append(f"<tr><td>{m}</td><td>{_e(e['navn'])}{''.join(f'<span class=chip>{_e(x)}</span>' for x in maerker)}"
                   f"</td><td>{_e(', '.join(f'{u} ({n})' for u, n in sorted(udg.items(), reverse=True)) or '—')}</td>"
                   f"<td>{len(ejer)}{' — ' + per if per else ''}</td><td>{bil or '—'}</td>"
                   f"<td>{_e(e.get('sted') or '—')}</td></tr>")
     return ("<div class=tabel><table><tr><th>Række</th><th>Navn i databasen (bogens form)</th><th>Udgave</th>"
-            "<th>Ejerforhold (antal — relation: periode)</th><th>Billeder</th><th>Sted</th></tr>" + "".join(rk) + "</table></div>")
+            "<th>Ejerforhold (antal — relation: periode)</th><th>Billeder</th><th>Sted</th></tr>" + "".join(rk) +
+            "</table></div>")
 
 
-def _alternativer_html(p) -> str:
-    ud = []
+def _valg_html(pid: str, p, forvalg: str | None, legend: str = "Dit valg") -> str:
+    ud = [f"<fieldset class=valg><legend>{_e(legend)}</legend>"]
     for kode, a in p.alternativer.items():
-        mærke = " <span class=forslag>Forslag</span>" if p.forvalg == kode else ""
-        ud.append(f"<div class=alt><b>{_e(kode)}</b> — {_e(a.tekst)}{mærke}</div>")
+        checked = " checked" if forvalg == kode else ""
+        maerke = " <span class=forslag>Forslag</span>" if p.forvalg == kode else ""
+        ud.append(f"<label><input type=radio name=\"{_e(pid)}\" value=\"{_e(kode)}\"{checked}> "
+                  f"<b>{_e(kode)}</b> — {_e(a.tekst)}{maerke}</label>")
+    ud.append("</fieldset>")
     return "".join(ud)
 
 
-def _gruppe_html(f: Forslag, g: Gruppe) -> str:
-    vælg = "" if g.forvalg else " <span class=vaelg>Du skal vælge</span>"
-    tv = "".join(f"<div class=tvivl>{_e(t)}</div>" for t in g.tvivl)
-    info = ("<ul>" + "".join(f"<li>{_e(t)}</li>" for t in g.info) + "</ul>") if g.info else ""
-    return (f"<section class=kort id=g{g.nr}><h3><span class=nr>{g.nr}</span>{_e(g.navn)}"
-            f"<span class=chip>{_e(ART_ETIKET[g.art])}</span><span class=chip>{len(g.medlemmer)} "
-            f"række{'r' if len(g.medlemmer) > 1 else ''}</span>{vælg}</h3>"
-            f"{_raekker_html(f, g.medlemmer, g.overlever)}{tv}{info}{_alternativer_html(g)}</section>")
+def _flag_html(tvivl: list, info: list) -> str:
+    tv = "".join(f"<div class=tvivl>{_e(t)}</div>" for t in tvivl)
+    return tv + (("<ul>" + "".join(f"<li>{_e(t)}</li>" for t in info) + "</ul>") if info else "")
 
 
-def _spoergsmaal_html(f: Forslag, s: Spoergsmaal) -> str:
-    info = ("<ul>" + "".join(f"<li>{_e(t)}</li>" for t in s.info) + "</ul>") if s.info else ""
-    return (f"<section class=kort id={_e(s.nr)}><h3><span class=nr>{_e(s.nr)}</span>{_e(s.tekst)} "
-            f"<span class=vaelg>Du skal vælge</span></h3>"
-            f"<p class=muted>Grupper: {', '.join(f'<a href=#g{n}>{n}</a>' for n in s.grupper)}</p>"
-            f"{_raekker_html(f, s.medlemmer, None)}{info}{_alternativer_html(s)}</section>")
+def _gruppe_html(f, g) -> str:
+    pid = post_id(g)
+    skal = g.forvalg is None
+    kat = "tvivl" if skal else g.kategori
+    maerke = " <span class=vaelg>Du skal vælge</span>" if skal else ""
+    soeg = " ".join([str(g.nr), pid, g.navn] + [f.raekker[m]["navn"] or "" for m in g.medlemmer]).lower()
+    hoved = (f"<h3><span class=nr>{g.nr}</span>{_e(g.navn)}<span class=chip>{_e(ART_ETIKET[g.art])}</span>"
+             f"<span class=chip>{len(g.medlemmer)} række{'r' if len(g.medlemmer) > 1 else ''}</span>{maerke}</h3>")
+    indhold = _raekker_html(f, g.medlemmer, g.overlever) + _flag_html(g.tvivl, g.info)
+    flere = len(g.alternativer) > 1
+    if skal:
+        valg = _valg_html(pid, g, None)
+    elif kat == "enkel":
+        valg = (f"<details><summary>ret</summary>{_valg_html(pid, g, g.forvalg)}</details>" if flere else
+                f"<p class=muted>{_e(g.alternativer[g.forvalg].tekst)}</p>")
+    else:
+        valg = _valg_html(pid, g, g.forvalg) if flere else f"<p class=muted>{_e(g.alternativer[g.forvalg].tekst)}</p>"
+    beslut = skal or flere
+    attrs = (f"class=kort id=\"{pid}\" data-kat=\"{kat}\" data-skal=\"{1 if skal else 0}\" "
+             f"data-forvalg=\"{_e(g.forvalg or '')}\" data-soeg=\"{_e(soeg)}\"" + (f" data-id=\"{pid}\"" if beslut else ""))
+    if kat == "enkel":
+        return f"<section {attrs}>{hoved}<details><summary>vis rækker</summary>{indhold}</details>{valg}</section>"
+    return f"<section {attrs}>{hoved}{indhold}{valg}</section>"
 
 
-def taelling(f: Forslag, plan: dict) -> dict:
+def _spoergsmaal_html(f, q, kilder: dict) -> str:
+    pid = post_id(q)
+    soeg = " ".join([pid, q.tekst] + [f.raekker[m]["navn"] or "" for m in q.medlemmer]).lower()
+    ud = [f"<section class=kort id=\"{pid}\" data-id=\"{pid}\" data-kat=\"{pid[0]}\" data-skal=\"1\" data-forvalg=\"\" "
+          f"data-soeg=\"{_e(soeg)}\"><h3><span class=nr>{_e(pid)}</span>{_e(q.tekst)} "
+          f"<span class=vaelg>Du skal vælge</span></h3>",
+          f"<p class=muted>Grupper: {', '.join(f'<a href=#G{n}>{n}</a>' for n in q.grupper)}</p>",
+          _raekker_html(f, q.medlemmer, None), _flag_html([], q.info), _valg_html(pid, q, None, "Dit svar")]
+    if pid.startswith("H"):
+        hu = (q.alternativer["ja"].ops["hoerer_under"] or [{}])[0]
+        valgt_kilde = hu.get("source")
+        opts = "<option value=\"\">vælg udgave</option>" + "".join(
+            f"<option value=\"{_e(sid)}\"{' selected' if sid == valgt_kilde else ''}>{_e(navn)}</option>"
+            for navn, sid in sorted(kilder.items()) if navn.startswith("DAA"))
+        ud.append(f"<div class=hfelter data-h=\"{pid}\"><p class=muted>Udfyld ved »ja«. Udgave og bogens ord skal "
+                  f"med; perioden kan stå tom, hvis bogen ikke angiver den.</p>"
+                  f"<label>Periode <input type=text name=\"{pid}-periode\" value=\"{_e(hu.get('periode') or '')}\" "
+                  f"placeholder=\"fx 1729-1924\"></label>"
+                  f"<label>Udgave <select name=\"{pid}-kilde\">{opts}</select></label>"
+                  f"<label>Bogens ord (citat) <textarea name=\"{pid}-citat\" rows=2>{_e(hu.get('citat') or '')}"
+                  f"</textarea></label><div class=fejl data-fejl=\"{pid}\"></div></div>")
+    ud.append("</section>")
+    return "".join(ud)
+
+
+JS = r"""
+(function () {
+  "use strict";
+  var META = JSON.parse(document.getElementById("meta").textContent);
+  var NOEGLE = "471-svar:" + META.kilde_hash.estate + ":" + META.kilde_hash.relation + ":" + META.plan_sha;
+  var kort = Array.prototype.slice.call(document.querySelectorAll("section.kort"));
+  var beslut = kort.filter(function (k) { return k.hasAttribute("data-id"); });
+  var aktiv = null;
+  function q(sel) { return document.querySelector(sel); }
+  function felt(navn) { var el = document.querySelector('[name="' + navn + '"]'); return el ? el.value : ""; }
+  function valgt(id) { var el = document.querySelector('input[name="' + id + '"]:checked'); return el ? el.value : null; }
+  function hMangler(id) {
+    var m = [];
+    if (!felt(id + "-kilde")) m.push("udgave");
+    if (!felt(id + "-citat").trim()) m.push("bogens ord");
+    return m;
+  }
+  function besvaret(k) {
+    var id = k.id, v = valgt(id);
+    if (!v) return false;
+    if (id.charAt(0) === "H" && v === "ja") return hMangler(id).length === 0;
+    return true;
+  }
+  function svar() {
+    var ud = {};
+    beslut.forEach(function (k) {
+      var id = k.id, v = valgt(id);
+      if (!v || !besvaret(k)) return;
+      if (id.charAt(0) === "H") {
+        var o = { svar: v };
+        if (v === "ja") { o.periode = felt(id + "-periode").trim(); o.citat = felt(id + "-citat").trim();
+                          o.kilde = Number(felt(id + "-kilde")); }
+        ud[id] = o;
+      } else if (k.getAttribute("data-skal") === "1" || v !== k.getAttribute("data-forvalg")) {
+        ud[id] = v;
+      }
+    });
+    return { version: 1, kilde_hash: META.kilde_hash, plan_forslag_sha256: META.plan_sha, svar: ud };
+  }
+  function gem() {
+    var tilstand = {};
+    beslut.forEach(function (k) {
+      var v = valgt(k.id); if (v) tilstand[k.id] = v;
+      if (k.id.charAt(0) === "H") ["periode", "citat", "kilde"].forEach(function (f) {
+        tilstand[k.id + "-" + f] = felt(k.id + "-" + f); });
+    });
+    try { window.localStorage.setItem(NOEGLE, JSON.stringify(tilstand)); q("#gemt").textContent = "Gemt i browseren"; }
+    catch (e) { q("#gemt").textContent = "Kan ikke gemme i browseren — brug »Gem svar«"; }
+  }
+  function hent() {
+    var t = null;
+    try { t = JSON.parse(window.localStorage.getItem(NOEGLE) || "null"); } catch (e) { t = null; }
+    if (!t) return;
+    Object.keys(t).forEach(function (n) {
+      var radio = document.querySelector('input[type=radio][name="' + n + '"][value="' + String(t[n]).replace(/"/g, "") + '"]');
+      if (radio) { radio.checked = true; return; }
+      var el = document.querySelector('[name="' + n + '"]');
+      if (el && el.type !== "radio") el.value = t[n];
+    });
+  }
+  function opdater(uden_gem) {
+    var skal = beslut.filter(function (k) { return k.getAttribute("data-skal") === "1"; });
+    var n = 0;
+    beslut.forEach(function (k) {
+      var b = besvaret(k), id = k.id;
+      if (k.getAttribute("data-skal") === "1") { if (b) n++; k.classList.toggle("besvaret", b); k.classList.toggle("mangler", !b); }
+      if (id.charAt(0) === "H") {
+        var ja = valgt(id) === "ja", hf = k.querySelector(".hfelter"), fe = k.querySelector("[data-fejl]");
+        hf.classList.toggle("vis", ja);
+        var m = ja ? hMangler(id) : [];
+        fe.textContent = m.length ? "Mangler: " + m.join(" og ") : "";
+      }
+    });
+    q("#taeller").textContent = n + " af " + skal.length + " besvaret";
+    q(".bar i").style.width = (skal.length ? 100 * n / skal.length : 100) + "%";
+    if (!uden_gem) gem();
+  }
+  function synlig(k) { return !k.classList.contains("skjult") && !k.closest(".afsnit.skjult"); }
+  function filtrer() {
+    var f = (document.querySelector("input[name=filter]:checked") || {}).value || "skal";
+    var s = q("#soeg").value.trim().toLowerCase();
+    kort.forEach(function (k) {
+      var kat = k.getAttribute("data-kat"), ok;
+      if (f === "skal") ok = k.getAttribute("data-skal") === "1";
+      else if (f === "forslag") ok = kat === "aendring";
+      else if (f === "enkle") ok = kat === "enkel";
+      else ok = true;
+      if (s) ok = ok && (k.getAttribute("data-soeg") || "").indexOf(s) >= 0;
+      k.classList.toggle("skjult", !ok);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".afsnit"), function (a) {
+      a.classList.toggle("skjult", !a.querySelector("section.kort:not(.skjult)"));
+    });
+  }
+  function saetAktiv(k) {
+    if (aktiv) aktiv.classList.remove("aktiv");
+    aktiv = k; if (!k) return;
+    k.classList.add("aktiv"); k.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  function flyt(trin, kunUbesvarede) {
+    var liste = kort.filter(function (k) {
+      return synlig(k) && (!kunUbesvarede || (k.getAttribute("data-skal") === "1" && !besvaret(k)));
+    });
+    if (!liste.length) { if (kunUbesvarede) window.alert("Alt er besvaret."); return; }
+    var i = aktiv ? kort.indexOf(aktiv) : -1;
+    var naeste = null;
+    if (trin > 0) { naeste = liste.filter(function (k) { return kort.indexOf(k) > i; })[0] || liste[0]; }
+    else { var f = liste.filter(function (k) { return kort.indexOf(k) < i; }); naeste = f[f.length - 1] || liste[liste.length - 1]; }
+    saetAktiv(naeste);
+  }
+  function download() {
+    var tekst = JSON.stringify(svar(), null, 1);
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([tekst], { type: "application/json" }));
+    a.download = "471-svar.json"; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  function kopier() {
+    var tekst = JSON.stringify(svar(), null, 1), boks = q("#kopiboks");
+    function reserve() {
+      boks.style.display = "block"; boks.value = tekst; boks.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      q("#gemt").textContent = ok ? "Kopieret" : "Markér teksten i feltet og kopiér den selv";
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tekst).then(function () { q("#gemt").textContent = "Kopieret"; }, reserve);
+    } else reserve();
+  }
+  function alleSNej() {
+    var mangler = beslut.filter(function (k) { return k.id.charAt(0) === "S" && !valgt(k.id); });
+    if (!mangler.length) { window.alert("Ingen ubesvarede S-spørgsmål."); return; }
+    if (!window.confirm("Sæt alle " + mangler.length + " ubesvarede S-spørgsmål til »nej«?")) return;
+    mangler.forEach(function (k) { var r = k.querySelector('input[value="nej"]'); if (r) r.checked = true; });
+    opdater();
+  }
+  document.addEventListener("change", function () { opdater(); });
+  document.addEventListener("input", function (e) { if (e.target.closest(".hfelter")) opdater(); });
+  document.addEventListener("click", function (e) { var k = e.target.closest("section.kort"); if (k && k !== aktiv) {
+    if (aktiv) aktiv.classList.remove("aktiv"); aktiv = k; k.classList.add("aktiv"); } });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (t && (t.tagName === "TEXTAREA" || t.tagName === "SELECT" || (t.tagName === "INPUT" && t.type !== "radio"))) return;
+    if (e.key === "j") { flyt(1, false); e.preventDefault(); }
+    else if (e.key === "k") { flyt(-1, false); e.preventDefault(); }
+    else if (e.key === "n") { flyt(1, true); e.preventDefault(); }
+    else if (/^[1-9]$/.test(e.key) && aktiv) {
+      var r = aktiv.querySelectorAll("fieldset.valg input[type=radio]")[Number(e.key) - 1];
+      if (r) { r.checked = true; opdater(); e.preventDefault(); }
+    }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("input[name=filter]"), function (r) {
+    r.addEventListener("change", filtrer); });
+  q("#soeg").addEventListener("input", filtrer);
+  q("#naeste").addEventListener("click", function () { flyt(1, true); });
+  q("#gem").addEventListener("click", download);
+  q("#kopier").addEventListener("click", kopier);
+  q("#snej").addEventListener("click", alleSNej);
+  hent(); filtrer(); opdater(true);
+})();
+"""
+
+
+def plan_tekst(plan: dict) -> str:
+    return json.dumps(plan, ensure_ascii=False, indent=1) + "\n"
+
+
+def plan_sha(plan: dict) -> str:
+    return hashlib.sha256(plan_tekst(plan).encode("utf-8")).hexdigest()
+
+
+def taelling(f, plan: dict) -> dict:
     return {
         "grupper": len(f.grupper),
         "grupper_flere_raekker": sum(1 for g in f.grupper if len(g.medlemmer) > 1),
@@ -1121,77 +1364,254 @@ def taelling(f: Forslag, plan: dict) -> dict:
     }
 
 
-def render_html(f: Forslag, meta: dict) -> str:
+def render_html(f, meta: dict) -> str:
     plan = f.plan(meta.get("kilde_db", ""), meta.get("kilde_hash", {}))
+    sha = meta.get("plan_sha") or plan_sha(plan)
     t = taelling(f, plan)
-    tvivl = [g for g in f.grupper if g.kategori == "tvivl"]
-    aendr = [g for g in f.grupper if g.kategori == "aendring"]
-    enkel = [g for g in f.grupper if g.kategori == "enkel"]
+    tvivl = [g for g in f.grupper if g.forvalg is None]
+    aendr = [g for g in f.grupper if g.forvalg and g.kategori == "aendring"]
+    enkel = [g for g in f.grupper if g.forvalg and g.kategori == "enkel"]
     kh = meta.get("kilde_hash", {})
+    meta_json = json.dumps({"kilde_hash": kh, "plan_sha": sha}).replace("</", "<\\/")
     dele = [
         "<!doctype html><html lang=da><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'><title>Godser forslagsark</title>"
-        f"<style>{CSS}</style></head><body><main>",
-        "<h1>Godserne: forslag til oprydning</h1>",
-        "<p class=muted>Issue #471, fase 1. Hver gruppe er rækker i databasen, som ser ud til at være samme gård "
-        "eller samme majorat (grevskab, baroni, stamhus). Arket viser kun godsnavne, perioder og udgaver — aldrig "
-        "hvem der ejede.</p>",
-        "<div class=kort><b>Sådan svarer du</b><ul>"
-        "<li>Skriv i chatten nummeret og bogstavet, fx <code>12 C</code>, <code>S3 nej</code> eller "
-        "<code>H2 ja 1729-1924 »bogens ord«</code>.</li>"
-        "<li>Står der <span class=forslag>Forslag</span> ved et valg, og er du enig, behøver du ikke svare.</li>"
-        "<li>Står der <span class=vaelg>Du skal vælge</span>, er der tvivl, og intet er valgt på forhånd.</li>"
-        "<li>»Læg sammen« flytter ejerforhold og billeder over på den række, der bliver stående; den tomme række "
-        "skjules og henviser videre. Bogens oprindelige formulering gemmes som citat på hvert ejerforhold, så "
-        "intet går tabt.</li>"
-        "<li>»Kopieres til« betyder: bogen nævner flere gårde i ét navn (»X med Y og Z«), så samme ejerforhold "
-        "kommer også til at stå på Y og Z.</li></ul></div>",
-        f"<div class=kort><b>Overblik</b><ul><li>{t['grupper']} grupper ({t['grupper_flere_raekker']} med flere "
-        f"rækker), {len(f.raekker) - len(f.sprunget_over)} rækker</li>"
-        f"<li>{len(tvivl)} grupper skal afgøres, {len(aendr)} har et forslag, {len(enkel)} er enkle</li>"
-        f"<li>{t['spoergsmaal_H']} spørgsmål om »hører under« (H), {t['spoergsmaal_S']} om navne, der ligner "
-        f"hinanden (S)</li>"
-        f"<li>Forslaget i alt: {t['plan_sammenlaeg']} sammenlægninger, {t['plan_opret']} nye gårde, "
-        f"{t['plan_kopier']} kopier, {t['plan_flyt']} flytninger, {t['plan_hoerer_under']} »hører under«</li>"
-        f"</ul><p class=muted>Kilde: {_e(meta.get('kilde_db'))} · estate-md5 {_e(kh.get('estate'))} · "
-        f"relation-md5 {_e(kh.get('relation'))}</p></div>",
-        f"<h2>1. Skal afgøres ({len(tvivl)})</h2>",
-        *(_gruppe_html(f, g) for g in tvivl),
-        f"<h2>2. Hører under (H, {len(f.hoerer)})</h2>"
+        f"<style>{CSS}</style></head><body>",
+        f"<script type=application/json id=meta>{meta_json}</script>",
+        "<header class=top><div class=indre><strong>Godser #471</strong>"
+        "<div class=bar><i></i></div><span id=taeller></span>"
+        "<button id=naeste class=primaer title='Tast n'>Næste ubesvarede</button>"
+        "<button id=gem>Gem svar</button><button id=kopier>Kopiér svar</button>"
+        "<span id=gemt class=muted></span></div>"
+        "<div class='indre filtre'><span class=muted>Vis:</span>"
+        "<label><input type=radio name=filter value=skal checked> Skal afgøres</label>"
+        "<label><input type=radio name=filter value=forslag> Forslag</label>"
+        "<label><input type=radio name=filter value=enkle> Enkle</label>"
+        "<label><input type=radio name=filter value=alle> Alle</label>"
+        "<input type=search id=soeg placeholder='Søg navn eller nummer' aria-label=Søg></div></header><main>",
+        "<h1>Godserne: dine valg</h1>",
+        "<div class=kort><b>Sådan gør du</b><ul>"
+        "<li>Vælg et svar ved hvert kort. Står der <span class=vaelg>Du skal vælge</span>, er intet valgt på "
+        "forhånd. Står der <span class=forslag>Forslag</span>, er forslaget valgt, men du kan ændre det.</li>"
+        "<li>Dine valg gemmes i browseren, mens du arbejder. Når du er færdig: tryk <b>Gem svar</b> (henter "
+        "filen <code>471-svar.json</code>) eller <b>Kopiér svar</b> og send den i chatten.</li>"
+        "<li>Taster: <kbd>n</kbd> næste ubesvarede, <kbd>j</kbd>/<kbd>k</kbd> næste/forrige kort, "
+        "<kbd>1</kbd>-<kbd>9</kbd> vælger svar i det markerede kort.</li>"
+        "<li>»Læg sammen« flytter ejerforhold og billeder over på den række, der bliver stående; bogens "
+        "oprindelige formulering gemmes som citat, så intet går tabt. »Kopieres til« betyder, at bogen nævner flere "
+        "gårde i ét navn, så samme ejerforhold også kommer til at stå på dem.</li>"
+        "<li>Arket viser kun godsnavne, perioder og udgaver — aldrig hvem der ejede.</li></ul>"
+        f"<p class=muted>{t['grupper']} grupper · {len(tvivl)} skal afgøres · {t['spoergsmaal_H']} om »hører "
+        f"under« (H) · {t['spoergsmaal_S']} om navne der ligner hinanden (S) · kilde {_e(meta.get('kilde_db'))} · "
+        f"estate-md5 {_e(kh.get('estate'))} · relation-md5 {_e(kh.get('relation'))} · plan-sha256 {_e(sha[:12])}…</p>"
+        "<button id=snej>Alle ubesvarede S-spørgsmål: nej</button>"
+        "<textarea id=kopiboks readonly aria-label='Svar til kopiering'></textarea></div>",
+        f"<div class=afsnit><h2>Grupper, der skal afgøres ({len(tvivl)})</h2>",
+        *(_gruppe_html(f, g) for g in tvivl), "</div>",
+        f"<div class=afsnit><h2>Hører under (H, {len(f.hoerer)})</h2>"
         "<p class=muted>»Hører under« registreres kun, hvor bogen selv siger det.</p>",
-        *(_spoergsmaal_html(f, h) for h in f.hoerer),
-        f"<h2>3. Navne der ligner hinanden (S, {len(f.sammenhaenge)})</h2>"
-        "<p class=muted>Ingen af disse er valgt på forhånd. Svar »ja«, hvis de to grupper er samme gods.</p>",
-        *(_spoergsmaal_html(f, s) for s in f.sammenhaenge),
-        f"<h2>4. Sammenlægninger og omdøbninger med forslag ({len(aendr)})</h2>",
-        *(_gruppe_html(f, g) for g in aendr),
-        f"<h2>5. Enkeltrækker uden tvivl ({len(enkel)})</h2>"
-        "<p class=muted>Navnet beholdes; kun arten sættes. Svar kun, hvis du er uenig.</p>"
-        "<details><summary>Vis alle</summary>",
-        *(_gruppe_html(f, g) for g in enkel),
-        "</details></main></body></html>",
+        *(_spoergsmaal_html(f, h, f.kilder) for h in f.hoerer), "</div>",
+        f"<div class=afsnit><h2>Navne der ligner hinanden (S, {len(f.sammenhaenge)})</h2>"
+        "<p class=muted>Svar »ja«, hvis grupperne er samme gods. »Ja« lægger alle rækkerne ind i den første "
+        "gruppes række og erstatter de andre gruppers egne sammenlægninger.</p>",
+        *(_spoergsmaal_html(f, s_, f.kilder) for s_ in f.sammenhaenge), "</div>",
+        f"<div class=afsnit><h2>Forslag ({len(aendr)})</h2>", *(_gruppe_html(f, g) for g in aendr), "</div>",
+        f"<div class=afsnit><h2>Enkle rækker ({len(enkel)})</h2>"
+        "<p class=muted>Navnet beholdes; kun arten sættes.</p>", *(_gruppe_html(f, g) for g in enkel), "</div>",
+        f"</main><script>{JS}</script></body></html>",
     ]
     return "\n".join(dele)
+
+
+# ---------------------------------------------------------------- svar → plan (fail-closed)
+
+class FletFejl(PlanFejl):
+    def __init__(self, fejl: list):
+        self.fejl = fejl
+        super().__init__("svarene kan ikke flettes:\n- " + "\n- ".join(fejl))
+
+
+def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
+    """Projektejerens svar + plan.forslag.json → (plan, opsummering). Kaster FletFejl ved enhver uklarhed."""
+    fejl = []
+    if not isinstance(svar, dict) or set(svar) != {"version", "kilde_hash", "plan_forslag_sha256", "svar"}:
+        raise FletFejl(["svarfilen skal have præcis nøglerne version, kilde_hash, plan_forslag_sha256 og svar"])
+    if svar["version"] != 1:
+        fejl.append(f"ukendt version {svar['version']!r}")
+    if svar["kilde_hash"] != forslag_plan.get("kilde_hash"):
+        fejl.append("svarene er givet på andre data (kilde_hash passer ikke med plan.forslag.json)")
+    if svar["plan_forslag_sha256"] != forslag_sha:
+        fejl.append("svarene er givet på et andet forslag (plan_forslag_sha256 passer ikke)")
+    alt, poster = forslag_plan["alternativer"], forslag_plan["poster"]
+    s_ = svar["svar"] if isinstance(svar["svar"], dict) else None
+    if s_ is None:
+        raise FletFejl(fejl + ["»svar« skal være et objekt"])
+    valg = {}
+    for pid, v in s_.items():
+        if pid not in alt:
+            fejl.append(f"{pid}: ukendt gruppe/spørgsmål")
+            continue
+        if pid[0] == "H":
+            if not isinstance(v, dict) or not set(v) <= {"svar", "periode", "citat", "kilde"} or "svar" not in v:
+                fejl.append(f"{pid}: svaret skal være {{svar, periode, citat, kilde}}")
+                continue
+            if v["svar"] not in alt[pid]:
+                fejl.append(f"{pid}: ukendt svar {v['svar']!r} (mulige: {', '.join(alt[pid])})")
+                continue
+            if v["svar"] == "ja":
+                if not str(v.get("citat") or "").strip():
+                    fejl.append(f"{pid}: »ja« kræver bogens ord (citat)")
+                if not isinstance(v.get("kilde"), int) or isinstance(v.get("kilde"), bool) or v["kilde"] <= 0:
+                    fejl.append(f"{pid}: »ja« kræver udgaven som kilde-id (fx 1 = DAA 2018-20, 3 = DAA 1939)")
+            valg[pid] = v
+        else:
+            if not isinstance(v, str) or v not in alt[pid]:
+                fejl.append(f"{pid}: ukendt valg {v!r} (mulige: {', '.join(alt[pid])})")
+                continue
+            valg[pid] = {"svar": v}
+    for pid in forslag_plan["aabne"]:
+        if pid not in valg and not any(f.startswith(f"{pid}:") for f in fejl):
+            fejl.append(f"{pid}: mangler svar")
+    if fejl:
+        raise FletFejl(fejl)
+
+    def kode(pid):
+        return valg[pid]["svar"] if pid in valg else forslag_plan["forvalg"].get(pid)
+
+    # S-»ja«: de øvrige gruppers sammenlægninger og navne erstattes; mål, der pegede på deres rækker, peger om.
+    s_ja = {pid: poster[pid]["grupper"] for pid in poster if poster[pid]["type"] == "S" and kode(pid) == "ja"}
+    opsl = {}  # række → ny overlevende
+    erstattet = set()
+    for pid, gl in s_ja.items():
+        hoved, rest = gl[0], gl[1:]
+        til = poster[hoved]["overlever"]
+        for g in gl:
+            a = alt[g][kode(g)]
+            if a.get("adskilt") and len(poster[g]["medlemmer"]) > 1:
+                fejl.append(f"{pid} ja lægger grupperne {', '.join(gl)} sammen, men {g} er valgt »behold rækkerne "
+                            f"adskilt« ({kode(g)}) — vælg ét af dem")
+        for o in alt[pid]["ja"]["sammenlaeg"]:
+            opsl[o["fra"]] = til
+        erstattet |= set(rest)
+    if fejl:
+        raise FletFejl(fejl)
+
+    ops = _tomme_ops()
+    aendret = []
+    for pid in forslag_plan["alternativer"]:
+        k = kode(pid)
+        if k is None:
+            continue
+        a = alt[pid][k]
+        if pid in valg and pid in forslag_plan["forvalg"] and k != forslag_plan["forvalg"][pid]:
+            aendret.append(f"{pid}: {k} (forslag {forslag_plan['forvalg'][pid]})")
+        stk = {o: [dict(x) for x in a.get(o, [])] for o in OPS}
+        if pid in erstattet:
+            stk["sammenlaeg"] = []
+            stk["saet"] = [x for x in stk["saet"] if x["estate"] not in opsl]
+        if pid[0] == "H" and k == "ja":
+            for hu in stk["hoerer_under"]:
+                hu["periode"] = (str(valg[pid].get("periode") or "").strip() or None) if pid in valg else hu["periode"]
+                hu["citat"] = str(valg[pid].get("citat") or "").strip() if pid in valg else hu["citat"]
+                hu["source"] = valg[pid].get("kilde") if pid in valg else hu["source"]
+        _laeg_til(ops, stk)
+
+    def om(x):
+        return opsl.get(x, x)
+    for o in ops["sammenlaeg"]:
+        o["til"] = om(o["til"])
+    ops["sammenlaeg"] = [o for o in ops["sammenlaeg"] if o["fra"] != o["til"]]
+    for o in ops["kopier"] + ops["flyt"]:
+        o["til"] = om(o["til"])
+    for o in ops["hoerer_under"]:
+        o["gaard"], o["majorat"] = om(o["gaard"]), om(o["majorat"])
+    # Samme række må kun lægges sammen én gang og kun have ét navn.
+    set_fra = {}
+    for o in ops["sammenlaeg"]:
+        if o["fra"] in set_fra and set_fra[o["fra"]] != o["til"]:
+            fejl.append(f"række {o['fra']} lægges sammen to steder ({set_fra[o['fra']]} og {o['til']})")
+        set_fra[o["fra"]] = o["til"]
+    ops["sammenlaeg"] = [o for i, o in enumerate(ops["sammenlaeg"])
+                         if all(o["fra"] != x["fra"] for x in ops["sammenlaeg"][:i])]
+    set_saet = {}
+    for o in ops["saet"]:
+        if o["estate"] in set_saet and (set_saet[o["estate"]]["navn"], set_saet[o["estate"]]["slags"]) != (
+                o["navn"], o["slags"]):
+            fejl.append(f"række {o['estate']} får to forskellige navne/arter "
+                        f"(gruppe {set_saet[o['estate']]['gruppe']} og {o['gruppe']})")
+        set_saet[o["estate"]] = o
+    ops["saet"] = [o for o in ops["saet"] if set_saet[o["estate"]] is o]
+    ops["saet"] = [o for o in ops["saet"] if o["estate"] not in set_fra]
+    if fejl:
+        raise FletFejl(fejl)
+    plan = {"version": 1, "kilde_db": forslag_plan["kilde_db"], "kilde_hash": forslag_plan["kilde_hash"],
+            **ops, "grundlag": {"plan_forslag_sha256": forslag_sha,
+                                "svar_sha256": hashlib.sha256(json.dumps(svar, sort_keys=True, ensure_ascii=False)
+                                                              .encode("utf-8")).hexdigest()}}
+    try:
+        valider_plan(plan, set(forslag_plan.get("snapshots", [])))
+    except PlanFejl as e:
+        raise FletFejl([f"planen holder ikke: {e}"])
+    forslag_tal = {k: len(forslag_plan[k]) for k in OPS}
+    ops_ord = {"opret": "nye gårde", "saet": "navn/art sat", "sammenlaeg": "sammenlægninger", "kopier": "kopier",
+               "hoerer_under": "»hører under«", "flyt": "flytninger"}
+    opsum = ["Planen efter dine svar (forslaget i parentes):"]
+    opsum += [f"  {ops_ord[k]}: {len(plan[k])} ({forslag_tal[k]})" for k in OPS]
+    opsum.append(f"  besvaret: {len(valg)} poster ({sum(1 for x in valg if x in forslag_plan['aabne'])} åbne), "
+                 f"{len(aendret)} forslag ændret; "
+                 f"S-ja: {len(s_ja)}; H-ja: {sum(1 for p_ in valg if p_[0] == 'H' and valg[p_]['svar'] == 'ja')}")
+    if aendret:
+        opsum.append("  ændret: " + ", ".join(aendret))
+    return plan, opsum
 
 
 # ---------------------------------------------------------------- kørsel
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--db", required=True, help="prod-kopi (læses kun)")
-    ap.add_argument("--ark", required=True, help="HTML-arkets sti, uden for repo'et")
-    ap.add_argument("--plan", required=True, help="plan-filen (plan.forslag.json)")
+    ap.add_argument("--db", help="prod-kopi (læses kun)")
+    ap.add_argument("--ark", help="HTML-arkets sti, uden for repo'et")
+    ap.add_argument("--plan", default=str(Path(__file__).resolve().parent / "plan.forslag.json"),
+                    help="plan.forslag.json (skrives ved generering, læses ved --flet)")
+    ap.add_argument("--flet", help="svarfil fra arket (471-svar.json): flet til en endelig plan")
+    ap.add_argument("--plan-ud", help="den endelige plan (plan.json) ved --flet")
     a = ap.parse_args(argv)
+    if a.flet:
+        if not a.plan_ud:
+            ap.error("--flet kræver --plan-ud")
+        raa = Path(a.plan).read_bytes()
+        try:
+            forslag_plan = json.loads(raa.decode("utf-8"))
+            svar = json.loads(Path(a.flet).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"FEJL: kan ikke læse filerne: {e}", file=sys.stderr)
+            return 2
+        try:
+            plan, opsum = flet(forslag_plan, hashlib.sha256(raa).hexdigest(), svar)
+        except FletFejl as e:
+            print(f"FEJL — intet skrevet. {e}", file=sys.stderr)
+            return 1
+        ud = Path(a.plan_ud)
+        tmp = ud.with_name(ud.name + ".tmp")
+        tmp.write_text(plan_tekst(plan), encoding="utf-8")
+        tmp.replace(ud)
+        print("\n".join(opsum))
+        print(f"Skrev {ud} (sha256 {hashlib.sha256(ud.read_bytes()).hexdigest()})")
+        return 0
+    if not a.db or not a.ark:
+        ap.error("--db og --ark er påkrævet (eller --flet)")
     ark = tjek_ark_sti(Path(a.ark))
     data, kilde_hash = hent_data(a.db)
     f = byg_forslag(data)
     plan = f.plan(a.db, kilde_hash)
     valider_plan(plan, f.snapshots)
-    Path(a.plan).write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tekst = plan_tekst(plan)
+    Path(a.plan).write_text(tekst, encoding="utf-8")
     ark.parent.mkdir(parents=True, exist_ok=True)
-    ark.write_text(render_html(f, {"kilde_db": a.db, "kilde_hash": kilde_hash}), encoding="utf-8")
-    print(json.dumps({"kilde_db": a.db, "kilde_hash": kilde_hash, **taelling(f, plan)}, ensure_ascii=False,
-                     indent=1))
+    ark.write_text(render_html(f, {"kilde_db": a.db, "kilde_hash": kilde_hash,
+                                   "plan_sha": hashlib.sha256(tekst.encode("utf-8")).hexdigest()}),
+                   encoding="utf-8")
+    print(json.dumps({"kilde_db": a.db, "kilde_hash": kilde_hash, **taelling(f, plan)}, ensure_ascii=False, indent=1))
     return 0
 
 

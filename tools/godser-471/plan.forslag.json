@@ -1,6 +1,6 @@
 {
  "version": 1,
- "kilde_db": "daa5ab_ddl_standin_20261126194622_c5",
+ "kilde_db": "kar20261127_daa5ab_ddl_standin_20261126194622_c5",
  "kilde_hash": {
   "estate": "651d85e059de4e1ca756cab267b85abe",
   "relation": "c68d86e1c54c5dc8d25c543cf542a3e0"
@@ -2226,58 +2226,58 @@
   }
  ],
  "aabne": [
-  2,
-  6,
-  11,
-  12,
-  18,
-  31,
-  48,
-  57,
-  58,
-  59,
-  65,
-  69,
-  78,
-  86,
-  88,
-  89,
-  90,
-  91,
-  97,
-  99,
-  100,
-  105,
-  109,
-  111,
-  115,
-  119,
-  137,
-  141,
-  144,
-  145,
-  151,
-  165,
-  166,
-  167,
-  176,
-  182,
-  186,
-  189,
-  206,
-  209,
-  210,
-  214,
-  217,
-  222,
-  225,
-  238,
-  247,
-  251,
-  254,
-  271,
-  282,
-  286,
+  "G2",
+  "G6",
+  "G11",
+  "G12",
+  "G18",
+  "G31",
+  "G48",
+  "G57",
+  "G58",
+  "G59",
+  "G65",
+  "G69",
+  "G78",
+  "G86",
+  "G88",
+  "G89",
+  "G90",
+  "G91",
+  "G97",
+  "G99",
+  "G100",
+  "G105",
+  "G109",
+  "G111",
+  "G115",
+  "G119",
+  "G137",
+  "G141",
+  "G144",
+  "G145",
+  "G151",
+  "G165",
+  "G166",
+  "G167",
+  "G176",
+  "G182",
+  "G186",
+  "G189",
+  "G206",
+  "G209",
+  "G210",
+  "G214",
+  "G217",
+  "G222",
+  "G225",
+  "G238",
+  "G247",
+  "G251",
+  "G254",
+  "G271",
+  "G282",
+  "G286",
   "H1",
   "H2",
   "H3",
@@ -2338,270 +2338,270 @@
   "S51"
  ],
  "forvalg": {
-  "1": "A",
-  "3": "A",
-  "4": "A",
-  "5": "A",
-  "7": "A",
-  "8": "A",
-  "9": "A",
-  "10": "A",
-  "13": "A",
-  "14": "A",
-  "15": "A",
-  "16": "A",
-  "17": "A",
-  "19": "A",
-  "20": "A",
-  "21": "A",
-  "22": "A",
-  "23": "A",
-  "24": "A",
-  "25": "A",
-  "26": "A",
-  "27": "A",
-  "28": "A",
-  "29": "A",
-  "30": "A",
-  "32": "A",
-  "33": "A",
-  "34": "A",
-  "35": "A",
-  "36": "A",
-  "37": "A",
-  "38": "A",
-  "39": "A",
-  "40": "A",
-  "41": "A",
-  "42": "A",
-  "43": "A",
-  "44": "A",
-  "45": "A",
-  "46": "A",
-  "47": "A",
-  "49": "A",
-  "50": "A",
-  "51": "A",
-  "52": "A",
-  "53": "A",
-  "54": "A",
-  "55": "A",
-  "56": "A",
-  "60": "A",
-  "61": "A",
-  "62": "A",
-  "63": "A",
-  "64": "A",
-  "66": "A",
-  "67": "A",
-  "68": "A",
-  "70": "A",
-  "71": "A",
-  "72": "A",
-  "73": "A",
-  "74": "A",
-  "75": "A",
-  "76": "A",
-  "77": "A",
-  "79": "A",
-  "80": "A",
-  "81": "A",
-  "82": "A",
-  "83": "A",
-  "84": "A",
-  "85": "A",
-  "87": "A",
-  "92": "A",
-  "93": "A",
-  "94": "A",
-  "95": "A",
-  "96": "A",
-  "98": "A",
-  "101": "A",
-  "102": "A",
-  "103": "A",
-  "104": "A",
-  "106": "A",
-  "107": "A",
-  "108": "A",
-  "110": "A",
-  "112": "A",
-  "113": "A",
-  "114": "A",
-  "116": "A",
-  "117": "A",
-  "118": "A",
-  "120": "A",
-  "121": "A",
-  "122": "A",
-  "123": "A",
-  "124": "A",
-  "125": "A",
-  "126": "A",
-  "127": "A",
-  "128": "A",
-  "129": "A",
-  "130": "A",
-  "131": "A",
-  "132": "A",
-  "133": "A",
-  "134": "A",
-  "135": "A",
-  "136": "A",
-  "138": "A",
-  "139": "A",
-  "140": "A",
-  "142": "A",
-  "143": "A",
-  "146": "A",
-  "147": "A",
-  "148": "A",
-  "149": "A",
-  "150": "A",
-  "152": "A",
-  "153": "A",
-  "154": "A",
-  "155": "A",
-  "156": "A",
-  "157": "A",
-  "158": "A",
-  "159": "A",
-  "160": "A",
-  "161": "A",
-  "162": "A",
-  "163": "A",
-  "164": "A",
-  "168": "A",
-  "169": "A",
-  "170": "A",
-  "171": "A",
-  "172": "A",
-  "173": "A",
-  "174": "A",
-  "175": "A",
-  "177": "A",
-  "178": "A",
-  "179": "A",
-  "180": "A",
-  "181": "A",
-  "183": "A",
-  "184": "A",
-  "185": "A",
-  "187": "A",
-  "188": "A",
-  "190": "A",
-  "191": "A",
-  "192": "A",
-  "193": "A",
-  "194": "A",
-  "195": "A",
-  "196": "A",
-  "197": "A",
-  "198": "A",
-  "199": "A",
-  "200": "A",
-  "201": "A",
-  "202": "A",
-  "203": "A",
-  "204": "A",
-  "205": "A",
-  "207": "A",
-  "208": "A",
-  "211": "A",
-  "212": "A",
-  "213": "A",
-  "215": "A",
-  "216": "A",
-  "218": "A",
-  "219": "A",
-  "220": "A",
-  "221": "A",
-  "223": "A",
-  "224": "A",
-  "226": "A",
-  "227": "A",
-  "228": "A",
-  "229": "A",
-  "230": "A",
-  "231": "A",
-  "232": "A",
-  "233": "A",
-  "234": "A",
-  "235": "A",
-  "236": "A",
-  "237": "A",
-  "239": "A",
-  "240": "A",
-  "241": "A",
-  "242": "A",
-  "243": "A",
-  "244": "A",
-  "245": "A",
-  "246": "A",
-  "248": "A",
-  "249": "A",
-  "250": "A",
-  "252": "A",
-  "253": "A",
-  "255": "A",
-  "256": "A",
-  "257": "A",
-  "258": "A",
-  "259": "A",
-  "260": "A",
-  "261": "A",
-  "262": "A",
-  "263": "A",
-  "264": "A",
-  "265": "A",
-  "266": "A",
-  "267": "A",
-  "268": "A",
-  "269": "A",
-  "270": "A",
-  "272": "A",
-  "273": "A",
-  "274": "A",
-  "275": "A",
-  "276": "A",
-  "277": "A",
-  "278": "A",
-  "279": "A",
-  "280": "A",
-  "281": "A",
-  "283": "A",
-  "284": "A",
-  "285": "A",
-  "287": "A",
-  "288": "A",
-  "289": "A",
-  "290": "A",
-  "291": "A",
-  "292": "A",
-  "293": "A",
-  "294": "A",
-  "295": "A",
-  "296": "A",
-  "297": "A",
-  "298": "A",
-  "299": "A",
-  "300": "A",
-  "301": "A",
-  "302": "A",
-  "303": "A",
-  "304": "A",
-  "305": "A",
-  "306": "A",
-  "307": "A",
-  "308": "A",
-  "309": "A",
-  "310": "A",
-  "311": "A",
-  "312": "A",
-  "313": "A"
+  "G1": "A",
+  "G3": "A",
+  "G4": "A",
+  "G5": "A",
+  "G7": "A",
+  "G8": "A",
+  "G9": "A",
+  "G10": "A",
+  "G13": "A",
+  "G14": "A",
+  "G15": "A",
+  "G16": "A",
+  "G17": "A",
+  "G19": "A",
+  "G20": "A",
+  "G21": "A",
+  "G22": "A",
+  "G23": "A",
+  "G24": "A",
+  "G25": "A",
+  "G26": "A",
+  "G27": "A",
+  "G28": "A",
+  "G29": "A",
+  "G30": "A",
+  "G32": "A",
+  "G33": "A",
+  "G34": "A",
+  "G35": "A",
+  "G36": "A",
+  "G37": "A",
+  "G38": "A",
+  "G39": "A",
+  "G40": "A",
+  "G41": "A",
+  "G42": "A",
+  "G43": "A",
+  "G44": "A",
+  "G45": "A",
+  "G46": "A",
+  "G47": "A",
+  "G49": "A",
+  "G50": "A",
+  "G51": "A",
+  "G52": "A",
+  "G53": "A",
+  "G54": "A",
+  "G55": "A",
+  "G56": "A",
+  "G60": "A",
+  "G61": "A",
+  "G62": "A",
+  "G63": "A",
+  "G64": "A",
+  "G66": "A",
+  "G67": "A",
+  "G68": "A",
+  "G70": "A",
+  "G71": "A",
+  "G72": "A",
+  "G73": "A",
+  "G74": "A",
+  "G75": "A",
+  "G76": "A",
+  "G77": "A",
+  "G79": "A",
+  "G80": "A",
+  "G81": "A",
+  "G82": "A",
+  "G83": "A",
+  "G84": "A",
+  "G85": "A",
+  "G87": "A",
+  "G92": "A",
+  "G93": "A",
+  "G94": "A",
+  "G95": "A",
+  "G96": "A",
+  "G98": "A",
+  "G101": "A",
+  "G102": "A",
+  "G103": "A",
+  "G104": "A",
+  "G106": "A",
+  "G107": "A",
+  "G108": "A",
+  "G110": "A",
+  "G112": "A",
+  "G113": "A",
+  "G114": "A",
+  "G116": "A",
+  "G117": "A",
+  "G118": "A",
+  "G120": "A",
+  "G121": "A",
+  "G122": "A",
+  "G123": "A",
+  "G124": "A",
+  "G125": "A",
+  "G126": "A",
+  "G127": "A",
+  "G128": "A",
+  "G129": "A",
+  "G130": "A",
+  "G131": "A",
+  "G132": "A",
+  "G133": "A",
+  "G134": "A",
+  "G135": "A",
+  "G136": "A",
+  "G138": "A",
+  "G139": "A",
+  "G140": "A",
+  "G142": "A",
+  "G143": "A",
+  "G146": "A",
+  "G147": "A",
+  "G148": "A",
+  "G149": "A",
+  "G150": "A",
+  "G152": "A",
+  "G153": "A",
+  "G154": "A",
+  "G155": "A",
+  "G156": "A",
+  "G157": "A",
+  "G158": "A",
+  "G159": "A",
+  "G160": "A",
+  "G161": "A",
+  "G162": "A",
+  "G163": "A",
+  "G164": "A",
+  "G168": "A",
+  "G169": "A",
+  "G170": "A",
+  "G171": "A",
+  "G172": "A",
+  "G173": "A",
+  "G174": "A",
+  "G175": "A",
+  "G177": "A",
+  "G178": "A",
+  "G179": "A",
+  "G180": "A",
+  "G181": "A",
+  "G183": "A",
+  "G184": "A",
+  "G185": "A",
+  "G187": "A",
+  "G188": "A",
+  "G190": "A",
+  "G191": "A",
+  "G192": "A",
+  "G193": "A",
+  "G194": "A",
+  "G195": "A",
+  "G196": "A",
+  "G197": "A",
+  "G198": "A",
+  "G199": "A",
+  "G200": "A",
+  "G201": "A",
+  "G202": "A",
+  "G203": "A",
+  "G204": "A",
+  "G205": "A",
+  "G207": "A",
+  "G208": "A",
+  "G211": "A",
+  "G212": "A",
+  "G213": "A",
+  "G215": "A",
+  "G216": "A",
+  "G218": "A",
+  "G219": "A",
+  "G220": "A",
+  "G221": "A",
+  "G223": "A",
+  "G224": "A",
+  "G226": "A",
+  "G227": "A",
+  "G228": "A",
+  "G229": "A",
+  "G230": "A",
+  "G231": "A",
+  "G232": "A",
+  "G233": "A",
+  "G234": "A",
+  "G235": "A",
+  "G236": "A",
+  "G237": "A",
+  "G239": "A",
+  "G240": "A",
+  "G241": "A",
+  "G242": "A",
+  "G243": "A",
+  "G244": "A",
+  "G245": "A",
+  "G246": "A",
+  "G248": "A",
+  "G249": "A",
+  "G250": "A",
+  "G252": "A",
+  "G253": "A",
+  "G255": "A",
+  "G256": "A",
+  "G257": "A",
+  "G258": "A",
+  "G259": "A",
+  "G260": "A",
+  "G261": "A",
+  "G262": "A",
+  "G263": "A",
+  "G264": "A",
+  "G265": "A",
+  "G266": "A",
+  "G267": "A",
+  "G268": "A",
+  "G269": "A",
+  "G270": "A",
+  "G272": "A",
+  "G273": "A",
+  "G274": "A",
+  "G275": "A",
+  "G276": "A",
+  "G277": "A",
+  "G278": "A",
+  "G279": "A",
+  "G280": "A",
+  "G281": "A",
+  "G283": "A",
+  "G284": "A",
+  "G285": "A",
+  "G287": "A",
+  "G288": "A",
+  "G289": "A",
+  "G290": "A",
+  "G291": "A",
+  "G292": "A",
+  "G293": "A",
+  "G294": "A",
+  "G295": "A",
+  "G296": "A",
+  "G297": "A",
+  "G298": "A",
+  "G299": "A",
+  "G300": "A",
+  "G301": "A",
+  "G302": "A",
+  "G303": "A",
+  "G304": "A",
+  "G305": "A",
+  "G306": "A",
+  "G307": "A",
+  "G308": "A",
+  "G309": "A",
+  "G310": "A",
+  "G311": "A",
+  "G312": "A",
+  "G313": "A"
  },
  "alternativer": {
-  "1": {
+  "G1": {
    "A": {
     "tekst": "Navn og art: række 161 beholder navnet »Aakær«, art gård",
     "opret": [],
@@ -2619,7 +2619,7 @@
     "flyt": []
    }
   },
-  "2": {
+  "G2": {
    "A": {
     "tekst": "Del op: Aakær / Dybvad er hver sin gård: række 408 lægges ind i række 161 (1 ejerforhold flyttes med); ejerforhold 2655 kopieres til række 162 (Dybvad)",
     "opret": [],
@@ -2659,7 +2659,7 @@
     "flyt": []
    }
   },
-  "3": {
+  "G3": {
    "A": {
     "tekst": "Navn og art: række 179 beholder navnet »Agerup«, art gård",
     "opret": [],
@@ -2677,7 +2677,7 @@
     "flyt": []
    }
   },
-  "4": {
+  "G4": {
    "A": {
     "tekst": "Læg sammen: række 394 får navnet »Aggerupgaard« (før »til Aggerupgaard«), art gård; række 400 lægges ind i række 394 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -2702,6 +2702,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 394 beholder navnet »til Aggerupgaard«, art gård; række 400 beholder navnet »Aggerupgaard (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -2723,7 +2724,7 @@
     "flyt": []
    }
   },
-  "5": {
+  "G5": {
    "A": {
     "tekst": "Læg sammen: række 119 beholder navnet »Altenhof«, art gård; række 159 lægges ind i række 119 (1 ejerforhold flyttes med); række 321 lægges ind i række 119 (1 ejerforhold flyttes med); ejerforhold 663 kopieres til række 146 (Aschau); ejerforhold 663 kopieres til række 148 (Hoffnungsthal)",
     "opret": [],
@@ -2766,6 +2767,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 119 beholder navnet »Altenhof«, art gård; række 159 beholder navnet »Altenhof med Aschau og Hoffnungsthal«, art gård; række 321 beholder navnet »Altenhof (1692)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -2820,7 +2822,7 @@
     "flyt": []
    }
   },
-  "6": {
+  "G6": {
    "A": {
     "tekst": "Navn og art: række 237 beholder navnet »andel af Ziesendorf (forlenet 1397)«, art gård",
     "opret": [],
@@ -2886,7 +2888,7 @@
     "flyt": []
    }
   },
-  "7": {
+  "G7": {
    "A": {
     "tekst": "Navn og art: række 146 beholder navnet »Aschau«, art gård",
     "opret": [],
@@ -2904,7 +2906,7 @@
     "flyt": []
    }
   },
-  "8": {
+  "G8": {
    "A": {
     "tekst": "Navn og art: række 406 beholder navnet »Aschau ved Altenhof (1782)«, art gård",
     "opret": [],
@@ -2938,7 +2940,7 @@
     "flyt": []
    }
   },
-  "9": {
+  "G9": {
    "A": {
     "tekst": "Navn og art: række 33 beholder navnet »Askov«, art gård",
     "opret": [],
@@ -2956,7 +2958,7 @@
     "flyt": []
    }
   },
-  "10": {
+  "G10": {
    "A": {
     "tekst": "Navn og art: række 139 beholder navnet »Astrup«, art gård",
     "opret": [],
@@ -2974,7 +2976,7 @@
     "flyt": []
    }
   },
-  "11": {
+  "G11": {
    "A": {
     "tekst": "Del op: Ballegaard / Bøgskov er hver sin gård: række 213 får navnet »Ballegaard« (før »Ballegaard og Bøgskov«), art gård; ny gård oprettes: Bøgskov; ejerforhold 871 kopieres til den nye gård Bøgskov",
     "opret": [
@@ -3022,7 +3024,7 @@
     "flyt": []
    }
   },
-  "12": {
+  "G12": {
    "A": {
     "tekst": "Del op: Ballegaard / Bøgskov i Sundeved er hver sin gård: række 393 får navnet »Ballegaard« (før »Ballegaard og Bøgskov i Sundeved«), art gård; ny gård oprettes: Bøgskov; ejerforhold 2633 kopieres til den nye gård Bøgskov",
     "opret": [
@@ -3070,7 +3072,7 @@
     "flyt": []
    }
   },
-  "13": {
+  "G13": {
    "A": {
     "tekst": "Læg sammen: række 62 beholder navnet »Bankendorf«, art gård; række 297 lægges ind i række 62 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -3095,6 +3097,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 62 beholder navnet »Bankendorf«, art gård; række 297 beholder navnet »Bankendorf (Oldenburg Sogn i Holsten)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3116,7 +3119,7 @@
     "flyt": []
    }
   },
-  "14": {
+  "G14": {
    "A": {
     "tekst": "Læg sammen: række 261 får navnet »Baroniet Brahetrolleborg« (før »Baroniet Brahe-Trolleborg«), art baroni; række 172 lægges ind i række 261 (8 ejerforhold og 1 billede flyttes med); række 364 lægges ind i række 261 (1 ejerforhold flyttes med); række 375 lægges ind i række 261 (1 ejerforhold flyttes med); række 383 lægges ind i række 261 (1 ejerforhold flyttes med); billedet (media 208) flyttes til række 189 (Brahetrolleborg)",
     "opret": [],
@@ -3162,6 +3165,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 172 beholder navnet »baroniet Brahetrolleborg«, art baroni; række 261 beholder navnet »Baroniet Brahe-Trolleborg«, art baroni; række 364 beholder navnet »Baroniet Brahe-Trolleborg (1722)«, art baroni; række 375 beholder navnet »Baroniet Brahe-Trolleborg (1775)«, art baroni; række 383 beholder navnet »Baroniet Brahe-Trolleborg (1854)«, art baroni",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3201,7 +3205,7 @@
     "flyt": []
    }
   },
-  "15": {
+  "G15": {
    "A": {
     "tekst": "Navn og art: række 4 beholder navnet »Bauersdorf«, art gård",
     "opret": [],
@@ -3219,7 +3223,7 @@
     "flyt": []
    }
   },
-  "16": {
+  "G16": {
    "A": {
     "tekst": "Navn og art: række 122 beholder navnet »Beckhof«, art gård",
     "opret": [],
@@ -3237,7 +3241,7 @@
     "flyt": []
    }
   },
-  "17": {
+  "G17": {
    "A": {
     "tekst": "Navn og art: række 68 beholder navnet »Belau«, art gård",
     "opret": [],
@@ -3255,7 +3259,7 @@
     "flyt": []
    }
   },
-  "18": {
+  "G18": {
    "A": {
     "tekst": "Navn og art: række 249 beholder navnet »Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik«, art gård",
     "opret": [],
@@ -3321,7 +3325,7 @@
     "flyt": []
    }
   },
-  "19": {
+  "G19": {
    "A": {
     "tekst": "Navn og art: række 25 beholder navnet »Bentfeld«, art gård",
     "opret": [],
@@ -3339,7 +3343,7 @@
     "flyt": []
    }
   },
-  "20": {
+  "G20": {
    "A": {
     "tekst": "Navn og art: række 234 beholder navnet »Bentvelde (Giekow Sogn)«, art gård",
     "opret": [],
@@ -3373,7 +3377,7 @@
     "flyt": []
    }
   },
-  "21": {
+  "G21": {
    "A": {
     "tekst": "Læg sammen: række 114 beholder navnet »Bibow«, art gård; række 286 lægges ind i række 114 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -3398,6 +3402,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 114 beholder navnet »Bibow«, art gård; række 286 beholder navnet »Bibow (pantegods)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3419,7 +3424,7 @@
     "flyt": []
    }
   },
-  "22": {
+  "G22": {
    "A": {
     "tekst": "Navn og art: række 191 beholder navnet »Bielawe«, art gård",
     "opret": [],
@@ -3437,7 +3442,7 @@
     "flyt": []
    }
   },
-  "23": {
+  "G23": {
    "A": {
     "tekst": "Navn og art: række 115 beholder navnet »Bienebek«, art gård",
     "opret": [],
@@ -3455,7 +3460,7 @@
     "flyt": []
    }
   },
-  "24": {
+  "G24": {
    "A": {
     "tekst": "Læg sammen: række 318 beholder navnet »Binebek«, art gård; række 330 lægges ind i række 318 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -3480,6 +3485,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 318 beholder navnet »Binebek«, art gård; række 330 beholder navnet »Binebek (1684-1707)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3501,7 +3507,7 @@
     "flyt": []
    }
   },
-  "25": {
+  "G25": {
    "A": {
     "tekst": "Læg sammen: række 16 beholder navnet »Birkenmoor«, art gård; række 241 lægges ind i række 16 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -3526,6 +3532,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 16 beholder navnet »Birkenmoor«, art gård; række 241 beholder navnet »Birkenmoor (Dänischen Hagen Sogn)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3547,7 +3554,7 @@
     "flyt": []
    }
   },
-  "26": {
+  "G26": {
    "A": {
     "tekst": "Navn og art: række 384 beholder navnet »til Bistingsmåla i Mønsterås«, art gård",
     "opret": [],
@@ -3581,7 +3588,7 @@
     "flyt": []
    }
   },
-  "27": {
+  "G27": {
    "A": {
     "tekst": "Navn og art: række 421 beholder navnet »Bjørnholm (Sønder Dyrs H.), sammen med broderen Ove«, art gård",
     "opret": [],
@@ -3615,7 +3622,7 @@
     "flyt": []
    }
   },
-  "28": {
+  "G28": {
    "A": {
     "tekst": "Navn og art: række 423 beholder navnet »Bjørnsholm (solgt 1441 til Hr. Otto Nielsen Rosenkrantz)«, art gård",
     "opret": [],
@@ -3649,7 +3656,7 @@
     "flyt": []
    }
   },
-  "29": {
+  "G29": {
    "A": {
     "tekst": "Navn og art: række 11 beholder navnet »Bliesdorf«, art gård",
     "opret": [],
@@ -3667,7 +3674,7 @@
     "flyt": []
    }
   },
-  "30": {
+  "G30": {
    "A": {
     "tekst": "Navn og art: række 132 beholder navnet »Borghorst«, art gård",
     "opret": [],
@@ -3685,7 +3692,7 @@
     "flyt": []
    }
   },
-  "31": {
+  "G31": {
    "A": {
     "tekst": "Del op: Borghorst / Wittmold er hver sin gård: række 331 lægges ind i række 132 (1 ejerforhold flyttes med); ejerforhold 2551 kopieres til række 133 (Wittmold)",
     "opret": [],
@@ -3725,7 +3732,7 @@
     "flyt": []
    }
   },
-  "32": {
+  "G32": {
    "A": {
     "tekst": "Læg sammen: række 189 beholder navnet »Brahetrolleborg«, art gård; række 173 lægges ind i række 189 (1 ejerforhold flyttes med); ny gård oprettes: Sølyst; ny gård oprettes: Egneborg; ny gård oprettes: Høbbet; ny gård oprettes: Brændegaard; ejerforhold 726 kopieres til den nye gård Sølyst; ejerforhold 726 kopieres til den nye gård Egneborg; ejerforhold 726 kopieres til den nye gård Høbbet; ejerforhold 726 kopieres til den nye gård Brændegaard",
     "opret": [
@@ -3800,6 +3807,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 173 beholder navnet »Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard«, art gård; række 189 beholder navnet »Brahetrolleborg«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3843,7 +3851,7 @@
     "flyt": []
    }
   },
-  "33": {
+  "G33": {
    "A": {
     "tekst": "Navn og art: række 428 beholder navnet »Brangstrup (Aasum H.)«, art gård",
     "opret": [],
@@ -3877,7 +3885,7 @@
     "flyt": []
    }
   },
-  "34": {
+  "G34": {
    "A": {
     "tekst": "Navn og art: række 95 beholder navnet »Brockhusen«, art gård",
     "opret": [],
@@ -3895,7 +3903,7 @@
     "flyt": []
    }
   },
-  "35": {
+  "G35": {
    "A": {
     "tekst": "Navn og art: række 427 beholder navnet »Brolykke«, art gård",
     "opret": [],
@@ -3913,7 +3921,7 @@
     "flyt": []
    }
   },
-  "36": {
+  "G36": {
    "A": {
     "tekst": "Navn og art: række 198 beholder navnet »Broløkke«, art gård",
     "opret": [],
@@ -3931,7 +3939,7 @@
     "flyt": []
    }
   },
-  "37": {
+  "G37": {
    "A": {
     "tekst": "Navn og art: række 176 beholder navnet »Brostorp«, art gård",
     "opret": [],
@@ -3949,7 +3957,7 @@
     "flyt": []
    }
   },
-  "38": {
+  "G38": {
    "A": {
     "tekst": "Læg sammen: række 7 beholder navnet »Brunsholm«, art gård; række 307 lægges ind i række 7 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -3974,6 +3982,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 7 beholder navnet »Brunsholm«, art gård; række 307 beholder navnet »Brunsholm (købt 1698 af Joachim v. Ahlefeldt)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -3995,7 +4004,7 @@
     "flyt": []
    }
   },
-  "39": {
+  "G39": {
    "A": {
     "tekst": "Navn og art: række 204 beholder navnet »Brusgaard«, art gård",
     "opret": [],
@@ -4013,7 +4022,7 @@
     "flyt": []
    }
   },
-  "40": {
+  "G40": {
    "A": {
     "tekst": "Navn og art: række 47 beholder navnet »Brügge«, art gård",
     "opret": [],
@@ -4031,7 +4040,7 @@
     "flyt": []
    }
   },
-  "41": {
+  "G41": {
    "A": {
     "tekst": "Navn og art: række 3 beholder navnet »Bäslin«, art gård",
     "opret": [],
@@ -4049,7 +4058,7 @@
     "flyt": []
    }
   },
-  "42": {
+  "G42": {
    "A": {
     "tekst": "Navn og art: række 199 beholder navnet »Bøgebjerg«, art gård",
     "opret": [],
@@ -4067,7 +4076,7 @@
     "flyt": []
    }
   },
-  "43": {
+  "G43": {
    "A": {
     "tekst": "Læg sammen: række 13 beholder navnet »Bülk«, art gård; række 239 lægges ind i række 13 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4092,6 +4101,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 13 beholder navnet »Bülk«, art gård; række 239 beholder navnet »Bülk (solgt 1353 til svogeren Wulf Pogwisch)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4113,7 +4123,7 @@
     "flyt": []
    }
   },
-  "44": {
+  "G44": {
    "A": {
     "tekst": "Navn og art: række 113 beholder navnet »Cammin«, art gård",
     "opret": [],
@@ -4131,7 +4141,7 @@
     "flyt": []
    }
   },
-  "45": {
+  "G45": {
    "A": {
     "tekst": "Navn og art: række 156 beholder navnet »Carlsminde«, art gård",
     "opret": [],
@@ -4149,7 +4159,7 @@
     "flyt": []
    }
   },
-  "46": {
+  "G46": {
    "A": {
     "tekst": "Navn og art: række 285 beholder navnet »Carnin (til leje)«, art gård",
     "opret": [],
@@ -4183,7 +4193,7 @@
     "flyt": []
    }
   },
-  "47": {
+  "G47": {
    "A": {
     "tekst": "Navn og art: række 178 beholder navnet »Christianslund«, art gård",
     "opret": [],
@@ -4201,7 +4211,7 @@
     "flyt": []
    }
   },
-  "48": {
+  "G48": {
    "A": {
     "tekst": "Navn og art: række 171 får navnet »Christianssæde« (før »Christianssæde med Pederstrup, Aalstrup og Frihedsminde«), art gård; ny gård oprettes: Aalstrup; ny gård oprettes: Frihedsminde; ejerforhold 724 kopieres til række 367 (Pederstrup); ejerforhold 724 kopieres til den nye gård Aalstrup; ejerforhold 724 kopieres til den nye gård Frihedsminde",
     "opret": [
@@ -4315,7 +4325,7 @@
     "flyt": []
    }
   },
-  "49": {
+  "G49": {
    "A": {
     "tekst": "Navn og art: række 108 beholder navnet »Clausdorf«, art gård",
     "opret": [],
@@ -4333,7 +4343,7 @@
     "flyt": []
    }
   },
-  "50": {
+  "G50": {
    "A": {
     "tekst": "Læg sammen: række 165 beholder navnet »Clausholm«, art gård; række 357 lægges ind i række 165 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4358,6 +4368,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 165 beholder navnet »Clausholm«, art gård; række 357 beholder navnet »Clausholm (1683)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4379,7 +4390,7 @@
     "flyt": []
    }
   },
-  "51": {
+  "G51": {
    "A": {
     "tekst": "Læg sammen: række 263 beholder navnet »Colmar«, art gård; række 340 lægges ind i række 263 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4404,6 +4415,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 263 beholder navnet »Colmar«, art gård; række 340 beholder navnet »Colmar (Arv efter Faderen)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4425,7 +4437,7 @@
     "flyt": []
    }
   },
-  "52": {
+  "G52": {
    "A": {
     "tekst": "Navn og art: række 144 beholder navnet »Cronshagen«, art gård",
     "opret": [],
@@ -4443,7 +4455,7 @@
     "flyt": []
    }
   },
-  "53": {
+  "G53": {
    "A": {
     "tekst": "Navn og art: række 195 beholder navnet »Damgaard«, art gård",
     "opret": [],
@@ -4461,7 +4473,7 @@
     "flyt": []
    }
   },
-  "54": {
+  "G54": {
    "A": {
     "tekst": "Læg sammen: række 186 beholder navnet »Damp«, art gård; række 399 lægges ind i række 186 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4486,6 +4498,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 186 beholder navnet »Damp«, art gård; række 399 beholder navnet »Damp (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4507,7 +4520,7 @@
     "flyt": []
    }
   },
-  "55": {
+  "G55": {
    "A": {
     "tekst": "Navn og art: række 429 beholder navnet »Damsbo (Salling H.)«, art gård",
     "opret": [],
@@ -4541,7 +4554,7 @@
     "flyt": []
    }
   },
-  "56": {
+  "G56": {
    "A": {
     "tekst": "Navn og art: række 206 beholder navnet »Danstedgaard«, art gård",
     "opret": [],
@@ -4559,7 +4572,7 @@
     "flyt": []
    }
   },
-  "57": {
+  "G57": {
    "A": {
     "tekst": "Navn og art: række 121 beholder navnet »det Blomeske Frihus«, art gård",
     "opret": [],
@@ -4593,7 +4606,7 @@
     "flyt": []
    }
   },
-  "58": {
+  "G58": {
    "A": {
     "tekst": "Navn og art: række 212 beholder navnet »det Reventlowske hus i Amaliegade«, art gård",
     "opret": [],
@@ -4627,7 +4640,7 @@
     "flyt": []
    }
   },
-  "59": {
+  "G59": {
    "A": {
     "tekst": "Navn og art: række 164 beholder navnet »det Reventlowske palæ«, art gård",
     "opret": [],
@@ -4661,7 +4674,7 @@
     "flyt": []
    }
   },
-  "60": {
+  "G60": {
    "A": {
     "tekst": "Læg sammen: række 211 får navnet »Ditlevslyst« (før »Gjællebrede (senere Ditlevslyst)«), art gård; række 188 lægges ind i række 211 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4686,6 +4699,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 188 beholder navnet »Ditlevslyst«, art gård; række 211 beholder navnet »Gjællebrede (senere Ditlevslyst)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4707,7 +4721,7 @@
     "flyt": []
    }
   },
-  "61": {
+  "G61": {
    "A": {
     "tekst": "Navn og art: række 65 beholder navnet »Doberstorf«, art gård",
     "opret": [],
@@ -4725,7 +4739,7 @@
     "flyt": []
    }
   },
-  "62": {
+  "G62": {
    "A": {
     "tekst": "Navn og art: række 187 beholder navnet »Dorotheenthal«, art gård",
     "opret": [],
@@ -4743,7 +4757,7 @@
     "flyt": []
    }
   },
-  "63": {
+  "G63": {
    "A": {
     "tekst": "Navn og art: række 49 beholder navnet »Drage«, art gård",
     "opret": [],
@@ -4761,7 +4775,7 @@
     "flyt": []
    }
   },
-  "64": {
+  "G64": {
    "A": {
     "tekst": "Læg sammen: række 41 beholder navnet »Dristorf«, art gård; række 273 lægges ind i række 41 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4786,6 +4800,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 41 beholder navnet »Dristorf«, art gård; række 273 beholder navnet »Dristorf (købt af Bertram v. Ahlefeldt)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -4807,7 +4822,7 @@
     "flyt": []
    }
   },
-  "65": {
+  "G65": {
    "A": {
     "tekst": "Navn og art: række 101 beholder navnet »Dueholm Len«, art gård",
     "opret": [],
@@ -4841,7 +4856,7 @@
     "flyt": []
    }
   },
-  "66": {
+  "G66": {
    "A": {
     "tekst": "Navn og art: række 18 beholder navnet »Dunkelstorf«, art gård",
     "opret": [],
@@ -4859,7 +4874,7 @@
     "flyt": []
    }
   },
-  "67": {
+  "G67": {
    "A": {
     "tekst": "Navn og art: række 162 beholder navnet »Dybvad«, art gård",
     "opret": [],
@@ -4877,7 +4892,7 @@
     "flyt": []
    }
   },
-  "68": {
+  "G68": {
    "A": {
     "tekst": "Navn og art: række 60 beholder navnet »Dänisch Lindau«, art gård",
     "opret": [],
@@ -4895,7 +4910,7 @@
     "flyt": []
    }
   },
-  "69": {
+  "G69": {
    "A": {
     "tekst": "Navn og art: række 351 beholder navnet »Dänischenhagen Sogn (til 1780)«, art gård",
     "opret": [],
@@ -4961,7 +4976,7 @@
     "flyt": []
    }
   },
-  "70": {
+  "G70": {
    "A": {
     "tekst": "Læg sammen: række 136 får navnet »Dörphof« (før »Dörphof (Torp)«), art gård; række 93 lægges ind i række 136 (1 ejerforhold flyttes med); række 352 lægges ind i række 136 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -4991,6 +5006,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 93 beholder navnet »Dörphof«, art gård; række 136 beholder navnet »Dörphof (Torp)«, art gård; række 352 beholder navnet »Dörphof (—1771)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5018,7 +5034,7 @@
     "flyt": []
    }
   },
-  "71": {
+  "G71": {
    "A": {
     "tekst": "Navn og art: række 336 beholder navnet »Dörphof (Torp) ved Ekernförde (1723)«, art gård",
     "opret": [],
@@ -5052,7 +5068,7 @@
     "flyt": []
    }
   },
-  "72": {
+  "G72": {
    "A": {
     "tekst": "Navn og art: række 194 beholder navnet »Eckhof«, art gård",
     "opret": [],
@@ -5070,7 +5086,7 @@
     "flyt": []
    }
   },
-  "73": {
+  "G73": {
    "A": {
     "tekst": "Navn og art: række 63 beholder navnet »Ehlerstorf«, art gård",
     "opret": [],
@@ -5088,7 +5104,7 @@
     "flyt": []
    }
   },
-  "74": {
+  "G74": {
    "A": {
     "tekst": "Navn og art: række 79 beholder navnet »Elmenhorst«, art gård",
     "opret": [],
@@ -5106,7 +5122,7 @@
     "flyt": []
    }
   },
-  "75": {
+  "G75": {
    "A": {
     "tekst": "Navn og art: række 252 beholder navnet »Elmenhorst, Amtsger. Grevesmühlen«, art gård",
     "opret": [],
@@ -5124,7 +5140,7 @@
     "flyt": []
    }
   },
-  "76": {
+  "G76": {
    "A": {
     "tekst": "Læg sammen: række 145 beholder navnet »Emkendorf«, art gård; række 404 lægges ind i række 145 (1 ejerforhold flyttes med); række 407 lægges ind i række 145 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5154,6 +5170,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 145 beholder navnet »Emkendorf«, art gård; række 404 beholder navnet »Emkendorf (købt 1764 af Geheimeraad Desmercières)«, art gård; række 407 beholder navnet »Emkendorf (1783)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5181,7 +5198,7 @@
     "flyt": []
    }
   },
-  "77": {
+  "G77": {
    "A": {
     "tekst": "Navn og art: række 137 beholder navnet »Eskær«, art gård",
     "opret": [],
@@ -5199,7 +5216,7 @@
     "flyt": []
    }
   },
-  "78": {
+  "G78": {
    "A": {
     "tekst": "Del op: Eskær / Astrup / Skivehus i Nørre H. er hver sin gård: række 338 lægges ind i række 137 (1 ejerforhold flyttes med); ejerforhold 2560 kopieres til række 139 (Astrup); ejerforhold 2560 kopieres til række 138 (Skivehus)",
     "opret": [],
@@ -5245,7 +5262,7 @@
     "flyt": []
    }
   },
-  "79": {
+  "G79": {
    "A": {
     "tekst": "Navn og art: række 73 beholder navnet »Fahren«, art gård",
     "opret": [],
@@ -5263,7 +5280,7 @@
     "flyt": []
    }
   },
-  "80": {
+  "G80": {
    "A": {
     "tekst": "Navn og art: række 160 beholder navnet »Falkenberg«, art gård",
     "opret": [],
@@ -5281,7 +5298,7 @@
     "flyt": []
    }
   },
-  "81": {
+  "G81": {
    "A": {
     "tekst": "Navn og art: række 409 beholder navnet »Falkenberg ved Slesvig«, art gård",
     "opret": [],
@@ -5299,7 +5316,7 @@
     "flyt": []
    }
   },
-  "82": {
+  "G82": {
    "A": {
     "tekst": "Navn og art: række 10 beholder navnet »Farenstedgaard«, art gård",
     "opret": [],
@@ -5317,7 +5334,7 @@
     "flyt": []
    }
   },
-  "83": {
+  "G83": {
    "A": {
     "tekst": "Navn og art: række 312 beholder navnet »Farenstedgaard ved Slesvig (1754–63)«, art gård",
     "opret": [],
@@ -5351,7 +5368,7 @@
     "flyt": []
    }
   },
-  "84": {
+  "G84": {
    "A": {
     "tekst": "Navn og art: række 207 beholder navnet »Farumgaard«, art gård",
     "opret": [],
@@ -5369,7 +5386,7 @@
     "flyt": []
    }
   },
-  "85": {
+  "G85": {
    "A": {
     "tekst": "Navn og art: række 155 beholder navnet »Farve«, art gård",
     "opret": [],
@@ -5387,7 +5404,7 @@
     "flyt": []
    }
   },
-  "86": {
+  "G86": {
    "A": {
     "tekst": "Navn og art (listen ligner ikke flere gårde, så den deles ikke): række 395 beholder navnet »Fideikommisgodserne Varste-Polle og Koppel«, art gård",
     "opret": [],
@@ -5421,7 +5438,7 @@
     "flyt": []
    }
   },
-  "87": {
+  "G87": {
    "A": {
     "tekst": "Læg sammen: række 220 beholder navnet »Finnhult«, art gård; række 388 lægges ind i række 220 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5446,6 +5463,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 220 beholder navnet »Finnhult«, art gård; række 388 beholder navnet »til Finnhult (Gudmundtorp S.)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5467,7 +5485,7 @@
     "flyt": []
    }
   },
-  "88": {
+  "G88": {
    "A": {
     "tekst": "Navn og art: række 9 beholder navnet »fogderiet i Tørning«, art gård",
     "opret": [],
@@ -5501,7 +5519,7 @@
     "flyt": []
    }
   },
-  "89": {
+  "G89": {
    "A": {
     "tekst": "Læg sammen: række 246 får navnet »Fogderiet Tørning« (før »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«), art gård; række 248 lægges ind i række 246 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5526,6 +5544,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 246 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«, art gård; række 248 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5570,6 +5589,7 @@
    },
    "D": {
     "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 246 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«, art ukendt; række 248 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)«, art ukendt",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5591,7 +5611,7 @@
     "flyt": []
    }
   },
-  "90": {
+  "G90": {
    "A": {
     "tekst": "Navn og art: række 251 beholder navnet »Forlening af Preetz Kloster (1399)«, art gård",
     "opret": [],
@@ -5657,7 +5677,7 @@
     "flyt": []
    }
   },
-  "91": {
+  "G91": {
    "A": {
     "tekst": "Navn og art: række 253 beholder navnet »Forpagter af Gjelskov i Fyen (1670)«, art gård",
     "opret": [],
@@ -5723,7 +5743,7 @@
     "flyt": []
    }
   },
-  "92": {
+  "G92": {
    "A": {
     "tekst": "Navn og art: række 349 beholder navnet »Fredsholm (Vestenskov Sogn, købt 1755)«, art gård",
     "opret": [],
@@ -5757,7 +5777,7 @@
     "flyt": []
    }
   },
-  "93": {
+  "G93": {
    "A": {
     "tekst": "Læg sammen: række 131 beholder navnet »Fresenburg«, art gård; række 329 lægges ind i række 131 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5782,6 +5802,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 131 beholder navnet »Fresenburg«, art gård; række 329 beholder navnet »Fresenburg (-1699)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5803,7 +5824,7 @@
     "flyt": []
    }
   },
-  "94": {
+  "G94": {
    "A": {
     "tekst": "Navn og art: række 358 beholder navnet »Friisenvold«, art gård",
     "opret": [],
@@ -5821,7 +5842,7 @@
     "flyt": []
    }
   },
-  "95": {
+  "G95": {
    "A": {
     "tekst": "Navn og art: række 166 beholder navnet »Frisenvold«, art gård",
     "opret": [],
@@ -5839,7 +5860,7 @@
     "flyt": []
    }
   },
-  "96": {
+  "G96": {
    "A": {
     "tekst": "Navn og art: række 215 beholder navnet »Frugården«, art gård",
     "opret": [],
@@ -5857,7 +5878,7 @@
     "flyt": []
    }
   },
-  "97": {
+  "G97": {
    "A": {
     "tekst": "Del op: Frugården / Vänersnäs er hver sin gård: række 381 lægges ind i række 215 (1 ejerforhold flyttes med); ejerforhold 2618 kopieres til række 216 (Vänersnäs)",
     "opret": [],
@@ -5897,7 +5918,7 @@
     "flyt": []
    }
   },
-  "98": {
+  "G98": {
    "A": {
     "tekst": "Læg sammen: række 57 beholder navnet »Futterkamp«, art gård; række 283 lægges ind i række 57 (1 ejerforhold flyttes med); række 300 lægges ind i række 57 (1 ejerforhold flyttes med); række 353 lægges ind i række 57 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5932,6 +5953,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 57 beholder navnet »Futterkamp«, art gård; række 283 beholder navnet »Futterkamp (1602 købt af Jesper Rantzau)«, art gård; række 300 beholder navnet »Futterkamp (solgt 1648 til Ditlev Reventlow)«, art gård; række 353 beholder navnet »Futterkamp (tilskødet 1660, solgt 1672 til Henning Buchwald)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -5965,7 +5987,7 @@
     "flyt": []
    }
   },
-  "99": {
+  "G99": {
    "A": {
     "tekst": "Læg sammen: række 27 beholder navnet »Gaarz«, art gård; række 254 lægges ind i række 27 (1 ejerforhold flyttes med); række 257 lægges ind i række 27 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -5995,6 +6017,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 27 beholder navnet »Gaarz«, art gård; række 254 beholder navnet »Gaarz (Oldenburg Sogn, nævnt 1472)«, art gård; række 257 beholder navnet »Gaarz (genkøbt af Cismar Kloster)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6022,7 +6045,7 @@
     "flyt": []
    }
   },
-  "100": {
+  "G100": {
    "A": {
     "tekst": "Del op: Gaarz / Kaden er hver sin gård: række 267 lægges ind i række 27 (1 ejerforhold flyttes med); ny gård oprettes: Kaden; ejerforhold 2432 kopieres til den nye gård Kaden",
     "opret": [
@@ -6069,7 +6092,7 @@
     "flyt": []
    }
   },
-  "101": {
+  "G101": {
    "A": {
     "tekst": "Navn og art: række 69 beholder navnet »Gallentin«, art gård",
     "opret": [],
@@ -6087,7 +6110,7 @@
     "flyt": []
    }
   },
-  "102": {
+  "G102": {
    "A": {
     "tekst": "Navn og art: række 107 beholder navnet »Gerdshagen«, art gård",
     "opret": [],
@@ -6105,7 +6128,7 @@
     "flyt": []
    }
   },
-  "103": {
+  "G103": {
    "A": {
     "tekst": "Læg sammen: række 227 beholder navnet »Getå«, art gård; række 386 lægges ind i række 227 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6130,6 +6153,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 227 beholder navnet »Getå«, art gård; række 386 beholder navnet »Getå (Krokels S.)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6151,7 +6175,7 @@
     "flyt": []
    }
   },
-  "104": {
+  "G104": {
    "A": {
     "tekst": "Navn og art: række 102 beholder navnet »Gischow«, art gård",
     "opret": [],
@@ -6169,7 +6193,7 @@
     "flyt": []
    }
   },
-  "105": {
+  "G105": {
    "A": {
     "tekst": "Navn og art: række 245 beholder navnet »Glambæk (Høvedsmand)«, art gård",
     "opret": [],
@@ -6235,7 +6259,7 @@
     "flyt": []
    }
   },
-  "106": {
+  "G106": {
    "A": {
     "tekst": "Læg sammen: række 118 beholder navnet »Glasau«, art gård; række 320 lægges ind i række 118 (1 ejerforhold flyttes med); række 335 lægges ind i række 118 (1 ejerforhold flyttes med); række 337 lægges ind i række 118 (1 ejerforhold flyttes med); række 403 lægges ind i række 118 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6275,6 +6299,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 118 beholder navnet »Glasau«, art gård; række 320 beholder navnet »Glasau (1689)«, art gård; række 335 beholder navnet »Glasau (solgt 1728 ved hans konkurs af kreditorerne til Broderen Cay Friederich)«, art gård; række 337 beholder navnet »Glasau (1728)«, art gård; række 403 beholder navnet »Glasau (1762)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6314,7 +6339,7 @@
     "flyt": []
    }
   },
-  "107": {
+  "G107": {
    "A": {
     "tekst": "Navn og art: række 32 beholder navnet »Glibstrup«, art gård",
     "opret": [],
@@ -6332,7 +6357,7 @@
     "flyt": []
    }
   },
-  "108": {
+  "G108": {
    "A": {
     "tekst": "Navn og art: række 264 beholder navnet »Glibstrup Gaard i Andst Sogn«, art gård",
     "opret": [],
@@ -6350,7 +6375,7 @@
     "flyt": []
    }
   },
-  "109": {
+  "G109": {
    "A": {
     "tekst": "Navn og art: række 314 beholder navnet »Glücksborg (hofmester)«, art gård",
     "opret": [],
@@ -6416,7 +6441,7 @@
     "flyt": []
    }
   },
-  "110": {
+  "G110": {
    "A": {
     "tekst": "Navn og art: række 103 beholder navnet »Gnemern«, art gård",
     "opret": [],
@@ -6434,7 +6459,7 @@
     "flyt": []
    }
   },
-  "111": {
+  "G111": {
    "A": {
     "tekst": "Læg sammen: række 44 beholder navnet »Gneningen«, art gård; række 274 lægges ind i række 44 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6459,6 +6484,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 44 beholder navnet »Gneningen«, art gård; række 274 beholder navnet »Gneningen (Hansiihn S., arvet med hustru)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6480,7 +6506,7 @@
     "flyt": []
    }
   },
-  "112": {
+  "G112": {
    "A": {
     "tekst": "Navn og art: række 71 beholder navnet »Gnissow«, art gård",
     "opret": [],
@@ -6498,7 +6524,7 @@
     "flyt": []
    }
   },
-  "113": {
+  "G113": {
    "A": {
     "tekst": "Læg sammen: række 77 beholder navnet »Goldebeck«, art gård; række 288 lægges ind i række 77 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6523,6 +6549,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 77 beholder navnet »Goldebeck«, art gård; række 288 beholder navnet »Goldebeck (–1635)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6544,7 +6571,7 @@
     "flyt": []
    }
   },
-  "114": {
+  "G114": {
    "A": {
     "tekst": "Navn og art: række 111 beholder navnet »Gorow«, art gård",
     "opret": [],
@@ -6562,7 +6589,7 @@
     "flyt": []
    }
   },
-  "115": {
+  "G115": {
    "A": {
     "tekst": "Læg sammen: række 90 beholder navnet »Gottesgabe«, art gård; række 120 lægges ind i række 90 (1 ejerforhold flyttes med); række 334 lægges ind i række 90 (1 ejerforhold flyttes med); række 348 lægges ind i række 90 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6597,6 +6624,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 90 beholder navnet »Gottesgabe«, art gård; række 120 beholder navnet »Gottesgabe (Sterdebølgaard)«, art gård; række 334 beholder navnet »Gottesgabe (solgt 1708 paa hans vegne af Broderen Cai Frederik for 11.333 Rdlr.)«, art gård; række 348 beholder navnet »Gottesgabe (Kappel Herred)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6630,7 +6658,7 @@
     "flyt": []
    }
   },
-  "116": {
+  "G116": {
    "A": {
     "tekst": "Navn og art: række 322 beholder navnet »Gottesgabe ved Bredsted (bygget af ham 1688)«, art gård",
     "opret": [],
@@ -6664,7 +6692,7 @@
     "flyt": []
    }
   },
-  "117": {
+  "G117": {
    "A": {
     "tekst": "Læg sammen: række 15 beholder navnet »Gowens«, art gård; række 240 lægges ind i række 15 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6689,6 +6717,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 15 beholder navnet »Gowens«, art gård; række 240 beholder navnet »Gowens (Neukirchen Sogn, ved Plön)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6710,7 +6739,7 @@
     "flyt": []
    }
   },
-  "118": {
+  "G118": {
    "A": {
     "tekst": "Læg sammen: række 29 beholder navnet »Gram«, art gård; række 258 lægges ind i række 29 (1 ejerforhold flyttes med); række 265 lægges ind i række 29 (1 ejerforhold flyttes med); række 269 lægges ind i række 29 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -6745,6 +6774,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 29 beholder navnet »Gram«, art gård; række 258 beholder navnet »Gram (ejede 1472)«, art gård; række 265 beholder navnet »Gram (arv fra søster Ghese 1496)«, art gård; række 269 beholder navnet »Gram (udskilt af Gram af Detlev Buchwald)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6778,7 +6808,7 @@
     "flyt": []
    }
   },
-  "119": {
+  "G119": {
    "A": {
     "tekst": "Del op: Gram / Steensgaard er hver sin gård: række 291 lægges ind i række 29 (1 ejerforhold flyttes med); ejerforhold 2468 kopieres til række 30 (Steensgaard)",
     "opret": [],
@@ -6818,7 +6848,7 @@
     "flyt": []
    }
   },
-  "120": {
+  "G120": {
    "A": {
     "tekst": "Navn og art: række 104 beholder navnet »Grese«, art gård",
     "opret": [],
@@ -6836,7 +6866,7 @@
     "flyt": []
    }
   },
-  "121": {
+  "G121": {
    "A": {
     "tekst": "Læg sammen: række 170 får navnet »Grevskabet Christianssæde« (før »grevskabet Christianssæde«), art grevskab; række 205 lægges ind i række 170 (1 ejerforhold flyttes med); række 208 lægges ind i række 170 (1 ejerforhold flyttes med); række 363 lægges ind i række 170 (1 ejerforhold flyttes med); række 372 lægges ind i række 170 (1 ejerforhold flyttes med); række 377 lægges ind i række 170 (1 ejerforhold flyttes med); ejerforhold 2614 kopieres til række 163 (Grevskabet Reventlow); billedet (media 209) flyttes til række 171 (Christianssæde)",
     "opret": [],
@@ -6894,6 +6924,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 170 beholder navnet »grevskabet Christianssæde«, art grevskab; række 205 beholder navnet »grevskabet Christiansborg (fra 1741 Christianssæde)«, art grevskab; række 208 beholder navnet »grevskabet Christiansborg (senere Christianssæde)«, art grevskab; række 363 beholder navnet »Grevskabet Christiansborg (1729)«, art grevskab; række 372 beholder navnet »Grevskabet Christianssæde (1775)«, art grevskab; række 377 beholder navnet »Grevskaberne Christianssæde og Reventlow (1827)«, art grevskab",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -6987,7 +7018,7 @@
     ]
    }
   },
-  "122": {
+  "G122": {
    "A": {
     "tekst": "Læg sammen: række 163 får navnet »Grevskabet Reventlow« (før »grevskabet Reventlow«), art grevskab; række 362 lægges ind i række 163 (1 ejerforhold flyttes med); række 373 lægges ind i række 163 (1 ejerforhold flyttes med); række 382 lægges ind i række 163 (1 ejerforhold flyttes med); række 392 lægges ind i række 163 (1 ejerforhold flyttes med); ejerforhold 2620 kopieres til række 170 (Grevskabet Christianssæde); ejerforhold 2631 kopieres til række 170 (Grevskabet Christianssæde)",
     "opret": [],
@@ -7040,6 +7071,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 163 beholder navnet »grevskabet Reventlow«, art grevskab; række 362 beholder navnet »Grevskabet Reventlow (1708)«, art grevskab; række 373 beholder navnet »Grevskabet Reventlow (1815)«, art grevskab; række 382 beholder navnet »Grevskaberne Reventlow og Christianssæde (1851)«, art grevskab; række 392 beholder navnet »til Grevskaberne Reventlow og Christianssæde«, art grevskab",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7116,7 +7148,7 @@
     "flyt": []
    }
   },
-  "123": {
+  "G123": {
    "A": {
     "tekst": "Navn og art: række 374 beholder navnet »Grevskabet Sandberg (1775)«, art grevskab",
     "opret": [],
@@ -7150,7 +7182,7 @@
     "flyt": []
    }
   },
-  "124": {
+  "G124": {
    "A": {
     "tekst": "Navn og art: række 196 får navnet »Grevskabet Vallø« (før »grevskabet Vallø«), art grevskab",
     "opret": [],
@@ -7184,7 +7216,7 @@
     "flyt": []
    }
   },
-  "125": {
+  "G125": {
    "A": {
     "tekst": "Navn og art: række 89 beholder navnet »Grimsted«, art gård",
     "opret": [],
@@ -7202,7 +7234,7 @@
     "flyt": []
    }
   },
-  "126": {
+  "G126": {
    "A": {
     "tekst": "Læg sammen: række 8 beholder navnet »Grünholz«, art gård; række 311 lægges ind i række 8 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -7227,6 +7259,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 8 beholder navnet »Grünholz«, art gård; række 311 beholder navnet »Grünholz (tiltraadt 1731)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7248,7 +7281,7 @@
     "flyt": []
    }
   },
-  "127": {
+  "G127": {
    "A": {
     "tekst": "Navn og art: række 308 beholder navnet »Grünholz ved Slesvig«, art gård",
     "opret": [],
@@ -7266,7 +7299,7 @@
     "flyt": []
    }
   },
-  "128": {
+  "G128": {
    "A": {
     "tekst": "Navn og art: række 28 beholder navnet »Guldborggaard«, art gård",
     "opret": [],
@@ -7284,7 +7317,7 @@
     "flyt": []
    }
   },
-  "129": {
+  "G129": {
    "A": {
     "tekst": "Navn og art: række 226 beholder navnet »gård i Bistingsmåla«, art gård",
     "opret": [],
@@ -7302,7 +7335,7 @@
     "flyt": []
    }
   },
-  "130": {
+  "G130": {
    "A": {
     "tekst": "Navn og art: række 83 beholder navnet »Harmstorf«, art gård",
     "opret": [],
@@ -7320,7 +7353,7 @@
     "flyt": []
    }
   },
-  "131": {
+  "G131": {
    "A": {
     "tekst": "Navn og art: række 214 beholder navnet »Havnø«, art gård",
     "opret": [],
@@ -7338,7 +7371,7 @@
     "flyt": []
    }
   },
-  "132": {
+  "G132": {
    "A": {
     "tekst": "Læg sammen: række 116 beholder navnet »Hemmelmark«, art gård; række 325 lægges ind i række 116 (2 ejerforhold flyttes med)",
     "opret": [],
@@ -7363,6 +7396,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 116 beholder navnet »Hemmelmark«, art gård; række 325 beholder navnet »Hemmelmark (1692-97)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7384,7 +7418,7 @@
     "flyt": []
    }
   },
-  "133": {
+  "G133": {
    "A": {
     "tekst": "Navn og art: række 319 beholder navnet »Hemmelmark ved Ekernförde (1675-92)«, art gård",
     "opret": [],
@@ -7418,7 +7452,7 @@
     "flyt": []
    }
   },
-  "134": {
+  "G134": {
    "A": {
     "tekst": "Navn og art: række 236 beholder navnet »Hermenstorf (solgt 1378)«, art gård",
     "opret": [],
@@ -7452,7 +7486,7 @@
     "flyt": []
    }
   },
-  "135": {
+  "G135": {
    "A": {
     "tekst": "Navn og art: række 148 beholder navnet »Hoffnungsthal«, art gård",
     "opret": [],
@@ -7470,7 +7504,7 @@
     "flyt": []
    }
   },
-  "136": {
+  "G136": {
    "A": {
     "tekst": "Navn og art: række 128 beholder navnet »Hohenfelde«, art gård",
     "opret": [],
@@ -7488,7 +7522,7 @@
     "flyt": []
    }
   },
-  "137": {
+  "G137": {
    "A": {
     "tekst": "Del op: Hohenfelde / Oregaard er hver sin gård: række 328 lægges ind i række 128 (1 ejerforhold flyttes med); ejerforhold 2548 kopieres til række 126 (Oregaard)",
     "opret": [],
@@ -7528,7 +7562,7 @@
     "flyt": []
    }
   },
-  "138": {
+  "G138": {
    "A": {
     "tekst": "Navn og art: række 82 beholder navnet »Holdorf«, art gård",
     "opret": [],
@@ -7546,7 +7580,7 @@
     "flyt": []
    }
   },
-  "139": {
+  "G139": {
    "A": {
     "tekst": "Læg sammen: række 21 beholder navnet »Holm«, art gård; række 232 lægges ind i række 21 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -7571,6 +7605,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 21 beholder navnet »Holm«, art gård; række 232 beholder navnet »Holm (Schöneberg Sogn, forpagtet 1421)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7592,7 +7627,7 @@
     "flyt": []
    }
   },
-  "140": {
+  "G140": {
    "A": {
     "tekst": "Navn og art: række 134 beholder navnet »Holtenklinken«, art gård",
     "opret": [],
@@ -7610,7 +7645,7 @@
     "flyt": []
    }
   },
-  "141": {
+  "G141": {
    "A": {
     "tekst": "Del op: Honnigsee / Barkau er hver sin gård: række 235 får navnet »Honnigsee« (før »Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«), art gård; ny gård oprettes: Barkau; ejerforhold 2406 kopieres til den nye gård Barkau",
     "opret": [
@@ -7658,7 +7693,7 @@
     "flyt": []
    }
   },
-  "142": {
+  "G142": {
    "A": {
     "tekst": "Navn og art: række 410 beholder navnet »Honningsthal«, art gård",
     "opret": [],
@@ -7676,7 +7711,7 @@
     "flyt": []
    }
   },
-  "143": {
+  "G143": {
    "A": {
     "tekst": "Navn og art: række 197 beholder navnet »Hverringe«, art gård",
     "opret": [],
@@ -7694,7 +7729,7 @@
     "flyt": []
    }
   },
-  "144": {
+  "G144": {
    "A": {
     "tekst": "Navn og art: række 200 beholder navnet »Hverringe Skovdistrikt«, art gård",
     "opret": [],
@@ -7728,7 +7763,7 @@
     "flyt": []
    }
   },
-  "145": {
+  "G145": {
    "A": {
     "tekst": "Læg sammen: række 37 beholder navnet »Hvidøre Kongsgaard«, art gård; række 268 lægges ind i række 37 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -7753,6 +7788,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 37 beholder navnet »Hvidøre Kongsgaard«, art gård; række 268 beholder navnet »Hvidøre Kongsgaard (forlenet 1545)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7797,6 +7833,7 @@
    },
    "D": {
     "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 37 beholder navnet »Hvidøre Kongsgaard«, art ukendt; række 268 beholder navnet »Hvidøre Kongsgaard (forlenet 1545)«, art ukendt",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7818,7 +7855,7 @@
     "flyt": []
    }
   },
-  "146": {
+  "G146": {
    "A": {
     "tekst": "Læg sammen: række 130 beholder navnet »Höltenklinken«, art gård; række 332 lægges ind i række 130 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -7843,6 +7880,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 130 beholder navnet »Höltenklinken«, art gård; række 332 beholder navnet »Höltenklinken (boede her 1697-1709)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7864,7 +7902,7 @@
     "flyt": []
    }
   },
-  "147": {
+  "G147": {
    "A": {
     "tekst": "Navn og art: række 217 beholder navnet »Ilnestorp«, art gård",
     "opret": [],
@@ -7882,7 +7920,7 @@
     "flyt": []
    }
   },
-  "148": {
+  "G148": {
    "A": {
     "tekst": "Navn og art: række 380 beholder navnet »Ilrestorp (1856) [OCR-usikker stednavn]«, art gård",
     "opret": [],
@@ -7916,7 +7954,7 @@
     "flyt": []
    }
   },
-  "149": {
+  "G149": {
    "A": {
     "tekst": "Læg sammen: række 223 beholder navnet »Jeppstorp«, art gård; række 389 lægges ind i række 223 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -7941,6 +7979,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 223 beholder navnet »Jeppstorp«, art gård; række 389 beholder navnet »Jeppstorp (Strø S.)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -7962,7 +8001,7 @@
     "flyt": []
    }
   },
-  "150": {
+  "G150": {
    "A": {
     "tekst": "Navn og art: række 149 beholder navnet »Jersbek«, art gård",
     "opret": [],
@@ -7980,7 +8019,7 @@
     "flyt": []
    }
   },
-  "151": {
+  "G151": {
    "A": {
     "tekst": "Del op: Jersbek / Stegen ved Oldesloe er hver sin gård: række 411 lægges ind i række 149 (1 ejerforhold flyttes med); ejerforhold 2661 kopieres til række 150 (Stegen)",
     "opret": [],
@@ -8020,7 +8059,7 @@
     "flyt": []
    }
   },
-  "152": {
+  "G152": {
    "A": {
     "tekst": "Læg sammen: række 74 beholder navnet »Jesendorf«, art gård; række 313 lægges ind i række 74 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -8045,6 +8084,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 74 beholder navnet »Jesendorf«, art gård; række 313 beholder navnet »Jesendorf (panthaver)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -8066,7 +8106,7 @@
     "flyt": []
    }
   },
-  "153": {
+  "G153": {
    "A": {
     "tekst": "Navn og art: række 360 beholder navnet »Kain (1690)«, art gård",
     "opret": [],
@@ -8100,7 +8140,7 @@
     "flyt": []
    }
   },
-  "154": {
+  "G154": {
    "A": {
     "tekst": "Navn og art: række 157 beholder navnet »Kaltenhof«, art gård",
     "opret": [],
@@ -8118,7 +8158,7 @@
     "flyt": []
    }
   },
-  "155": {
+  "G155": {
    "A": {
     "tekst": "Navn og art: række 167 beholder navnet »Kalø«, art gård",
     "opret": [],
@@ -8136,7 +8176,7 @@
     "flyt": []
    }
   },
-  "156": {
+  "G156": {
    "A": {
     "tekst": "Navn og art: række 72 beholder navnet »Katskrog«, art gård",
     "opret": [],
@@ -8154,7 +8194,7 @@
     "flyt": []
    }
   },
-  "157": {
+  "G157": {
    "A": {
     "tekst": "Læg sammen: række 61 beholder navnet »Kiesby«, art gård; række 296 lægges ind i række 61 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -8179,6 +8219,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 61 beholder navnet »Kiesby«, art gård; række 296 beholder navnet »Kiesby (avlsgaard i Boren Sogn, købt 1622)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -8200,7 +8241,7 @@
     "flyt": []
    }
   },
-  "158": {
+  "G158": {
    "A": {
     "tekst": "Navn og art: række 67 beholder navnet »Klamp«, art gård",
     "opret": [],
@@ -8218,7 +8259,7 @@
     "flyt": []
    }
   },
-  "159": {
+  "G159": {
    "A": {
     "tekst": "Navn og art: række 303 beholder navnet »Klampe (købt 1641 af svigermoderen Dorothea v. Ahlefeldt, solgt 1663 til Hans Rantzau)«, art gård",
     "opret": [],
@@ -8252,7 +8293,7 @@
     "flyt": []
    }
   },
-  "160": {
+  "G160": {
    "A": {
     "tekst": "Navn og art: række 141 beholder navnet »Kluvensieck«, art gård",
     "opret": [],
@@ -8270,7 +8311,7 @@
     "flyt": []
    }
   },
-  "161": {
+  "G161": {
    "A": {
     "tekst": "Navn og art: række 250 beholder navnet »Koden (to der Koden/Köhn), indløst 1384 sammen med broderen Gotskalk«, art gård",
     "opret": [],
@@ -8304,7 +8345,7 @@
     "flyt": []
    }
   },
-  "162": {
+  "G162": {
    "A": {
     "tekst": "Navn og art: række 168 beholder navnet »Kollerup«, art gård",
     "opret": [],
@@ -8322,7 +8363,7 @@
     "flyt": []
    }
   },
-  "163": {
+  "G163": {
    "A": {
     "tekst": "Navn og art: række 361 beholder navnet »Kollerup, Galten Herred (1692)«, art gård",
     "opret": [],
@@ -8356,7 +8397,7 @@
     "flyt": []
    }
   },
-  "164": {
+  "G164": {
    "A": {
     "tekst": "Navn og art: række 124 beholder navnet »Kollmar«, art gård",
     "opret": [],
@@ -8374,7 +8415,7 @@
     "flyt": []
    }
   },
-  "165": {
+  "G165": {
    "A": {
     "tekst": "Navn og art: række 266 beholder navnet »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«, art gård",
     "opret": [],
@@ -8440,7 +8481,7 @@
     "flyt": []
    }
   },
-  "166": {
+  "G166": {
    "A": {
     "tekst": "Navn og art: række 36 beholder navnet »kongsgård i Hamburg«, art gård",
     "opret": [],
@@ -8474,7 +8515,7 @@
     "flyt": []
    }
   },
-  "167": {
+  "G167": {
    "A": {
     "tekst": "Navn og art: række 182 får navnet »Koppel« (før »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«), art gård; ny gård oprettes: Gross-Koppel; ny gård oprettes: Klein‑Koppel; ny gård oprettes: Etelsen; ny gård oprettes: Embsen; ny gård oprettes: Ruschbaden; ny gård oprettes: Nesehof; ejerforhold 737 kopieres til den nye gård Gross-Koppel; ejerforhold 737 kopieres til den nye gård Klein‑Koppel; ejerforhold 737 kopieres til den nye gård Etelsen; ejerforhold 737 kopieres til den nye gård Embsen; ejerforhold 737 kopieres til den nye gård Ruschbaden; ejerforhold 737 kopieres til den nye gård Nesehof",
     "opret": [
@@ -8672,7 +8713,7 @@
     "flyt": []
    }
   },
-  "168": {
+  "G168": {
    "A": {
     "tekst": "Navn og art: række 420 beholder navnet »Krengerup (Baag H.)«, art gård",
     "opret": [],
@@ -8706,7 +8747,7 @@
     "flyt": []
    }
   },
-  "169": {
+  "G169": {
    "A": {
     "tekst": "Navn og art: række 210 beholder navnet »Krenkerup«, art gård",
     "opret": [],
@@ -8724,7 +8765,7 @@
     "flyt": []
    }
   },
-  "170": {
+  "G170": {
    "A": {
     "tekst": "Navn og art: række 343 beholder navnet »Kronshagen«, art gård",
     "opret": [],
@@ -8742,7 +8783,7 @@
     "flyt": []
    }
   },
-  "171": {
+  "G171": {
    "A": {
     "tekst": "Navn og art: række 221 beholder navnet »Kråkarp«, art gård",
     "opret": [],
@@ -8760,7 +8801,7 @@
     "flyt": []
    }
   },
-  "172": {
+  "G172": {
    "A": {
     "tekst": "Læg sammen: række 228 beholder navnet »Kyleberg«, art gård; række 387 lægges ind i række 228 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -8785,6 +8826,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 228 beholder navnet »Kyleberg«, art gård; række 387 beholder navnet »Kyleberg (Svanhals S.)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -8806,7 +8848,7 @@
     "flyt": []
    }
   },
-  "173": {
+  "G173": {
    "A": {
     "tekst": "Navn og art: række 98 beholder navnet »Käselin«, art gård",
     "opret": [],
@@ -8824,7 +8866,7 @@
     "flyt": []
    }
   },
-  "174": {
+  "G174": {
    "A": {
     "tekst": "Navn og art: række 53 beholder navnet »Küssow«, art gård",
     "opret": [],
@@ -8842,7 +8884,7 @@
     "flyt": []
    }
   },
-  "175": {
+  "G175": {
    "A": {
     "tekst": "Læg sammen: række 1 beholder navnet »Lammershagen«, art gård; række 281 lægges ind i række 1 (1 ejerforhold flyttes med); række 298 lægges ind i række 1 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -8872,6 +8914,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 1 beholder navnet »Lammershagen«, art gård; række 281 beholder navnet »Lammershagen (1592 købt af Svogeren Henrik Rantzaus Kreditorer)«, art gård; række 298 beholder navnet »Lammershagen (solgt 1668)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -8899,7 +8942,7 @@
     "flyt": []
    }
   },
-  "176": {
+  "G176": {
    "A": {
     "tekst": "Navn og art: række 306 beholder navnet »Lammershagen (med Selent, Bäslin og Bauersdorf) — solgt 1668 (Kiel, 8 Maj) til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl.«, art gård",
     "opret": [],
@@ -8933,7 +8976,7 @@
     "flyt": []
    }
   },
-  "177": {
+  "G177": {
    "A": {
     "tekst": "Navn og art: række 81 beholder navnet »Langen Jarchow«, art gård",
     "opret": [],
@@ -8951,7 +8994,7 @@
     "flyt": []
    }
   },
-  "178": {
+  "G178": {
    "A": {
     "tekst": "Læg sammen: række 17 beholder navnet »Langwedel«, art gård; række 242 lægges ind i række 17 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -8976,6 +9019,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 17 beholder navnet »Langwedel«, art gård; række 242 beholder navnet »Langwedel (købt 1357 af Otto Schinkel, skænket 1376 til Itzehoe Kloster)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -8997,7 +9041,7 @@
     "flyt": []
    }
   },
-  "179": {
+  "G179": {
    "A": {
     "tekst": "Navn og art: række 51 beholder navnet »Lebrade«, art gård",
     "opret": [],
@@ -9015,7 +9059,7 @@
     "flyt": []
    }
   },
-  "180": {
+  "G180": {
    "A": {
     "tekst": "Læg sammen: række 142 beholder navnet »Lehmkulen«, art gård; række 341 lægges ind i række 142 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -9040,6 +9084,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 142 beholder navnet »Lehmkulen«, art gård; række 341 beholder navnet »Lehmkulen (1704, købt af H. B. v. Ahlefeldt for 80.000 Rdlr.; udskilte Avlsgaardene Rethwisch og Bredeneck, solgt 1707 til Bertram Rantzau til Ascheberg)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9061,7 +9106,7 @@
     "flyt": []
    }
   },
-  "181": {
+  "G181": {
    "A": {
     "tekst": "Navn og art: række 99 beholder navnet »Lelkendorf«, art gård",
     "opret": [],
@@ -9079,7 +9124,7 @@
     "flyt": []
    }
   },
-  "182": {
+  "G182": {
    "A": {
     "tekst": "Navn og art: række 22 beholder navnet »Lille Tønder Len«, art gård",
     "opret": [],
@@ -9113,7 +9158,7 @@
     "flyt": []
    }
   },
-  "183": {
+  "G183": {
    "A": {
     "tekst": "Læg sammen: række 295 beholder navnet »Lindau«, art gård; række 302 lægges ind i række 295 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -9138,6 +9183,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 295 beholder navnet »Lindau«, art gård; række 302 beholder navnet »Lindau (arvet 1652 efter fasteren Dorothea)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9159,7 +9205,7 @@
     "flyt": []
    }
   },
-  "184": {
+  "G184": {
    "A": {
     "tekst": "Navn og art: række 42 beholder navnet »Lindved«, art gård",
     "opret": [],
@@ -9177,7 +9223,7 @@
     "flyt": []
    }
   },
-  "185": {
+  "G185": {
    "A": {
     "tekst": "Navn og art: række 192 beholder navnet »Lippe«, art gård",
     "opret": [],
@@ -9195,7 +9241,7 @@
     "flyt": []
    }
   },
-  "186": {
+  "G186": {
    "A": {
     "tekst": "Navn og art: række 347 beholder navnet »Lollands Sønder Herred (1752)«, art gård",
     "opret": [],
@@ -9261,7 +9307,7 @@
     "flyt": []
    }
   },
-  "187": {
+  "G187": {
    "A": {
     "tekst": "Navn og art: række 46 beholder navnet »Luderstorpe«, art gård",
     "opret": [],
@@ -9279,7 +9325,7 @@
     "flyt": []
    }
   },
-  "188": {
+  "G188": {
    "A": {
     "tekst": "Navn og art: række 88 beholder navnet »Lundegaard«, art gård",
     "opret": [],
@@ -9297,7 +9343,7 @@
     "flyt": []
    }
   },
-  "189": {
+  "G189": {
    "A": {
     "tekst": "Læg sammen: række 75 får navnet »Lundsgaard« (før »Lundsgaard med Filipsborg«), art gård; række 315 lægges ind i række 75 (1 ejerforhold flyttes med); række 346 lægges ind i række 75 (1 ejerforhold flyttes med); ny gård oprettes: Filipsborg; ejerforhold 229 kopieres til den nye gård Filipsborg",
     "opret": [
@@ -9341,6 +9387,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 75 beholder navnet »Lundsgaard med Filipsborg«, art gård; række 315 beholder navnet »Lundsgaard (forpagtet 1700)«, art gård; række 346 beholder navnet »Lundsgaard (1736)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9395,7 +9442,7 @@
     "flyt": []
    }
   },
-  "190": {
+  "G190": {
    "A": {
     "tekst": "Navn og art: række 368 beholder navnet »Lungholm (1727)«, art gård",
     "opret": [],
@@ -9429,7 +9476,7 @@
     "flyt": []
    }
   },
-  "191": {
+  "G191": {
    "A": {
     "tekst": "Navn og art: række 225 beholder navnet »Lyngdalsgaard (medejer)«, art gård",
     "opret": [],
@@ -9463,7 +9510,7 @@
     "flyt": []
    }
   },
-  "192": {
+  "G192": {
    "A": {
     "tekst": "Navn og art: række 177 beholder navnet »Lyngsdalsgaard«, art gård",
     "opret": [],
@@ -9481,7 +9528,7 @@
     "flyt": []
    }
   },
-  "193": {
+  "G193": {
    "A": {
     "tekst": "Navn og art: række 359 beholder navnet »Løjstrup«, art gård",
     "opret": [],
@@ -9499,7 +9546,7 @@
     "flyt": []
    }
   },
-  "194": {
+  "G194": {
    "A": {
     "tekst": "Navn og art: række 255 beholder navnet »Lütjendorf«, art gård",
     "opret": [],
@@ -9517,7 +9564,7 @@
     "flyt": []
    }
   },
-  "195": {
+  "G195": {
    "A": {
     "tekst": "Navn og art: række 110 beholder navnet »Marin«, art gård",
     "opret": [],
@@ -9535,7 +9582,7 @@
     "flyt": []
    }
   },
-  "196": {
+  "G196": {
    "A": {
     "tekst": "Læg sammen: række 78 beholder navnet »Maslow«, art gård; række 289 lægges ind i række 78 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -9560,6 +9607,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 78 beholder navnet »Maslow«, art gård; række 289 beholder navnet »Maslow (pant fra 1645)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9581,7 +9629,7 @@
     "flyt": []
    }
   },
-  "197": {
+  "G197": {
    "A": {
     "tekst": "Navn og art: række 117 beholder navnet »Möhlhorst (Mølskov)«, art gård",
     "opret": [],
@@ -9615,7 +9663,7 @@
     "flyt": []
    }
   },
-  "198": {
+  "G198": {
    "A": {
     "tekst": "Læg sammen: række 262 beholder navnet »Neudorf«, art gård; række 323 lægges ind i række 262 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -9640,6 +9688,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 262 beholder navnet »Neudorf«, art gård; række 323 beholder navnet »Neudorf (arvet efter Faderen, solgt 1719)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9661,7 +9710,7 @@
     "flyt": []
    }
   },
-  "199": {
+  "G199": {
    "A": {
     "tekst": "Navn og art: række 106 beholder navnet »Neudorff«, art gård",
     "opret": [],
@@ -9679,7 +9728,7 @@
     "flyt": []
    }
   },
-  "200": {
+  "G200": {
    "A": {
     "tekst": "Navn og art: række 151 beholder navnet »Neuendorf«, art gård",
     "opret": [],
@@ -9697,7 +9746,7 @@
     "flyt": []
    }
   },
-  "201": {
+  "G201": {
    "A": {
     "tekst": "Navn og art: række 412 beholder navnet »Neuendorf ved Glückstadt (1835)«, art gård",
     "opret": [],
@@ -9731,7 +9780,7 @@
     "flyt": []
    }
   },
-  "202": {
+  "G202": {
    "A": {
     "tekst": "Navn og art: række 58 beholder navnet »Nybøl«, art gård",
     "opret": [],
@@ -9749,7 +9798,7 @@
     "flyt": []
    }
   },
-  "203": {
+  "G203": {
    "A": {
     "tekst": "Navn og art: række 224 beholder navnet »Nyholm«, art gård",
     "opret": [],
@@ -9767,7 +9816,7 @@
     "flyt": []
    }
   },
-  "204": {
+  "G204": {
    "A": {
     "tekst": "Navn og art: række 193 beholder navnet »Nørre Gyldenbjerg«, art gård",
     "opret": [],
@@ -9785,7 +9834,7 @@
     "flyt": []
    }
   },
-  "205": {
+  "G205": {
    "A": {
     "tekst": "Navn og art: række 401 beholder navnet »Nørre-Gyldenbjerg ved Nakskov (til)«, art gård",
     "opret": [],
@@ -9819,7 +9868,7 @@
     "flyt": []
    }
   },
-  "206": {
+  "G206": {
    "A": {
     "tekst": "Navn og art: række 284 beholder navnet »o.s.v.«, art gård",
     "opret": [],
@@ -9853,7 +9902,7 @@
     "flyt": []
    }
   },
-  "207": {
+  "G207": {
    "A": {
     "tekst": "Læg sammen: række 158 beholder navnet »Ober‑Ellguth«, art gård; række 416 lægges ind i række 158 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -9878,6 +9927,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 158 beholder navnet »Ober‑Ellguth«, art gård; række 416 beholder navnet »Ober-Ellguth«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9899,7 +9949,7 @@
     "flyt": []
    }
   },
-  "208": {
+  "G208": {
    "A": {
     "tekst": "Navn og art: række 126 beholder navnet »Oregaard«, art gård",
     "opret": [],
@@ -9917,7 +9967,7 @@
     "flyt": []
    }
   },
-  "209": {
+  "G209": {
    "A": {
     "tekst": "Læg sammen: række 147 beholder navnet »Osterrade«, art gård; række 140 lægges ind i række 147 (1 ejerforhold flyttes med); ny gård oprettes: Bovenau; ejerforhold 505 kopieres til den nye gård Bovenau",
     "opret": [
@@ -9956,6 +10006,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 140 beholder navnet »Osterrade med Bovenau«, art gård; række 147 beholder navnet »Osterrade«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -9999,7 +10050,7 @@
     "flyt": []
    }
   },
-  "210": {
+  "G210": {
    "A": {
     "tekst": "Del op: Osterrade / Kluvensiek er hver sin gård: række 339 lægges ind i række 147 (1 ejerforhold flyttes med); ejerforhold 2561 kopieres til række 141 (Kluvensieck)",
     "opret": [],
@@ -10039,7 +10090,7 @@
     "flyt": []
    }
   },
-  "211": {
+  "G211": {
    "A": {
     "tekst": "Navn og art: række 66 beholder navnet »Panker«, art gård",
     "opret": [],
@@ -10057,7 +10108,7 @@
     "flyt": []
    }
   },
-  "212": {
+  "G212": {
    "A": {
     "tekst": "Navn og art: række 105 beholder navnet »Passee«, art gård",
     "opret": [],
@@ -10075,7 +10126,7 @@
     "flyt": []
    }
   },
-  "213": {
+  "G213": {
    "A": {
     "tekst": "Navn og art: række 367 får navnet »Pederstrup« (før »Pederstrup med Skjelstofte (1725)«), art gård; ny gård oprettes: Skjelstofte; ejerforhold 2593 kopieres til den nye gård Skjelstofte",
     "opret": [
@@ -10153,7 +10204,7 @@
     "flyt": []
    }
   },
-  "214": {
+  "G214": {
    "A": {
     "tekst": "Navn og art: række 425 beholder navnet »Peterstrup(?) Birk (1510, som enke)«, art gård",
     "opret": [],
@@ -10219,7 +10270,7 @@
     "flyt": []
    }
   },
-  "215": {
+  "G215": {
    "A": {
     "tekst": "Navn og art: række 316 beholder navnet »Philipsburg i Angel (forpagtet 1700)«, art gård",
     "opret": [],
@@ -10253,7 +10304,7 @@
     "flyt": []
    }
   },
-  "216": {
+  "G216": {
    "A": {
     "tekst": "Navn og art: række 181 beholder navnet »Polle«, art gård",
     "opret": [],
@@ -10271,7 +10322,7 @@
     "flyt": []
    }
   },
-  "217": {
+  "G217": {
    "A": {
     "tekst": "Navn og art (listen ligner ikke flere gårde, så den deles ikke): række 190 beholder navnet »Polle I og II«, art gård",
     "opret": [],
@@ -10289,7 +10340,7 @@
     "flyt": []
    }
   },
-  "218": {
+  "G218": {
    "A": {
     "tekst": "Læg sammen: række 174 beholder navnet »Pugerup«, art gård; række 378 lægges ind i række 174 (1 ejerforhold flyttes med); række 391 lægges ind i række 174 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -10319,6 +10370,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 174 beholder navnet »Pugerup«, art gård; række 378 beholder navnet »Pugerup (Gudmunstorp S.) (1845)«, art gård; række 391 beholder navnet »til Pugerup«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10346,7 +10398,7 @@
     "flyt": []
    }
   },
-  "219": {
+  "G219": {
    "A": {
     "tekst": "Navn og art: række 256 beholder navnet »Quais«, art gård",
     "opret": [],
@@ -10364,7 +10416,7 @@
     "flyt": []
    }
   },
-  "220": {
+  "G220": {
    "A": {
     "tekst": "Læg sammen: række 127 beholder navnet »Quarnbek«, art gård; række 326 lægges ind i række 127 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -10389,6 +10441,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 127 beholder navnet »Quarnbek«, art gård; række 326 beholder navnet »Quarnbek (-1705)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10410,7 +10463,7 @@
     "flyt": []
    }
   },
-  "221": {
+  "G221": {
    "A": {
     "tekst": "Navn og art: række 143 beholder navnet »Rantzau«, art gård",
     "opret": [],
@@ -10428,7 +10481,7 @@
     "flyt": []
    }
   },
-  "222": {
+  "G222": {
    "A": {
     "tekst": "Del op: Rantzau / Colmar er hver sin gård: række 344 lægges ind i række 143 (1 ejerforhold flyttes med); ejerforhold 2567 kopieres til række 263 (Colmar)",
     "opret": [],
@@ -10468,7 +10521,7 @@
     "flyt": []
    }
   },
-  "223": {
+  "G223": {
    "A": {
     "tekst": "Navn og art: række 54 beholder navnet »Ratenstorp«, art gård",
     "opret": [],
@@ -10486,7 +10539,7 @@
     "flyt": []
    }
   },
-  "224": {
+  "G224": {
    "A": {
     "tekst": "Navn og art: række 152 beholder navnet »Raubart«, art gård",
     "opret": [],
@@ -10504,7 +10557,7 @@
     "flyt": []
    }
   },
-  "225": {
+  "G225": {
    "A": {
     "tekst": "Del op: Raubart / Starzeddel / Vettersfelde er hver sin gård: række 415 lægges ind i række 152 (1 ejerforhold flyttes med); ejerforhold 2665 kopieres til række 153 (Starzeddel); ejerforhold 2665 kopieres til række 154 (Vettersfelde)",
     "opret": [],
@@ -10550,7 +10603,7 @@
     "flyt": []
    }
   },
-  "226": {
+  "G226": {
    "A": {
     "tekst": "Navn og art: række 48 beholder navnet »Reesdorf«, art gård",
     "opret": [],
@@ -10568,7 +10621,7 @@
     "flyt": []
    }
   },
-  "227": {
+  "G227": {
    "A": {
     "tekst": "Læg sammen: række 94 beholder navnet »Reetz«, art gård; række 324 lægges ind i række 94 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -10593,6 +10646,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 94 beholder navnet »Reetz«, art gård; række 324 beholder navnet »Reetz (solgt 1684 til Oberst v. Vietinghof)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10614,7 +10668,7 @@
     "flyt": []
    }
   },
-  "228": {
+  "G228": {
    "A": {
     "tekst": "Læg sammen: række 34 beholder navnet »Rixdorf«, art gård; række 270 lægges ind i række 34 (1 ejerforhold flyttes med); række 275 lægges ind i række 34 (1 ejerforhold flyttes med); række 277 lægges ind i række 34 (1 ejerforhold flyttes med); række 290 lægges ind i række 34 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -10654,6 +10708,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 34 beholder navnet »Rixdorf«, art gård; række 270 beholder navnet »Rixdorf (erhvervet af Broderen)«, art gård; række 275 beholder navnet »Rixdorf (1561)«, art gård; række 277 beholder navnet »Rixdorf (solgt til Ditlev Brockdorff)«, art gård; række 290 beholder navnet »Rixdorf med landsbyerne Sellin, Küssow, Rastorf, Tramm og Rixdorf (købt af Ditlev v. Ahlefeldt, Heinrich og Schack Rantzau)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10693,7 +10748,7 @@
     "flyt": []
    }
   },
-  "229": {
+  "G229": {
    "A": {
     "tekst": "Navn og art: række 86 beholder navnet »Rosengaard«, art gård",
     "opret": [],
@@ -10711,7 +10766,7 @@
     "flyt": []
    }
   },
-  "230": {
+  "G230": {
    "A": {
     "tekst": "Læg sammen: række 183 beholder navnet »Rudbjerggaard«, art gård; række 91 lægges ind i række 183 (1 ejerforhold flyttes med); ejerforhold 314 kopieres til række 349 (Fredsholm)",
     "opret": [],
@@ -10743,6 +10798,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 91 beholder navnet »Rudbjerggaard med Fredsholm«, art gård; række 183 beholder navnet »Rudbjerggaard«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10786,7 +10842,7 @@
     "flyt": []
    }
   },
-  "231": {
+  "G231": {
    "A": {
     "tekst": "Navn og art: række 396 beholder navnet »til Rudbjerggaard, Maribo Amt (1891)«, art gård",
     "opret": [],
@@ -10820,7 +10876,7 @@
     "flyt": []
    }
   },
-  "232": {
+  "G232": {
    "A": {
     "tekst": "Navn og art: række 355 beholder navnet »Sandberg i Sundeved (1673)«, art gård",
     "opret": [],
@@ -10854,7 +10910,7 @@
     "flyt": []
    }
   },
-  "233": {
+  "G233": {
    "A": {
     "tekst": "Navn og art: række 169 beholder navnet »Sandbjerg«, art gård",
     "opret": [],
@@ -10872,7 +10928,7 @@
     "flyt": []
    }
   },
-  "234": {
+  "G234": {
    "A": {
     "tekst": "Navn og art: række 87 beholder navnet »Sandbygaard«, art gård",
     "opret": [],
@@ -10890,7 +10946,7 @@
     "flyt": []
    }
   },
-  "235": {
+  "G235": {
    "A": {
     "tekst": "Navn og art: række 24 beholder navnet »Schalkendorf«, art gård",
     "opret": [],
@@ -10908,7 +10964,7 @@
     "flyt": []
    }
   },
-  "236": {
+  "G236": {
    "A": {
     "tekst": "Navn og art: række 112 beholder navnet »Scharstorf«, art gård",
     "opret": [],
@@ -10926,7 +10982,7 @@
     "flyt": []
    }
   },
-  "237": {
+  "G237": {
    "A": {
     "tekst": "Læg sammen: række 19 beholder navnet »Schmoel«, art gård; række 327 lægges ind i række 19 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -10951,6 +11007,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 19 beholder navnet »Schmoel«, art gård; række 327 beholder navnet »Schmoel (1695)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -10972,7 +11029,7 @@
     "flyt": []
    }
   },
-  "238": {
+  "G238": {
    "A": {
     "tekst": "Del op: Schmoel / Hohenfelde er hver sin gård: række 342 lægges ind i række 19 (1 ejerforhold flyttes med); ejerforhold 2564 kopieres til række 128 (Hohenfelde)",
     "opret": [],
@@ -11012,7 +11069,7 @@
     "flyt": []
    }
   },
-  "239": {
+  "G239": {
    "A": {
     "tekst": "Navn og art: række 233 beholder navnet »Schmoel/Smolde (boede der 1443, Giekow Sogn)«, art gård",
     "opret": [],
@@ -11046,7 +11103,7 @@
     "flyt": []
    }
   },
-  "240": {
+  "G240": {
    "A": {
     "tekst": "Navn og art: række 129 beholder navnet »Schmoeler Hof«, art gård",
     "opret": [],
@@ -11064,7 +11121,7 @@
     "flyt": []
    }
   },
-  "241": {
+  "G241": {
    "A": {
     "tekst": "Navn og art: række 96 beholder navnet »Schwasdorf«, art gård",
     "opret": [],
@@ -11082,7 +11139,7 @@
     "flyt": []
    }
   },
-  "242": {
+  "G242": {
    "A": {
     "tekst": "Navn og art: række 317 beholder navnet »Schwastorf«, art gård",
     "opret": [],
@@ -11100,7 +11157,7 @@
     "flyt": []
    }
   },
-  "243": {
+  "G243": {
    "A": {
     "tekst": "Navn og art: række 97 beholder navnet »Schwetzin«, art gård",
     "opret": [],
@@ -11118,7 +11175,7 @@
     "flyt": []
    }
   },
-  "244": {
+  "G244": {
    "A": {
     "tekst": "Læg sammen: række 271 får navnet »Schöneweide« (før »Schöneweide (købt af Hr. Johan Rantzau)«), art gård; række 279 lægges ind i række 271 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -11143,6 +11200,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 271 beholder navnet »Schöneweide (købt af Hr. Johan Rantzau)«, art gård; række 279 beholder navnet »Schöneweide (1561 ved Lodtrækning)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -11164,7 +11222,7 @@
     "flyt": []
    }
   },
-  "245": {
+  "G245": {
    "A": {
     "tekst": "Læg sammen: række 14 beholder navnet »Schönkirchen«, art gård; række 243 lægges ind i række 14 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -11189,6 +11247,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 14 beholder navnet »Schönkirchen«, art gård; række 243 beholder navnet »Schönkirchen (solgt 1356 til Greverne Johan og Adolf)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -11210,7 +11269,7 @@
     "flyt": []
    }
   },
-  "246": {
+  "G246": {
    "A": {
     "tekst": "Navn og art: række 38 beholder navnet »Schönweide«, art gård",
     "opret": [],
@@ -11228,7 +11287,7 @@
     "flyt": []
    }
   },
-  "247": {
+  "G247": {
    "A": {
     "tekst": "Navn og art: række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art gård; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
     "opret": [
@@ -11382,7 +11441,7 @@
     "flyt": []
    }
   },
-  "248": {
+  "G248": {
    "A": {
     "tekst": "Navn og art: række 209 beholder navnet »Sehestedt«, art gård",
     "opret": [],
@@ -11400,7 +11459,7 @@
     "flyt": []
    }
   },
-  "249": {
+  "G249": {
    "A": {
     "tekst": "Navn og art: række 2 beholder navnet »Selent«, art gård",
     "opret": [],
@@ -11418,7 +11477,7 @@
     "flyt": []
    }
   },
-  "250": {
+  "G250": {
    "A": {
     "tekst": "Navn og art: række 52 beholder navnet »Sellin«, art gård",
     "opret": [],
@@ -11436,7 +11495,7 @@
     "flyt": []
    }
   },
-  "251": {
+  "G251": {
    "A": {
     "tekst": "Navn og art: række 100 beholder navnet »Silkeborg Len«, art gård",
     "opret": [],
@@ -11470,7 +11529,7 @@
     "flyt": []
    }
   },
-  "252": {
+  "G252": {
    "A": {
     "tekst": "Navn og art: række 222 beholder navnet »Skarhult (halvpart)«, art gård",
     "opret": [],
@@ -11504,7 +11563,7 @@
     "flyt": []
    }
   },
-  "253": {
+  "G253": {
    "A": {
     "tekst": "Navn og art: række 138 beholder navnet »Skivehus«, art gård",
     "opret": [],
@@ -11522,7 +11581,7 @@
     "flyt": []
    }
   },
-  "254": {
+  "G254": {
    "A": {
     "tekst": "Navn og art: række 230 beholder navnet »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«, art gård",
     "opret": [],
@@ -11588,7 +11647,7 @@
     "flyt": []
    }
   },
-  "255": {
+  "G255": {
    "A": {
     "tekst": "Læg sammen: række 201 får navnet »Stamhuset Frisenvold« (før »stamhuset Frisenvold«), art stamhus; række 365 lægges ind i række 201 (1 ejerforhold flyttes med); række 376 lægges ind i række 201 (1 ejerforhold flyttes med); ejerforhold 2613 kopieres til række 202 (Stamhuset Krenkerup)",
     "opret": [],
@@ -11625,6 +11684,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 201 beholder navnet »stamhuset Frisenvold«, art stamhus; række 365 beholder navnet »Stamhuset Frisenvold (1731)«, art stamhus; række 376 beholder navnet »Stamhusene Frisenvold (vundet 1762 ved Højesteretsdom) og Krenkerup«, art stamhus",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -11679,7 +11739,7 @@
     "flyt": []
    }
   },
-  "256": {
+  "G256": {
    "A": {
     "tekst": "Læg sammen: række 202 får navnet »Stamhuset Krenkerup« (før »stamhuset Krenkerup«), art stamhus; række 366 lægges ind i række 202 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -11704,6 +11764,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 202 beholder navnet »stamhuset Krenkerup«, art stamhus; række 366 beholder navnet »Stamhuset Krenkerup (1736)«, art stamhus",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -11725,7 +11786,7 @@
     "flyt": []
    }
   },
-  "257": {
+  "G257": {
    "A": {
     "tekst": "Navn og art: række 153 beholder navnet »Starzeddel«, art gård",
     "opret": [],
@@ -11743,7 +11804,7 @@
     "flyt": []
    }
   },
-  "258": {
+  "G258": {
    "A": {
     "tekst": "Navn og art: række 30 beholder navnet »Steensgaard«, art gård",
     "opret": [],
@@ -11761,7 +11822,7 @@
     "flyt": []
    }
   },
-  "259": {
+  "G259": {
    "A": {
     "tekst": "Navn og art: række 259 beholder navnet »Steensgaard i Fyen (ejede 1472)«, art gård",
     "opret": [],
@@ -11795,7 +11856,7 @@
     "flyt": []
    }
   },
-  "260": {
+  "G260": {
    "A": {
     "tekst": "Navn og art: række 150 beholder navnet »Stegen«, art gård",
     "opret": [],
@@ -11813,7 +11874,7 @@
     "flyt": []
    }
   },
-  "261": {
+  "G261": {
    "A": {
     "tekst": "Navn og art: række 272 beholder navnet »Stelböck i Selent Sogn«, art gård",
     "opret": [],
@@ -11831,7 +11892,7 @@
     "flyt": []
    }
   },
-  "262": {
+  "G262": {
    "A": {
     "tekst": "Navn og art: række 40 beholder navnet »Stellböken«, art gård",
     "opret": [],
@@ -11849,7 +11910,7 @@
     "flyt": []
    }
   },
-  "263": {
+  "G263": {
    "A": {
     "tekst": "Navn og art: række 26 beholder navnet »Stenfelt«, art gård",
     "opret": [],
@@ -11867,7 +11928,7 @@
     "flyt": []
    }
   },
-  "264": {
+  "G264": {
    "A": {
     "tekst": "Navn og art: række 35 beholder navnet »Stensgaard«, art gård",
     "opret": [],
@@ -11885,7 +11946,7 @@
     "flyt": []
    }
   },
-  "265": {
+  "G265": {
    "A": {
     "tekst": "Læg sammen: række 39 beholder navnet »Stocksee«, art gård; række 293 lægges ind i række 39 (1 ejerforhold flyttes med); række 299 lægges ind i række 39 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -11915,6 +11976,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 39 beholder navnet »Stocksee«, art gård; række 293 beholder navnet »Stocksee (1606)«, art gård; række 299 beholder navnet »Stocksee (solgt 1643)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -11942,7 +12004,7 @@
     "flyt": []
    }
   },
-  "266": {
+  "G266": {
    "A": {
     "tekst": "Navn og art: række 135 beholder navnet »Stubbe«, art gård",
     "opret": [],
@@ -11960,7 +12022,7 @@
     "flyt": []
    }
   },
-  "267": {
+  "G267": {
    "A": {
     "tekst": "Navn og art: række 333 beholder navnet »Stubbe i Riseby S. (1722)«, art gård",
     "opret": [],
@@ -11994,7 +12056,7 @@
     "flyt": []
    }
   },
-  "268": {
+  "G268": {
    "A": {
     "tekst": "Læg sammen: række 419 beholder navnet »Søbo«, art gård; række 418 lægges ind i række 419 (1 ejerforhold flyttes med); række 424 lægges ind i række 419 (1 ejerforhold flyttes med); række 430 lægges ind i række 419 (4 ejerforhold flyttes med)",
     "opret": [],
@@ -12029,6 +12091,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 418 beholder navnet »Søbo (siges at have ejet)«, art gård; række 419 beholder navnet »Søbo«, art gård; række 424 beholder navnet »Søbo (1468)«, art gård; række 430 beholder navnet »Søbo (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12062,7 +12125,7 @@
     "flyt": []
    }
   },
-  "269": {
+  "G269": {
    "A": {
     "tekst": "Læg sammen: række 92 beholder navnet »Søllestedgaard«, art gård; række 350 lægges ind i række 92 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12087,6 +12150,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 92 beholder navnet »Søllestedgaard«, art gård; række 350 beholder navnet »Søllestedgaard (1757)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12108,7 +12172,7 @@
     "flyt": []
    }
   },
-  "270": {
+  "G270": {
    "A": {
     "tekst": "Læg sammen: række 85 beholder navnet »Sørup«, art gård; række 345 lægges ind i række 85 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12133,6 +12197,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 85 beholder navnet »Sørup«, art gård; række 345 beholder navnet »Sørup (1736)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12154,7 +12219,7 @@
     "flyt": []
    }
   },
-  "271": {
+  "G271": {
    "A": {
     "tekst": "Del op: Taastrup / Aalstrup er hver sin gård: række 369 får navnet »Taastrup« (før »Taastrup og Aalstrup (1728)«), art gård; ny gård oprettes: Aalstrup; ejerforhold 2595 kopieres til den nye gård Aalstrup",
     "opret": [
@@ -12202,7 +12267,7 @@
     "flyt": []
    }
   },
-  "272": {
+  "G272": {
    "A": {
     "tekst": "Læg sammen: række 12 beholder navnet »Techelsdorf«, art gård; række 238 lægges ind i række 12 (1 ejerforhold flyttes med); række 244 lægges ind i række 12 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12232,6 +12297,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 12 beholder navnet »Techelsdorf«, art gård; række 238 beholder navnet »Techelsdorf (halve landsby, solgt 1352 til Itzehoe Kloster)«, art gård; række 244 beholder navnet »Techelsdorf (sin halvdel skænket til Itzehoe Kloster)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12259,7 +12325,7 @@
     "flyt": []
    }
   },
-  "273": {
+  "G273": {
    "A": {
     "tekst": "Navn og art: række 125 beholder navnet »Tesdorf«, art gård",
     "opret": [],
@@ -12277,7 +12343,7 @@
     "flyt": []
    }
   },
-  "274": {
+  "G274": {
    "A": {
     "tekst": "Læg sammen: række 305 beholder navnet »Testorf«, art gård; række 304 lægges ind i række 305 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12302,6 +12368,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 304 beholder navnet »Testorf (afhændet 1667 til broderen Ditlev)«, art gård; række 305 beholder navnet »Testorf«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12323,7 +12390,7 @@
     "flyt": []
    }
   },
-  "275": {
+  "G275": {
    "A": {
     "tekst": "Navn og art: række 247 beholder navnet »Tielenburg (havde i Pant)«, art gård",
     "opret": [],
@@ -12357,7 +12424,7 @@
     "flyt": []
    }
   },
-  "276": {
+  "G276": {
    "A": {
     "tekst": "Navn og art: række 31 beholder navnet »Tovskov«, art gård",
     "opret": [],
@@ -12375,7 +12442,7 @@
     "flyt": []
    }
   },
-  "277": {
+  "G277": {
    "A": {
     "tekst": "Navn og art: række 260 beholder navnet »Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))«, art gård",
     "opret": [],
@@ -12409,7 +12476,7 @@
     "flyt": []
    }
   },
-  "278": {
+  "G278": {
    "A": {
     "tekst": "Læg sammen: række 55 beholder navnet »Tramm«, art gård; række 276 lægges ind i række 55 (1 ejerforhold flyttes med); række 278 lægges ind i række 55 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12439,6 +12506,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 55 beholder navnet »Tramm«, art gård; række 276 beholder navnet »Tramm (ved lodtrækning)«, art gård; række 278 beholder navnet »Tramm (under Rixdorf, 1597)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12466,7 +12534,7 @@
     "flyt": []
    }
   },
-  "279": {
+  "G279": {
    "A": {
     "tekst": "Navn og art: række 6 beholder navnet »Tresdorf«, art gård",
     "opret": [],
@@ -12484,7 +12552,7 @@
     "flyt": []
    }
   },
-  "280": {
+  "G280": {
    "A": {
     "tekst": "Navn og art: række 385 beholder navnet »til Truelstorp«, art gård",
     "opret": [],
@@ -12518,7 +12586,7 @@
     "flyt": []
    }
   },
-  "281": {
+  "G281": {
    "A": {
     "tekst": "Navn og art: række 218 beholder navnet »Trulstorp«, art gård",
     "opret": [],
@@ -12536,7 +12604,7 @@
     "flyt": []
    }
   },
-  "282": {
+  "G282": {
    "A": {
     "tekst": "Del op: Trulstorp / Ugerup er hver sin gård: række 379 lægges ind i række 218 (1 ejerforhold flyttes med); ejerforhold 2616 kopieres til række 219 (Ugerup)",
     "opret": [],
@@ -12576,7 +12644,7 @@
     "flyt": []
    }
   },
-  "283": {
+  "G283": {
    "A": {
     "tekst": "Navn og art: række 356 beholder navnet »Turø, Sunds Herred (—1674)«, art gård",
     "opret": [],
@@ -12610,7 +12678,7 @@
     "flyt": []
    }
   },
-  "284": {
+  "G284": {
    "A": {
     "tekst": "Læg sammen: række 371 beholder navnet »Tølløse«, art gård; række 370 lægges ind i række 371 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12635,6 +12703,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 370 beholder navnet »Tølløse (1728)«, art gård; række 371 beholder navnet »Tølløse«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12656,7 +12725,7 @@
     "flyt": []
    }
   },
-  "285": {
+  "G285": {
    "A": {
     "tekst": "Navn og art: række 203 beholder navnet »Tølløsegaard«, art gård",
     "opret": [],
@@ -12674,7 +12743,7 @@
     "flyt": []
    }
   },
-  "286": {
+  "G286": {
    "A": {
     "tekst": "Læg sammen: række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art gård; række 231 lægges ind i række 23 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12699,6 +12768,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art gård; række 231 beholder navnet »Tønder Slot, Herreder og Fogderi (i Pant fra 1431)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12743,6 +12813,7 @@
    },
    "D": {
     "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art ukendt; række 231 beholder navnet »Tønder Slot, Herreder og Fogderi (i Pant fra 1431)«, art ukendt",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12764,7 +12835,7 @@
     "flyt": []
    }
   },
-  "287": {
+  "G287": {
    "A": {
     "tekst": "Navn og art: række 45 beholder navnet »Tørning«, art gård",
     "opret": [],
@@ -12782,7 +12853,7 @@
     "flyt": []
    }
   },
-  "288": {
+  "G288": {
    "A": {
     "tekst": "Navn og art: række 219 beholder navnet »Ugerup«, art gård",
     "opret": [],
@@ -12800,7 +12871,7 @@
     "flyt": []
    }
   },
-  "289": {
+  "G289": {
    "A": {
     "tekst": "Navn og art: række 123 beholder navnet »Vandlinggaard«, art gård",
     "opret": [],
@@ -12818,7 +12889,7 @@
     "flyt": []
    }
   },
-  "290": {
+  "G290": {
    "A": {
     "tekst": "Navn og art: række 180 beholder navnet »Varste«, art gård",
     "opret": [],
@@ -12836,7 +12907,7 @@
     "flyt": []
    }
   },
-  "291": {
+  "G291": {
    "A": {
     "tekst": "Navn og art: række 154 beholder navnet »Vettersfelde«, art gård",
     "opret": [],
@@ -12854,7 +12925,7 @@
     "flyt": []
    }
   },
-  "292": {
+  "G292": {
    "A": {
     "tekst": "Læg sammen: række 184 beholder navnet »Vindeholme«, art gård; række 397 lægges ind i række 184 (1 ejerforhold flyttes med); række 402 lægges ind i række 184 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12884,6 +12955,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 184 beholder navnet »Vindeholme«, art gård; række 397 beholder navnet »til Vindeholme (udskilt 1909 af Rudbjerggaard)«, art gård; række 402 beholder navnet »Vindeholme (medejer fra 1929)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12911,7 +12983,7 @@
     "flyt": []
    }
   },
-  "293": {
+  "G293": {
    "A": {
     "tekst": "Læg sammen: række 426 får navnet »Vingegaard« (før »Vingegaard (til)«), art gård; række 422 lægges ind i række 426 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -12936,6 +13008,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 422 beholder navnet »Vingegaard (Sønder Dyrs H.)«, art gård; række 426 beholder navnet »Vingegaard (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -12957,7 +13030,7 @@
     "flyt": []
    }
   },
-  "294": {
+  "G294": {
    "A": {
     "tekst": "Navn og art: række 43 beholder navnet »Visgaarde«, art gård",
     "opret": [],
@@ -12975,7 +13048,7 @@
     "flyt": []
    }
   },
-  "295": {
+  "G295": {
    "A": {
     "tekst": "Navn og art: række 216 beholder navnet »Vänersnäs«, art gård",
     "opret": [],
@@ -12993,7 +13066,7 @@
     "flyt": []
    }
   },
-  "296": {
+  "G296": {
    "A": {
     "tekst": "Navn og art: række 175 beholder navnet »Vännberga«, art gård",
     "opret": [],
@@ -13011,7 +13084,7 @@
     "flyt": []
    }
   },
-  "297": {
+  "G297": {
    "A": {
     "tekst": "Navn og art: række 59 beholder navnet »Waschbuk«, art gård",
     "opret": [],
@@ -13029,7 +13102,7 @@
     "flyt": []
    }
   },
-  "298": {
+  "G298": {
    "A": {
     "tekst": "Navn og art: række 292 beholder navnet »Waschbuk i Hansühn Sogn«, art gård",
     "opret": [],
@@ -13047,7 +13120,7 @@
     "flyt": []
    }
   },
-  "299": {
+  "G299": {
    "A": {
     "tekst": "Læg sammen: række 56 beholder navnet »Waterneverstorf«, art gård; række 294 lægges ind i række 56 (1 ejerforhold flyttes med); række 301 lægges ind i række 56 (1 ejerforhold flyttes med)",
     "opret": [],
@@ -13077,6 +13150,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 56 beholder navnet »Waterneverstorf«, art gård; række 294 beholder navnet »Waterneverstorf (1608)«, art gård; række 301 beholder navnet »Waterneverstorf (solgt til H. Blome)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -13104,7 +13178,7 @@
     "flyt": []
    }
   },
-  "300": {
+  "G300": {
    "A": {
     "tekst": "Navn og art: række 280 beholder navnet »Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)«, art gård",
     "opret": [],
@@ -13138,7 +13212,7 @@
     "flyt": []
    }
   },
-  "301": {
+  "G301": {
    "A": {
     "tekst": "Navn og art: række 20 beholder navnet »Wellsee«, art gård",
     "opret": [],
@@ -13156,7 +13230,7 @@
     "flyt": []
    }
   },
-  "302": {
+  "G302": {
    "A": {
     "tekst": "Navn og art: række 70 beholder navnet »Wendisch Rambow«, art gård",
     "opret": [],
@@ -13174,7 +13248,7 @@
     "flyt": []
    }
   },
-  "303": {
+  "G303": {
    "A": {
     "tekst": "Navn og art: række 76 beholder navnet »Wendisch Zülow«, art gård",
     "opret": [],
@@ -13192,7 +13266,7 @@
     "flyt": []
    }
   },
-  "304": {
+  "G304": {
    "A": {
     "tekst": "Navn og art: række 287 beholder navnet »Wendischen Zülow (bortpantet 1490)«, art gård",
     "opret": [],
@@ -13226,7 +13300,7 @@
     "flyt": []
    }
   },
-  "305": {
+  "G305": {
    "A": {
     "tekst": "Navn og art: række 390 beholder navnet »til Wennberga i Brostorp i Frosta Herred«, art gård",
     "opret": [],
@@ -13260,7 +13334,7 @@
     "flyt": []
    }
   },
-  "306": {
+  "G306": {
    "A": {
     "tekst": "Læg sammen: række 5 beholder navnet »Wittenberg«, art gård; række 64 lægges ind i række 5 (1 ejerforhold flyttes med); række 282 lægges ind i række 5 (1 ejerforhold flyttes med); række 309 lægges ind i række 5 (1 ejerforhold flyttes med); række 310 lægges ind i række 5 (1 ejerforhold flyttes med); række 405 lægges ind i række 5 (1 ejerforhold flyttes med); række 413 lægges ind i række 5 (1 ejerforhold flyttes med); række 414 lægges ind i række 5 (1 ejerforhold flyttes med); række 417 lægges ind i række 5 (1 ejerforhold flyttes med); ejerforhold 194 kopieres til række 6 (Tresdorf)",
     "opret": [],
@@ -13327,6 +13401,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 5 beholder navnet »Wittenberg«, art gård; række 64 beholder navnet »Wittenberg med Tresdorf«, art gård; række 282 beholder navnet »Wittenberg (1592 købt af Christopher Rantzau og Ditlev Brockdorff)«, art gård; række 309 beholder navnet »Wittenberg (afstaaet til Broderen)«, art gård; række 310 beholder navnet »Wittenberg (1712–38)«, art gård; række 405 beholder navnet »Wittenberg (1779)«, art gård; række 413 beholder navnet »Wittenberg (1816)«, art gård; række 414 beholder navnet »Wittenberg (1842-51)«, art gård; række 417 beholder navnet »Wittenberg (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -13447,7 +13522,7 @@
     "flyt": []
    }
   },
-  "307": {
+  "G307": {
    "A": {
     "tekst": "Navn og art: række 133 beholder navnet »Wittmold«, art gård",
     "opret": [],
@@ -13465,7 +13540,7 @@
     "flyt": []
    }
   },
-  "308": {
+  "G308": {
    "A": {
     "tekst": "Navn og art: række 50 beholder navnet »Wulfsborstel«, art gård",
     "opret": [],
@@ -13483,7 +13558,7 @@
     "flyt": []
    }
   },
-  "309": {
+  "G309": {
    "A": {
     "tekst": "Læg sammen: række 185 beholder navnet »Wulfshagen«, art gård; række 398 lægges ind i række 185 (2 ejerforhold flyttes med)",
     "opret": [],
@@ -13508,6 +13583,7 @@
    },
    "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 185 beholder navnet »Wulfshagen«, art gård; række 398 beholder navnet »Wulfshagen (til)«, art gård",
+    "adskilt": true,
     "opret": [],
     "saet": [
      {
@@ -13529,7 +13605,7 @@
     "flyt": []
    }
   },
-  "310": {
+  "G310": {
    "A": {
     "tekst": "Navn og art: række 229 beholder navnet »Wännberga«, art gård",
     "opret": [],
@@ -13547,7 +13623,7 @@
     "flyt": []
    }
   },
-  "311": {
+  "G311": {
    "A": {
     "tekst": "Navn og art: række 80 beholder navnet »Zahrenstorf«, art gård",
     "opret": [],
@@ -13565,7 +13641,7 @@
     "flyt": []
    }
   },
-  "312": {
+  "G312": {
    "A": {
     "tekst": "Navn og art: række 109 beholder navnet »Zierow«, art gård",
     "opret": [],
@@ -13583,7 +13659,7 @@
     "flyt": []
    }
   },
-  "313": {
+  "G313": {
    "A": {
     "tekst": "Navn og art: række 84 beholder navnet »Ziesendorf«, art gård",
     "opret": [],
@@ -15243,5 +15319,3058 @@
     "flyt": []
    }
   }
- }
+ },
+ "poster": {
+  "G1": {
+   "type": "gruppe",
+   "medlemmer": [
+    161
+   ],
+   "overlever": 161,
+   "kategori": "enkel"
+  },
+  "G2": {
+   "type": "gruppe",
+   "medlemmer": [
+    408
+   ],
+   "overlever": 408,
+   "kategori": "tvivl"
+  },
+  "G3": {
+   "type": "gruppe",
+   "medlemmer": [
+    179
+   ],
+   "overlever": 179,
+   "kategori": "enkel"
+  },
+  "G4": {
+   "type": "gruppe",
+   "medlemmer": [
+    394,
+    400
+   ],
+   "overlever": 394,
+   "kategori": "aendring"
+  },
+  "G5": {
+   "type": "gruppe",
+   "medlemmer": [
+    119,
+    159,
+    321
+   ],
+   "overlever": 119,
+   "kategori": "aendring"
+  },
+  "G6": {
+   "type": "gruppe",
+   "medlemmer": [
+    237
+   ],
+   "overlever": 237,
+   "kategori": "tvivl"
+  },
+  "G7": {
+   "type": "gruppe",
+   "medlemmer": [
+    146
+   ],
+   "overlever": 146,
+   "kategori": "enkel"
+  },
+  "G8": {
+   "type": "gruppe",
+   "medlemmer": [
+    406
+   ],
+   "overlever": 406,
+   "kategori": "enkel"
+  },
+  "G9": {
+   "type": "gruppe",
+   "medlemmer": [
+    33
+   ],
+   "overlever": 33,
+   "kategori": "enkel"
+  },
+  "G10": {
+   "type": "gruppe",
+   "medlemmer": [
+    139
+   ],
+   "overlever": 139,
+   "kategori": "enkel"
+  },
+  "G11": {
+   "type": "gruppe",
+   "medlemmer": [
+    213
+   ],
+   "overlever": 213,
+   "kategori": "tvivl"
+  },
+  "G12": {
+   "type": "gruppe",
+   "medlemmer": [
+    393
+   ],
+   "overlever": 393,
+   "kategori": "tvivl"
+  },
+  "G13": {
+   "type": "gruppe",
+   "medlemmer": [
+    62,
+    297
+   ],
+   "overlever": 62,
+   "kategori": "aendring"
+  },
+  "G14": {
+   "type": "gruppe",
+   "medlemmer": [
+    172,
+    261,
+    364,
+    375,
+    383
+   ],
+   "overlever": 261,
+   "kategori": "aendring"
+  },
+  "G15": {
+   "type": "gruppe",
+   "medlemmer": [
+    4
+   ],
+   "overlever": 4,
+   "kategori": "enkel"
+  },
+  "G16": {
+   "type": "gruppe",
+   "medlemmer": [
+    122
+   ],
+   "overlever": 122,
+   "kategori": "enkel"
+  },
+  "G17": {
+   "type": "gruppe",
+   "medlemmer": [
+    68
+   ],
+   "overlever": 68,
+   "kategori": "enkel"
+  },
+  "G18": {
+   "type": "gruppe",
+   "medlemmer": [
+    249
+   ],
+   "overlever": 249,
+   "kategori": "tvivl"
+  },
+  "G19": {
+   "type": "gruppe",
+   "medlemmer": [
+    25
+   ],
+   "overlever": 25,
+   "kategori": "enkel"
+  },
+  "G20": {
+   "type": "gruppe",
+   "medlemmer": [
+    234
+   ],
+   "overlever": 234,
+   "kategori": "enkel"
+  },
+  "G21": {
+   "type": "gruppe",
+   "medlemmer": [
+    114,
+    286
+   ],
+   "overlever": 114,
+   "kategori": "aendring"
+  },
+  "G22": {
+   "type": "gruppe",
+   "medlemmer": [
+    191
+   ],
+   "overlever": 191,
+   "kategori": "enkel"
+  },
+  "G23": {
+   "type": "gruppe",
+   "medlemmer": [
+    115
+   ],
+   "overlever": 115,
+   "kategori": "enkel"
+  },
+  "G24": {
+   "type": "gruppe",
+   "medlemmer": [
+    318,
+    330
+   ],
+   "overlever": 318,
+   "kategori": "aendring"
+  },
+  "G25": {
+   "type": "gruppe",
+   "medlemmer": [
+    16,
+    241
+   ],
+   "overlever": 16,
+   "kategori": "aendring"
+  },
+  "G26": {
+   "type": "gruppe",
+   "medlemmer": [
+    384
+   ],
+   "overlever": 384,
+   "kategori": "enkel"
+  },
+  "G27": {
+   "type": "gruppe",
+   "medlemmer": [
+    421
+   ],
+   "overlever": 421,
+   "kategori": "enkel"
+  },
+  "G28": {
+   "type": "gruppe",
+   "medlemmer": [
+    423
+   ],
+   "overlever": 423,
+   "kategori": "enkel"
+  },
+  "G29": {
+   "type": "gruppe",
+   "medlemmer": [
+    11
+   ],
+   "overlever": 11,
+   "kategori": "enkel"
+  },
+  "G30": {
+   "type": "gruppe",
+   "medlemmer": [
+    132
+   ],
+   "overlever": 132,
+   "kategori": "enkel"
+  },
+  "G31": {
+   "type": "gruppe",
+   "medlemmer": [
+    331
+   ],
+   "overlever": 331,
+   "kategori": "tvivl"
+  },
+  "G32": {
+   "type": "gruppe",
+   "medlemmer": [
+    173,
+    189
+   ],
+   "overlever": 189,
+   "kategori": "aendring"
+  },
+  "G33": {
+   "type": "gruppe",
+   "medlemmer": [
+    428
+   ],
+   "overlever": 428,
+   "kategori": "enkel"
+  },
+  "G34": {
+   "type": "gruppe",
+   "medlemmer": [
+    95
+   ],
+   "overlever": 95,
+   "kategori": "enkel"
+  },
+  "G35": {
+   "type": "gruppe",
+   "medlemmer": [
+    427
+   ],
+   "overlever": 427,
+   "kategori": "enkel"
+  },
+  "G36": {
+   "type": "gruppe",
+   "medlemmer": [
+    198
+   ],
+   "overlever": 198,
+   "kategori": "enkel"
+  },
+  "G37": {
+   "type": "gruppe",
+   "medlemmer": [
+    176
+   ],
+   "overlever": 176,
+   "kategori": "enkel"
+  },
+  "G38": {
+   "type": "gruppe",
+   "medlemmer": [
+    7,
+    307
+   ],
+   "overlever": 7,
+   "kategori": "aendring"
+  },
+  "G39": {
+   "type": "gruppe",
+   "medlemmer": [
+    204
+   ],
+   "overlever": 204,
+   "kategori": "enkel"
+  },
+  "G40": {
+   "type": "gruppe",
+   "medlemmer": [
+    47
+   ],
+   "overlever": 47,
+   "kategori": "enkel"
+  },
+  "G41": {
+   "type": "gruppe",
+   "medlemmer": [
+    3
+   ],
+   "overlever": 3,
+   "kategori": "enkel"
+  },
+  "G42": {
+   "type": "gruppe",
+   "medlemmer": [
+    199
+   ],
+   "overlever": 199,
+   "kategori": "enkel"
+  },
+  "G43": {
+   "type": "gruppe",
+   "medlemmer": [
+    13,
+    239
+   ],
+   "overlever": 13,
+   "kategori": "aendring"
+  },
+  "G44": {
+   "type": "gruppe",
+   "medlemmer": [
+    113
+   ],
+   "overlever": 113,
+   "kategori": "enkel"
+  },
+  "G45": {
+   "type": "gruppe",
+   "medlemmer": [
+    156
+   ],
+   "overlever": 156,
+   "kategori": "enkel"
+  },
+  "G46": {
+   "type": "gruppe",
+   "medlemmer": [
+    285
+   ],
+   "overlever": 285,
+   "kategori": "enkel"
+  },
+  "G47": {
+   "type": "gruppe",
+   "medlemmer": [
+    178
+   ],
+   "overlever": 178,
+   "kategori": "enkel"
+  },
+  "G48": {
+   "type": "gruppe",
+   "medlemmer": [
+    171
+   ],
+   "overlever": 171,
+   "kategori": "tvivl"
+  },
+  "G49": {
+   "type": "gruppe",
+   "medlemmer": [
+    108
+   ],
+   "overlever": 108,
+   "kategori": "enkel"
+  },
+  "G50": {
+   "type": "gruppe",
+   "medlemmer": [
+    165,
+    357
+   ],
+   "overlever": 165,
+   "kategori": "aendring"
+  },
+  "G51": {
+   "type": "gruppe",
+   "medlemmer": [
+    263,
+    340
+   ],
+   "overlever": 263,
+   "kategori": "aendring"
+  },
+  "G52": {
+   "type": "gruppe",
+   "medlemmer": [
+    144
+   ],
+   "overlever": 144,
+   "kategori": "enkel"
+  },
+  "G53": {
+   "type": "gruppe",
+   "medlemmer": [
+    195
+   ],
+   "overlever": 195,
+   "kategori": "enkel"
+  },
+  "G54": {
+   "type": "gruppe",
+   "medlemmer": [
+    186,
+    399
+   ],
+   "overlever": 186,
+   "kategori": "aendring"
+  },
+  "G55": {
+   "type": "gruppe",
+   "medlemmer": [
+    429
+   ],
+   "overlever": 429,
+   "kategori": "enkel"
+  },
+  "G56": {
+   "type": "gruppe",
+   "medlemmer": [
+    206
+   ],
+   "overlever": 206,
+   "kategori": "enkel"
+  },
+  "G57": {
+   "type": "gruppe",
+   "medlemmer": [
+    121
+   ],
+   "overlever": 121,
+   "kategori": "tvivl"
+  },
+  "G58": {
+   "type": "gruppe",
+   "medlemmer": [
+    212
+   ],
+   "overlever": 212,
+   "kategori": "tvivl"
+  },
+  "G59": {
+   "type": "gruppe",
+   "medlemmer": [
+    164
+   ],
+   "overlever": 164,
+   "kategori": "tvivl"
+  },
+  "G60": {
+   "type": "gruppe",
+   "medlemmer": [
+    188,
+    211
+   ],
+   "overlever": 211,
+   "kategori": "aendring"
+  },
+  "G61": {
+   "type": "gruppe",
+   "medlemmer": [
+    65
+   ],
+   "overlever": 65,
+   "kategori": "enkel"
+  },
+  "G62": {
+   "type": "gruppe",
+   "medlemmer": [
+    187
+   ],
+   "overlever": 187,
+   "kategori": "enkel"
+  },
+  "G63": {
+   "type": "gruppe",
+   "medlemmer": [
+    49
+   ],
+   "overlever": 49,
+   "kategori": "enkel"
+  },
+  "G64": {
+   "type": "gruppe",
+   "medlemmer": [
+    41,
+    273
+   ],
+   "overlever": 41,
+   "kategori": "aendring"
+  },
+  "G65": {
+   "type": "gruppe",
+   "medlemmer": [
+    101
+   ],
+   "overlever": 101,
+   "kategori": "tvivl"
+  },
+  "G66": {
+   "type": "gruppe",
+   "medlemmer": [
+    18
+   ],
+   "overlever": 18,
+   "kategori": "enkel"
+  },
+  "G67": {
+   "type": "gruppe",
+   "medlemmer": [
+    162
+   ],
+   "overlever": 162,
+   "kategori": "enkel"
+  },
+  "G68": {
+   "type": "gruppe",
+   "medlemmer": [
+    60
+   ],
+   "overlever": 60,
+   "kategori": "enkel"
+  },
+  "G69": {
+   "type": "gruppe",
+   "medlemmer": [
+    351
+   ],
+   "overlever": 351,
+   "kategori": "tvivl"
+  },
+  "G70": {
+   "type": "gruppe",
+   "medlemmer": [
+    93,
+    136,
+    352
+   ],
+   "overlever": 136,
+   "kategori": "aendring"
+  },
+  "G71": {
+   "type": "gruppe",
+   "medlemmer": [
+    336
+   ],
+   "overlever": 336,
+   "kategori": "enkel"
+  },
+  "G72": {
+   "type": "gruppe",
+   "medlemmer": [
+    194
+   ],
+   "overlever": 194,
+   "kategori": "enkel"
+  },
+  "G73": {
+   "type": "gruppe",
+   "medlemmer": [
+    63
+   ],
+   "overlever": 63,
+   "kategori": "enkel"
+  },
+  "G74": {
+   "type": "gruppe",
+   "medlemmer": [
+    79
+   ],
+   "overlever": 79,
+   "kategori": "enkel"
+  },
+  "G75": {
+   "type": "gruppe",
+   "medlemmer": [
+    252
+   ],
+   "overlever": 252,
+   "kategori": "enkel"
+  },
+  "G76": {
+   "type": "gruppe",
+   "medlemmer": [
+    145,
+    404,
+    407
+   ],
+   "overlever": 145,
+   "kategori": "aendring"
+  },
+  "G77": {
+   "type": "gruppe",
+   "medlemmer": [
+    137
+   ],
+   "overlever": 137,
+   "kategori": "enkel"
+  },
+  "G78": {
+   "type": "gruppe",
+   "medlemmer": [
+    338
+   ],
+   "overlever": 338,
+   "kategori": "tvivl"
+  },
+  "G79": {
+   "type": "gruppe",
+   "medlemmer": [
+    73
+   ],
+   "overlever": 73,
+   "kategori": "enkel"
+  },
+  "G80": {
+   "type": "gruppe",
+   "medlemmer": [
+    160
+   ],
+   "overlever": 160,
+   "kategori": "enkel"
+  },
+  "G81": {
+   "type": "gruppe",
+   "medlemmer": [
+    409
+   ],
+   "overlever": 409,
+   "kategori": "enkel"
+  },
+  "G82": {
+   "type": "gruppe",
+   "medlemmer": [
+    10
+   ],
+   "overlever": 10,
+   "kategori": "enkel"
+  },
+  "G83": {
+   "type": "gruppe",
+   "medlemmer": [
+    312
+   ],
+   "overlever": 312,
+   "kategori": "enkel"
+  },
+  "G84": {
+   "type": "gruppe",
+   "medlemmer": [
+    207
+   ],
+   "overlever": 207,
+   "kategori": "enkel"
+  },
+  "G85": {
+   "type": "gruppe",
+   "medlemmer": [
+    155
+   ],
+   "overlever": 155,
+   "kategori": "enkel"
+  },
+  "G86": {
+   "type": "gruppe",
+   "medlemmer": [
+    395
+   ],
+   "overlever": 395,
+   "kategori": "tvivl"
+  },
+  "G87": {
+   "type": "gruppe",
+   "medlemmer": [
+    220,
+    388
+   ],
+   "overlever": 220,
+   "kategori": "aendring"
+  },
+  "G88": {
+   "type": "gruppe",
+   "medlemmer": [
+    9
+   ],
+   "overlever": 9,
+   "kategori": "tvivl"
+  },
+  "G89": {
+   "type": "gruppe",
+   "medlemmer": [
+    246,
+    248
+   ],
+   "overlever": 246,
+   "kategori": "tvivl"
+  },
+  "G90": {
+   "type": "gruppe",
+   "medlemmer": [
+    251
+   ],
+   "overlever": 251,
+   "kategori": "tvivl"
+  },
+  "G91": {
+   "type": "gruppe",
+   "medlemmer": [
+    253
+   ],
+   "overlever": 253,
+   "kategori": "tvivl"
+  },
+  "G92": {
+   "type": "gruppe",
+   "medlemmer": [
+    349
+   ],
+   "overlever": 349,
+   "kategori": "enkel"
+  },
+  "G93": {
+   "type": "gruppe",
+   "medlemmer": [
+    131,
+    329
+   ],
+   "overlever": 131,
+   "kategori": "aendring"
+  },
+  "G94": {
+   "type": "gruppe",
+   "medlemmer": [
+    358
+   ],
+   "overlever": 358,
+   "kategori": "enkel"
+  },
+  "G95": {
+   "type": "gruppe",
+   "medlemmer": [
+    166
+   ],
+   "overlever": 166,
+   "kategori": "enkel"
+  },
+  "G96": {
+   "type": "gruppe",
+   "medlemmer": [
+    215
+   ],
+   "overlever": 215,
+   "kategori": "enkel"
+  },
+  "G97": {
+   "type": "gruppe",
+   "medlemmer": [
+    381
+   ],
+   "overlever": 381,
+   "kategori": "tvivl"
+  },
+  "G98": {
+   "type": "gruppe",
+   "medlemmer": [
+    57,
+    283,
+    300,
+    353
+   ],
+   "overlever": 57,
+   "kategori": "aendring"
+  },
+  "G99": {
+   "type": "gruppe",
+   "medlemmer": [
+    27,
+    254,
+    257
+   ],
+   "overlever": 27,
+   "kategori": "tvivl"
+  },
+  "G100": {
+   "type": "gruppe",
+   "medlemmer": [
+    267
+   ],
+   "overlever": 267,
+   "kategori": "tvivl"
+  },
+  "G101": {
+   "type": "gruppe",
+   "medlemmer": [
+    69
+   ],
+   "overlever": 69,
+   "kategori": "enkel"
+  },
+  "G102": {
+   "type": "gruppe",
+   "medlemmer": [
+    107
+   ],
+   "overlever": 107,
+   "kategori": "enkel"
+  },
+  "G103": {
+   "type": "gruppe",
+   "medlemmer": [
+    227,
+    386
+   ],
+   "overlever": 227,
+   "kategori": "aendring"
+  },
+  "G104": {
+   "type": "gruppe",
+   "medlemmer": [
+    102
+   ],
+   "overlever": 102,
+   "kategori": "enkel"
+  },
+  "G105": {
+   "type": "gruppe",
+   "medlemmer": [
+    245
+   ],
+   "overlever": 245,
+   "kategori": "tvivl"
+  },
+  "G106": {
+   "type": "gruppe",
+   "medlemmer": [
+    118,
+    320,
+    335,
+    337,
+    403
+   ],
+   "overlever": 118,
+   "kategori": "aendring"
+  },
+  "G107": {
+   "type": "gruppe",
+   "medlemmer": [
+    32
+   ],
+   "overlever": 32,
+   "kategori": "enkel"
+  },
+  "G108": {
+   "type": "gruppe",
+   "medlemmer": [
+    264
+   ],
+   "overlever": 264,
+   "kategori": "enkel"
+  },
+  "G109": {
+   "type": "gruppe",
+   "medlemmer": [
+    314
+   ],
+   "overlever": 314,
+   "kategori": "tvivl"
+  },
+  "G110": {
+   "type": "gruppe",
+   "medlemmer": [
+    103
+   ],
+   "overlever": 103,
+   "kategori": "enkel"
+  },
+  "G111": {
+   "type": "gruppe",
+   "medlemmer": [
+    44,
+    274
+   ],
+   "overlever": 44,
+   "kategori": "tvivl"
+  },
+  "G112": {
+   "type": "gruppe",
+   "medlemmer": [
+    71
+   ],
+   "overlever": 71,
+   "kategori": "enkel"
+  },
+  "G113": {
+   "type": "gruppe",
+   "medlemmer": [
+    77,
+    288
+   ],
+   "overlever": 77,
+   "kategori": "aendring"
+  },
+  "G114": {
+   "type": "gruppe",
+   "medlemmer": [
+    111
+   ],
+   "overlever": 111,
+   "kategori": "enkel"
+  },
+  "G115": {
+   "type": "gruppe",
+   "medlemmer": [
+    90,
+    120,
+    334,
+    348
+   ],
+   "overlever": 90,
+   "kategori": "tvivl"
+  },
+  "G116": {
+   "type": "gruppe",
+   "medlemmer": [
+    322
+   ],
+   "overlever": 322,
+   "kategori": "enkel"
+  },
+  "G117": {
+   "type": "gruppe",
+   "medlemmer": [
+    15,
+    240
+   ],
+   "overlever": 15,
+   "kategori": "aendring"
+  },
+  "G118": {
+   "type": "gruppe",
+   "medlemmer": [
+    29,
+    258,
+    265,
+    269
+   ],
+   "overlever": 29,
+   "kategori": "aendring"
+  },
+  "G119": {
+   "type": "gruppe",
+   "medlemmer": [
+    291
+   ],
+   "overlever": 291,
+   "kategori": "tvivl"
+  },
+  "G120": {
+   "type": "gruppe",
+   "medlemmer": [
+    104
+   ],
+   "overlever": 104,
+   "kategori": "enkel"
+  },
+  "G121": {
+   "type": "gruppe",
+   "medlemmer": [
+    170,
+    205,
+    208,
+    363,
+    372,
+    377
+   ],
+   "overlever": 170,
+   "kategori": "aendring"
+  },
+  "G122": {
+   "type": "gruppe",
+   "medlemmer": [
+    163,
+    362,
+    373,
+    382,
+    392
+   ],
+   "overlever": 163,
+   "kategori": "aendring"
+  },
+  "G123": {
+   "type": "gruppe",
+   "medlemmer": [
+    374
+   ],
+   "overlever": 374,
+   "kategori": "enkel"
+  },
+  "G124": {
+   "type": "gruppe",
+   "medlemmer": [
+    196
+   ],
+   "overlever": 196,
+   "kategori": "aendring"
+  },
+  "G125": {
+   "type": "gruppe",
+   "medlemmer": [
+    89
+   ],
+   "overlever": 89,
+   "kategori": "enkel"
+  },
+  "G126": {
+   "type": "gruppe",
+   "medlemmer": [
+    8,
+    311
+   ],
+   "overlever": 8,
+   "kategori": "aendring"
+  },
+  "G127": {
+   "type": "gruppe",
+   "medlemmer": [
+    308
+   ],
+   "overlever": 308,
+   "kategori": "enkel"
+  },
+  "G128": {
+   "type": "gruppe",
+   "medlemmer": [
+    28
+   ],
+   "overlever": 28,
+   "kategori": "enkel"
+  },
+  "G129": {
+   "type": "gruppe",
+   "medlemmer": [
+    226
+   ],
+   "overlever": 226,
+   "kategori": "enkel"
+  },
+  "G130": {
+   "type": "gruppe",
+   "medlemmer": [
+    83
+   ],
+   "overlever": 83,
+   "kategori": "enkel"
+  },
+  "G131": {
+   "type": "gruppe",
+   "medlemmer": [
+    214
+   ],
+   "overlever": 214,
+   "kategori": "enkel"
+  },
+  "G132": {
+   "type": "gruppe",
+   "medlemmer": [
+    116,
+    325
+   ],
+   "overlever": 116,
+   "kategori": "aendring"
+  },
+  "G133": {
+   "type": "gruppe",
+   "medlemmer": [
+    319
+   ],
+   "overlever": 319,
+   "kategori": "enkel"
+  },
+  "G134": {
+   "type": "gruppe",
+   "medlemmer": [
+    236
+   ],
+   "overlever": 236,
+   "kategori": "enkel"
+  },
+  "G135": {
+   "type": "gruppe",
+   "medlemmer": [
+    148
+   ],
+   "overlever": 148,
+   "kategori": "enkel"
+  },
+  "G136": {
+   "type": "gruppe",
+   "medlemmer": [
+    128
+   ],
+   "overlever": 128,
+   "kategori": "enkel"
+  },
+  "G137": {
+   "type": "gruppe",
+   "medlemmer": [
+    328
+   ],
+   "overlever": 328,
+   "kategori": "tvivl"
+  },
+  "G138": {
+   "type": "gruppe",
+   "medlemmer": [
+    82
+   ],
+   "overlever": 82,
+   "kategori": "enkel"
+  },
+  "G139": {
+   "type": "gruppe",
+   "medlemmer": [
+    21,
+    232
+   ],
+   "overlever": 21,
+   "kategori": "aendring"
+  },
+  "G140": {
+   "type": "gruppe",
+   "medlemmer": [
+    134
+   ],
+   "overlever": 134,
+   "kategori": "enkel"
+  },
+  "G141": {
+   "type": "gruppe",
+   "medlemmer": [
+    235
+   ],
+   "overlever": 235,
+   "kategori": "tvivl"
+  },
+  "G142": {
+   "type": "gruppe",
+   "medlemmer": [
+    410
+   ],
+   "overlever": 410,
+   "kategori": "enkel"
+  },
+  "G143": {
+   "type": "gruppe",
+   "medlemmer": [
+    197
+   ],
+   "overlever": 197,
+   "kategori": "enkel"
+  },
+  "G144": {
+   "type": "gruppe",
+   "medlemmer": [
+    200
+   ],
+   "overlever": 200,
+   "kategori": "tvivl"
+  },
+  "G145": {
+   "type": "gruppe",
+   "medlemmer": [
+    37,
+    268
+   ],
+   "overlever": 37,
+   "kategori": "tvivl"
+  },
+  "G146": {
+   "type": "gruppe",
+   "medlemmer": [
+    130,
+    332
+   ],
+   "overlever": 130,
+   "kategori": "aendring"
+  },
+  "G147": {
+   "type": "gruppe",
+   "medlemmer": [
+    217
+   ],
+   "overlever": 217,
+   "kategori": "enkel"
+  },
+  "G148": {
+   "type": "gruppe",
+   "medlemmer": [
+    380
+   ],
+   "overlever": 380,
+   "kategori": "enkel"
+  },
+  "G149": {
+   "type": "gruppe",
+   "medlemmer": [
+    223,
+    389
+   ],
+   "overlever": 223,
+   "kategori": "aendring"
+  },
+  "G150": {
+   "type": "gruppe",
+   "medlemmer": [
+    149
+   ],
+   "overlever": 149,
+   "kategori": "enkel"
+  },
+  "G151": {
+   "type": "gruppe",
+   "medlemmer": [
+    411
+   ],
+   "overlever": 411,
+   "kategori": "tvivl"
+  },
+  "G152": {
+   "type": "gruppe",
+   "medlemmer": [
+    74,
+    313
+   ],
+   "overlever": 74,
+   "kategori": "aendring"
+  },
+  "G153": {
+   "type": "gruppe",
+   "medlemmer": [
+    360
+   ],
+   "overlever": 360,
+   "kategori": "enkel"
+  },
+  "G154": {
+   "type": "gruppe",
+   "medlemmer": [
+    157
+   ],
+   "overlever": 157,
+   "kategori": "enkel"
+  },
+  "G155": {
+   "type": "gruppe",
+   "medlemmer": [
+    167
+   ],
+   "overlever": 167,
+   "kategori": "enkel"
+  },
+  "G156": {
+   "type": "gruppe",
+   "medlemmer": [
+    72
+   ],
+   "overlever": 72,
+   "kategori": "enkel"
+  },
+  "G157": {
+   "type": "gruppe",
+   "medlemmer": [
+    61,
+    296
+   ],
+   "overlever": 61,
+   "kategori": "aendring"
+  },
+  "G158": {
+   "type": "gruppe",
+   "medlemmer": [
+    67
+   ],
+   "overlever": 67,
+   "kategori": "enkel"
+  },
+  "G159": {
+   "type": "gruppe",
+   "medlemmer": [
+    303
+   ],
+   "overlever": 303,
+   "kategori": "enkel"
+  },
+  "G160": {
+   "type": "gruppe",
+   "medlemmer": [
+    141
+   ],
+   "overlever": 141,
+   "kategori": "enkel"
+  },
+  "G161": {
+   "type": "gruppe",
+   "medlemmer": [
+    250
+   ],
+   "overlever": 250,
+   "kategori": "enkel"
+  },
+  "G162": {
+   "type": "gruppe",
+   "medlemmer": [
+    168
+   ],
+   "overlever": 168,
+   "kategori": "enkel"
+  },
+  "G163": {
+   "type": "gruppe",
+   "medlemmer": [
+    361
+   ],
+   "overlever": 361,
+   "kategori": "enkel"
+  },
+  "G164": {
+   "type": "gruppe",
+   "medlemmer": [
+    124
+   ],
+   "overlever": 124,
+   "kategori": "enkel"
+  },
+  "G165": {
+   "type": "gruppe",
+   "medlemmer": [
+    266
+   ],
+   "overlever": 266,
+   "kategori": "tvivl"
+  },
+  "G166": {
+   "type": "gruppe",
+   "medlemmer": [
+    36
+   ],
+   "overlever": 36,
+   "kategori": "tvivl"
+  },
+  "G167": {
+   "type": "gruppe",
+   "medlemmer": [
+    182
+   ],
+   "overlever": 182,
+   "kategori": "tvivl"
+  },
+  "G168": {
+   "type": "gruppe",
+   "medlemmer": [
+    420
+   ],
+   "overlever": 420,
+   "kategori": "enkel"
+  },
+  "G169": {
+   "type": "gruppe",
+   "medlemmer": [
+    210
+   ],
+   "overlever": 210,
+   "kategori": "enkel"
+  },
+  "G170": {
+   "type": "gruppe",
+   "medlemmer": [
+    343
+   ],
+   "overlever": 343,
+   "kategori": "enkel"
+  },
+  "G171": {
+   "type": "gruppe",
+   "medlemmer": [
+    221
+   ],
+   "overlever": 221,
+   "kategori": "enkel"
+  },
+  "G172": {
+   "type": "gruppe",
+   "medlemmer": [
+    228,
+    387
+   ],
+   "overlever": 228,
+   "kategori": "aendring"
+  },
+  "G173": {
+   "type": "gruppe",
+   "medlemmer": [
+    98
+   ],
+   "overlever": 98,
+   "kategori": "enkel"
+  },
+  "G174": {
+   "type": "gruppe",
+   "medlemmer": [
+    53
+   ],
+   "overlever": 53,
+   "kategori": "enkel"
+  },
+  "G175": {
+   "type": "gruppe",
+   "medlemmer": [
+    1,
+    281,
+    298
+   ],
+   "overlever": 1,
+   "kategori": "aendring"
+  },
+  "G176": {
+   "type": "gruppe",
+   "medlemmer": [
+    306
+   ],
+   "overlever": 306,
+   "kategori": "tvivl"
+  },
+  "G177": {
+   "type": "gruppe",
+   "medlemmer": [
+    81
+   ],
+   "overlever": 81,
+   "kategori": "enkel"
+  },
+  "G178": {
+   "type": "gruppe",
+   "medlemmer": [
+    17,
+    242
+   ],
+   "overlever": 17,
+   "kategori": "aendring"
+  },
+  "G179": {
+   "type": "gruppe",
+   "medlemmer": [
+    51
+   ],
+   "overlever": 51,
+   "kategori": "enkel"
+  },
+  "G180": {
+   "type": "gruppe",
+   "medlemmer": [
+    142,
+    341
+   ],
+   "overlever": 142,
+   "kategori": "aendring"
+  },
+  "G181": {
+   "type": "gruppe",
+   "medlemmer": [
+    99
+   ],
+   "overlever": 99,
+   "kategori": "enkel"
+  },
+  "G182": {
+   "type": "gruppe",
+   "medlemmer": [
+    22
+   ],
+   "overlever": 22,
+   "kategori": "tvivl"
+  },
+  "G183": {
+   "type": "gruppe",
+   "medlemmer": [
+    295,
+    302
+   ],
+   "overlever": 295,
+   "kategori": "aendring"
+  },
+  "G184": {
+   "type": "gruppe",
+   "medlemmer": [
+    42
+   ],
+   "overlever": 42,
+   "kategori": "enkel"
+  },
+  "G185": {
+   "type": "gruppe",
+   "medlemmer": [
+    192
+   ],
+   "overlever": 192,
+   "kategori": "enkel"
+  },
+  "G186": {
+   "type": "gruppe",
+   "medlemmer": [
+    347
+   ],
+   "overlever": 347,
+   "kategori": "tvivl"
+  },
+  "G187": {
+   "type": "gruppe",
+   "medlemmer": [
+    46
+   ],
+   "overlever": 46,
+   "kategori": "enkel"
+  },
+  "G188": {
+   "type": "gruppe",
+   "medlemmer": [
+    88
+   ],
+   "overlever": 88,
+   "kategori": "enkel"
+  },
+  "G189": {
+   "type": "gruppe",
+   "medlemmer": [
+    75,
+    315,
+    346
+   ],
+   "overlever": 75,
+   "kategori": "tvivl"
+  },
+  "G190": {
+   "type": "gruppe",
+   "medlemmer": [
+    368
+   ],
+   "overlever": 368,
+   "kategori": "enkel"
+  },
+  "G191": {
+   "type": "gruppe",
+   "medlemmer": [
+    225
+   ],
+   "overlever": 225,
+   "kategori": "enkel"
+  },
+  "G192": {
+   "type": "gruppe",
+   "medlemmer": [
+    177
+   ],
+   "overlever": 177,
+   "kategori": "enkel"
+  },
+  "G193": {
+   "type": "gruppe",
+   "medlemmer": [
+    359
+   ],
+   "overlever": 359,
+   "kategori": "enkel"
+  },
+  "G194": {
+   "type": "gruppe",
+   "medlemmer": [
+    255
+   ],
+   "overlever": 255,
+   "kategori": "enkel"
+  },
+  "G195": {
+   "type": "gruppe",
+   "medlemmer": [
+    110
+   ],
+   "overlever": 110,
+   "kategori": "enkel"
+  },
+  "G196": {
+   "type": "gruppe",
+   "medlemmer": [
+    78,
+    289
+   ],
+   "overlever": 78,
+   "kategori": "aendring"
+  },
+  "G197": {
+   "type": "gruppe",
+   "medlemmer": [
+    117
+   ],
+   "overlever": 117,
+   "kategori": "enkel"
+  },
+  "G198": {
+   "type": "gruppe",
+   "medlemmer": [
+    262,
+    323
+   ],
+   "overlever": 262,
+   "kategori": "aendring"
+  },
+  "G199": {
+   "type": "gruppe",
+   "medlemmer": [
+    106
+   ],
+   "overlever": 106,
+   "kategori": "enkel"
+  },
+  "G200": {
+   "type": "gruppe",
+   "medlemmer": [
+    151
+   ],
+   "overlever": 151,
+   "kategori": "enkel"
+  },
+  "G201": {
+   "type": "gruppe",
+   "medlemmer": [
+    412
+   ],
+   "overlever": 412,
+   "kategori": "enkel"
+  },
+  "G202": {
+   "type": "gruppe",
+   "medlemmer": [
+    58
+   ],
+   "overlever": 58,
+   "kategori": "enkel"
+  },
+  "G203": {
+   "type": "gruppe",
+   "medlemmer": [
+    224
+   ],
+   "overlever": 224,
+   "kategori": "enkel"
+  },
+  "G204": {
+   "type": "gruppe",
+   "medlemmer": [
+    193
+   ],
+   "overlever": 193,
+   "kategori": "enkel"
+  },
+  "G205": {
+   "type": "gruppe",
+   "medlemmer": [
+    401
+   ],
+   "overlever": 401,
+   "kategori": "enkel"
+  },
+  "G206": {
+   "type": "gruppe",
+   "medlemmer": [
+    284
+   ],
+   "overlever": 284,
+   "kategori": "tvivl"
+  },
+  "G207": {
+   "type": "gruppe",
+   "medlemmer": [
+    158,
+    416
+   ],
+   "overlever": 158,
+   "kategori": "aendring"
+  },
+  "G208": {
+   "type": "gruppe",
+   "medlemmer": [
+    126
+   ],
+   "overlever": 126,
+   "kategori": "enkel"
+  },
+  "G209": {
+   "type": "gruppe",
+   "medlemmer": [
+    140,
+    147
+   ],
+   "overlever": 147,
+   "kategori": "tvivl"
+  },
+  "G210": {
+   "type": "gruppe",
+   "medlemmer": [
+    339
+   ],
+   "overlever": 339,
+   "kategori": "tvivl"
+  },
+  "G211": {
+   "type": "gruppe",
+   "medlemmer": [
+    66
+   ],
+   "overlever": 66,
+   "kategori": "enkel"
+  },
+  "G212": {
+   "type": "gruppe",
+   "medlemmer": [
+    105
+   ],
+   "overlever": 105,
+   "kategori": "enkel"
+  },
+  "G213": {
+   "type": "gruppe",
+   "medlemmer": [
+    367
+   ],
+   "overlever": 367,
+   "kategori": "aendring"
+  },
+  "G214": {
+   "type": "gruppe",
+   "medlemmer": [
+    425
+   ],
+   "overlever": 425,
+   "kategori": "tvivl"
+  },
+  "G215": {
+   "type": "gruppe",
+   "medlemmer": [
+    316
+   ],
+   "overlever": 316,
+   "kategori": "enkel"
+  },
+  "G216": {
+   "type": "gruppe",
+   "medlemmer": [
+    181
+   ],
+   "overlever": 181,
+   "kategori": "enkel"
+  },
+  "G217": {
+   "type": "gruppe",
+   "medlemmer": [
+    190
+   ],
+   "overlever": 190,
+   "kategori": "tvivl"
+  },
+  "G218": {
+   "type": "gruppe",
+   "medlemmer": [
+    174,
+    378,
+    391
+   ],
+   "overlever": 174,
+   "kategori": "aendring"
+  },
+  "G219": {
+   "type": "gruppe",
+   "medlemmer": [
+    256
+   ],
+   "overlever": 256,
+   "kategori": "enkel"
+  },
+  "G220": {
+   "type": "gruppe",
+   "medlemmer": [
+    127,
+    326
+   ],
+   "overlever": 127,
+   "kategori": "aendring"
+  },
+  "G221": {
+   "type": "gruppe",
+   "medlemmer": [
+    143
+   ],
+   "overlever": 143,
+   "kategori": "enkel"
+  },
+  "G222": {
+   "type": "gruppe",
+   "medlemmer": [
+    344
+   ],
+   "overlever": 344,
+   "kategori": "tvivl"
+  },
+  "G223": {
+   "type": "gruppe",
+   "medlemmer": [
+    54
+   ],
+   "overlever": 54,
+   "kategori": "enkel"
+  },
+  "G224": {
+   "type": "gruppe",
+   "medlemmer": [
+    152
+   ],
+   "overlever": 152,
+   "kategori": "enkel"
+  },
+  "G225": {
+   "type": "gruppe",
+   "medlemmer": [
+    415
+   ],
+   "overlever": 415,
+   "kategori": "tvivl"
+  },
+  "G226": {
+   "type": "gruppe",
+   "medlemmer": [
+    48
+   ],
+   "overlever": 48,
+   "kategori": "enkel"
+  },
+  "G227": {
+   "type": "gruppe",
+   "medlemmer": [
+    94,
+    324
+   ],
+   "overlever": 94,
+   "kategori": "aendring"
+  },
+  "G228": {
+   "type": "gruppe",
+   "medlemmer": [
+    34,
+    270,
+    275,
+    277,
+    290
+   ],
+   "overlever": 34,
+   "kategori": "aendring"
+  },
+  "G229": {
+   "type": "gruppe",
+   "medlemmer": [
+    86
+   ],
+   "overlever": 86,
+   "kategori": "enkel"
+  },
+  "G230": {
+   "type": "gruppe",
+   "medlemmer": [
+    91,
+    183
+   ],
+   "overlever": 183,
+   "kategori": "aendring"
+  },
+  "G231": {
+   "type": "gruppe",
+   "medlemmer": [
+    396
+   ],
+   "overlever": 396,
+   "kategori": "enkel"
+  },
+  "G232": {
+   "type": "gruppe",
+   "medlemmer": [
+    355
+   ],
+   "overlever": 355,
+   "kategori": "enkel"
+  },
+  "G233": {
+   "type": "gruppe",
+   "medlemmer": [
+    169
+   ],
+   "overlever": 169,
+   "kategori": "enkel"
+  },
+  "G234": {
+   "type": "gruppe",
+   "medlemmer": [
+    87
+   ],
+   "overlever": 87,
+   "kategori": "enkel"
+  },
+  "G235": {
+   "type": "gruppe",
+   "medlemmer": [
+    24
+   ],
+   "overlever": 24,
+   "kategori": "enkel"
+  },
+  "G236": {
+   "type": "gruppe",
+   "medlemmer": [
+    112
+   ],
+   "overlever": 112,
+   "kategori": "enkel"
+  },
+  "G237": {
+   "type": "gruppe",
+   "medlemmer": [
+    19,
+    327
+   ],
+   "overlever": 19,
+   "kategori": "aendring"
+  },
+  "G238": {
+   "type": "gruppe",
+   "medlemmer": [
+    342
+   ],
+   "overlever": 342,
+   "kategori": "tvivl"
+  },
+  "G239": {
+   "type": "gruppe",
+   "medlemmer": [
+    233
+   ],
+   "overlever": 233,
+   "kategori": "enkel"
+  },
+  "G240": {
+   "type": "gruppe",
+   "medlemmer": [
+    129
+   ],
+   "overlever": 129,
+   "kategori": "enkel"
+  },
+  "G241": {
+   "type": "gruppe",
+   "medlemmer": [
+    96
+   ],
+   "overlever": 96,
+   "kategori": "enkel"
+  },
+  "G242": {
+   "type": "gruppe",
+   "medlemmer": [
+    317
+   ],
+   "overlever": 317,
+   "kategori": "enkel"
+  },
+  "G243": {
+   "type": "gruppe",
+   "medlemmer": [
+    97
+   ],
+   "overlever": 97,
+   "kategori": "enkel"
+  },
+  "G244": {
+   "type": "gruppe",
+   "medlemmer": [
+    271,
+    279
+   ],
+   "overlever": 271,
+   "kategori": "aendring"
+  },
+  "G245": {
+   "type": "gruppe",
+   "medlemmer": [
+    14,
+    243
+   ],
+   "overlever": 14,
+   "kategori": "aendring"
+  },
+  "G246": {
+   "type": "gruppe",
+   "medlemmer": [
+    38
+   ],
+   "overlever": 38,
+   "kategori": "enkel"
+  },
+  "G247": {
+   "type": "gruppe",
+   "medlemmer": [
+    354
+   ],
+   "overlever": 354,
+   "kategori": "tvivl"
+  },
+  "G248": {
+   "type": "gruppe",
+   "medlemmer": [
+    209
+   ],
+   "overlever": 209,
+   "kategori": "enkel"
+  },
+  "G249": {
+   "type": "gruppe",
+   "medlemmer": [
+    2
+   ],
+   "overlever": 2,
+   "kategori": "enkel"
+  },
+  "G250": {
+   "type": "gruppe",
+   "medlemmer": [
+    52
+   ],
+   "overlever": 52,
+   "kategori": "enkel"
+  },
+  "G251": {
+   "type": "gruppe",
+   "medlemmer": [
+    100
+   ],
+   "overlever": 100,
+   "kategori": "tvivl"
+  },
+  "G252": {
+   "type": "gruppe",
+   "medlemmer": [
+    222
+   ],
+   "overlever": 222,
+   "kategori": "enkel"
+  },
+  "G253": {
+   "type": "gruppe",
+   "medlemmer": [
+    138
+   ],
+   "overlever": 138,
+   "kategori": "enkel"
+  },
+  "G254": {
+   "type": "gruppe",
+   "medlemmer": [
+    230
+   ],
+   "overlever": 230,
+   "kategori": "tvivl"
+  },
+  "G255": {
+   "type": "gruppe",
+   "medlemmer": [
+    201,
+    365,
+    376
+   ],
+   "overlever": 201,
+   "kategori": "aendring"
+  },
+  "G256": {
+   "type": "gruppe",
+   "medlemmer": [
+    202,
+    366
+   ],
+   "overlever": 202,
+   "kategori": "aendring"
+  },
+  "G257": {
+   "type": "gruppe",
+   "medlemmer": [
+    153
+   ],
+   "overlever": 153,
+   "kategori": "enkel"
+  },
+  "G258": {
+   "type": "gruppe",
+   "medlemmer": [
+    30
+   ],
+   "overlever": 30,
+   "kategori": "enkel"
+  },
+  "G259": {
+   "type": "gruppe",
+   "medlemmer": [
+    259
+   ],
+   "overlever": 259,
+   "kategori": "enkel"
+  },
+  "G260": {
+   "type": "gruppe",
+   "medlemmer": [
+    150
+   ],
+   "overlever": 150,
+   "kategori": "enkel"
+  },
+  "G261": {
+   "type": "gruppe",
+   "medlemmer": [
+    272
+   ],
+   "overlever": 272,
+   "kategori": "enkel"
+  },
+  "G262": {
+   "type": "gruppe",
+   "medlemmer": [
+    40
+   ],
+   "overlever": 40,
+   "kategori": "enkel"
+  },
+  "G263": {
+   "type": "gruppe",
+   "medlemmer": [
+    26
+   ],
+   "overlever": 26,
+   "kategori": "enkel"
+  },
+  "G264": {
+   "type": "gruppe",
+   "medlemmer": [
+    35
+   ],
+   "overlever": 35,
+   "kategori": "enkel"
+  },
+  "G265": {
+   "type": "gruppe",
+   "medlemmer": [
+    39,
+    293,
+    299
+   ],
+   "overlever": 39,
+   "kategori": "aendring"
+  },
+  "G266": {
+   "type": "gruppe",
+   "medlemmer": [
+    135
+   ],
+   "overlever": 135,
+   "kategori": "enkel"
+  },
+  "G267": {
+   "type": "gruppe",
+   "medlemmer": [
+    333
+   ],
+   "overlever": 333,
+   "kategori": "enkel"
+  },
+  "G268": {
+   "type": "gruppe",
+   "medlemmer": [
+    418,
+    419,
+    424,
+    430
+   ],
+   "overlever": 419,
+   "kategori": "aendring"
+  },
+  "G269": {
+   "type": "gruppe",
+   "medlemmer": [
+    92,
+    350
+   ],
+   "overlever": 92,
+   "kategori": "aendring"
+  },
+  "G270": {
+   "type": "gruppe",
+   "medlemmer": [
+    85,
+    345
+   ],
+   "overlever": 85,
+   "kategori": "aendring"
+  },
+  "G271": {
+   "type": "gruppe",
+   "medlemmer": [
+    369
+   ],
+   "overlever": 369,
+   "kategori": "tvivl"
+  },
+  "G272": {
+   "type": "gruppe",
+   "medlemmer": [
+    12,
+    238,
+    244
+   ],
+   "overlever": 12,
+   "kategori": "aendring"
+  },
+  "G273": {
+   "type": "gruppe",
+   "medlemmer": [
+    125
+   ],
+   "overlever": 125,
+   "kategori": "enkel"
+  },
+  "G274": {
+   "type": "gruppe",
+   "medlemmer": [
+    304,
+    305
+   ],
+   "overlever": 305,
+   "kategori": "aendring"
+  },
+  "G275": {
+   "type": "gruppe",
+   "medlemmer": [
+    247
+   ],
+   "overlever": 247,
+   "kategori": "enkel"
+  },
+  "G276": {
+   "type": "gruppe",
+   "medlemmer": [
+    31
+   ],
+   "overlever": 31,
+   "kategori": "enkel"
+  },
+  "G277": {
+   "type": "gruppe",
+   "medlemmer": [
+    260
+   ],
+   "overlever": 260,
+   "kategori": "enkel"
+  },
+  "G278": {
+   "type": "gruppe",
+   "medlemmer": [
+    55,
+    276,
+    278
+   ],
+   "overlever": 55,
+   "kategori": "aendring"
+  },
+  "G279": {
+   "type": "gruppe",
+   "medlemmer": [
+    6
+   ],
+   "overlever": 6,
+   "kategori": "enkel"
+  },
+  "G280": {
+   "type": "gruppe",
+   "medlemmer": [
+    385
+   ],
+   "overlever": 385,
+   "kategori": "enkel"
+  },
+  "G281": {
+   "type": "gruppe",
+   "medlemmer": [
+    218
+   ],
+   "overlever": 218,
+   "kategori": "enkel"
+  },
+  "G282": {
+   "type": "gruppe",
+   "medlemmer": [
+    379
+   ],
+   "overlever": 379,
+   "kategori": "tvivl"
+  },
+  "G283": {
+   "type": "gruppe",
+   "medlemmer": [
+    356
+   ],
+   "overlever": 356,
+   "kategori": "enkel"
+  },
+  "G284": {
+   "type": "gruppe",
+   "medlemmer": [
+    370,
+    371
+   ],
+   "overlever": 371,
+   "kategori": "aendring"
+  },
+  "G285": {
+   "type": "gruppe",
+   "medlemmer": [
+    203
+   ],
+   "overlever": 203,
+   "kategori": "enkel"
+  },
+  "G286": {
+   "type": "gruppe",
+   "medlemmer": [
+    23,
+    231
+   ],
+   "overlever": 23,
+   "kategori": "tvivl"
+  },
+  "G287": {
+   "type": "gruppe",
+   "medlemmer": [
+    45
+   ],
+   "overlever": 45,
+   "kategori": "enkel"
+  },
+  "G288": {
+   "type": "gruppe",
+   "medlemmer": [
+    219
+   ],
+   "overlever": 219,
+   "kategori": "enkel"
+  },
+  "G289": {
+   "type": "gruppe",
+   "medlemmer": [
+    123
+   ],
+   "overlever": 123,
+   "kategori": "enkel"
+  },
+  "G290": {
+   "type": "gruppe",
+   "medlemmer": [
+    180
+   ],
+   "overlever": 180,
+   "kategori": "enkel"
+  },
+  "G291": {
+   "type": "gruppe",
+   "medlemmer": [
+    154
+   ],
+   "overlever": 154,
+   "kategori": "enkel"
+  },
+  "G292": {
+   "type": "gruppe",
+   "medlemmer": [
+    184,
+    397,
+    402
+   ],
+   "overlever": 184,
+   "kategori": "aendring"
+  },
+  "G293": {
+   "type": "gruppe",
+   "medlemmer": [
+    422,
+    426
+   ],
+   "overlever": 426,
+   "kategori": "aendring"
+  },
+  "G294": {
+   "type": "gruppe",
+   "medlemmer": [
+    43
+   ],
+   "overlever": 43,
+   "kategori": "enkel"
+  },
+  "G295": {
+   "type": "gruppe",
+   "medlemmer": [
+    216
+   ],
+   "overlever": 216,
+   "kategori": "enkel"
+  },
+  "G296": {
+   "type": "gruppe",
+   "medlemmer": [
+    175
+   ],
+   "overlever": 175,
+   "kategori": "enkel"
+  },
+  "G297": {
+   "type": "gruppe",
+   "medlemmer": [
+    59
+   ],
+   "overlever": 59,
+   "kategori": "enkel"
+  },
+  "G298": {
+   "type": "gruppe",
+   "medlemmer": [
+    292
+   ],
+   "overlever": 292,
+   "kategori": "enkel"
+  },
+  "G299": {
+   "type": "gruppe",
+   "medlemmer": [
+    56,
+    294,
+    301
+   ],
+   "overlever": 56,
+   "kategori": "aendring"
+  },
+  "G300": {
+   "type": "gruppe",
+   "medlemmer": [
+    280
+   ],
+   "overlever": 280,
+   "kategori": "enkel"
+  },
+  "G301": {
+   "type": "gruppe",
+   "medlemmer": [
+    20
+   ],
+   "overlever": 20,
+   "kategori": "enkel"
+  },
+  "G302": {
+   "type": "gruppe",
+   "medlemmer": [
+    70
+   ],
+   "overlever": 70,
+   "kategori": "enkel"
+  },
+  "G303": {
+   "type": "gruppe",
+   "medlemmer": [
+    76
+   ],
+   "overlever": 76,
+   "kategori": "enkel"
+  },
+  "G304": {
+   "type": "gruppe",
+   "medlemmer": [
+    287
+   ],
+   "overlever": 287,
+   "kategori": "enkel"
+  },
+  "G305": {
+   "type": "gruppe",
+   "medlemmer": [
+    390
+   ],
+   "overlever": 390,
+   "kategori": "enkel"
+  },
+  "G306": {
+   "type": "gruppe",
+   "medlemmer": [
+    5,
+    64,
+    282,
+    309,
+    310,
+    405,
+    413,
+    414,
+    417
+   ],
+   "overlever": 5,
+   "kategori": "aendring"
+  },
+  "G307": {
+   "type": "gruppe",
+   "medlemmer": [
+    133
+   ],
+   "overlever": 133,
+   "kategori": "enkel"
+  },
+  "G308": {
+   "type": "gruppe",
+   "medlemmer": [
+    50
+   ],
+   "overlever": 50,
+   "kategori": "enkel"
+  },
+  "G309": {
+   "type": "gruppe",
+   "medlemmer": [
+    185,
+    398
+   ],
+   "overlever": 185,
+   "kategori": "aendring"
+  },
+  "G310": {
+   "type": "gruppe",
+   "medlemmer": [
+    229
+   ],
+   "overlever": 229,
+   "kategori": "enkel"
+  },
+  "G311": {
+   "type": "gruppe",
+   "medlemmer": [
+    80
+   ],
+   "overlever": 80,
+   "kategori": "enkel"
+  },
+  "G312": {
+   "type": "gruppe",
+   "medlemmer": [
+    109
+   ],
+   "overlever": 109,
+   "kategori": "enkel"
+  },
+  "G313": {
+   "type": "gruppe",
+   "medlemmer": [
+    84
+   ],
+   "overlever": 84,
+   "kategori": "enkel"
+  },
+  "H1": {
+   "type": "H",
+   "grupper": [
+    "G14",
+    "G32"
+   ]
+  },
+  "H2": {
+   "type": "H",
+   "grupper": [
+    "G121",
+    "G48"
+   ]
+  },
+  "H3": {
+   "type": "H",
+   "grupper": [
+    "G123",
+    "G232"
+   ]
+  },
+  "H4": {
+   "type": "H",
+   "grupper": [
+    "G124"
+   ]
+  },
+  "H5": {
+   "type": "H",
+   "grupper": [
+    "G255",
+    "G94"
+   ]
+  },
+  "H6": {
+   "type": "H",
+   "grupper": [
+    "G255",
+    "G95"
+   ]
+  },
+  "H7": {
+   "type": "H",
+   "grupper": [
+    "G256",
+    "G169"
+   ]
+  },
+  "S1": {
+   "type": "S",
+   "grupper": [
+    "G3",
+    "G4"
+   ]
+  },
+  "S2": {
+   "type": "S",
+   "grupper": [
+    "G313",
+    "G6"
+   ]
+  },
+  "S3": {
+   "type": "S",
+   "grupper": [
+    "G7",
+    "G8"
+   ]
+  },
+  "S4": {
+   "type": "S",
+   "grupper": [
+    "G11",
+    "G12"
+   ]
+  },
+  "S5": {
+   "type": "S",
+   "grupper": [
+    "G19",
+    "G20"
+   ]
+  },
+  "S6": {
+   "type": "S",
+   "grupper": [
+    "G23",
+    "G24"
+   ]
+  },
+  "S7": {
+   "type": "S",
+   "grupper": [
+    "G129",
+    "G26"
+   ]
+  },
+  "S8": {
+   "type": "S",
+   "grupper": [
+    "G27",
+    "G28"
+   ]
+  },
+  "S9": {
+   "type": "S",
+   "grupper": [
+    "G36",
+    "G35"
+   ]
+  },
+  "S10": {
+   "type": "S",
+   "grupper": [
+    "G51",
+    "G164"
+   ]
+  },
+  "S11": {
+   "type": "S",
+   "grupper": [
+    "G52",
+    "G170"
+   ]
+  },
+  "S12": {
+   "type": "S",
+   "grupper": [
+    "G68",
+    "G183"
+   ]
+  },
+  "S13": {
+   "type": "S",
+   "grupper": [
+    "G70",
+    "G71"
+   ]
+  },
+  "S14": {
+   "type": "S",
+   "grupper": [
+    "G74",
+    "G75"
+   ]
+  },
+  "S15": {
+   "type": "S",
+   "grupper": [
+    "G80",
+    "G81"
+   ]
+  },
+  "S16": {
+   "type": "S",
+   "grupper": [
+    "G82",
+    "G83"
+   ]
+  },
+  "S17": {
+   "type": "S",
+   "grupper": [
+    "G287",
+    "G88",
+    "G89"
+   ]
+  },
+  "S18": {
+   "type": "S",
+   "grupper": [
+    "G95",
+    "G94"
+   ]
+  },
+  "S19": {
+   "type": "S",
+   "grupper": [
+    "G107",
+    "G108"
+   ]
+  },
+  "S20": {
+   "type": "S",
+   "grupper": [
+    "G115",
+    "G116"
+   ]
+  },
+  "S21": {
+   "type": "S",
+   "grupper": [
+    "G126",
+    "G127"
+   ]
+  },
+  "S22": {
+   "type": "S",
+   "grupper": [
+    "G132",
+    "G133"
+   ]
+  },
+  "S23": {
+   "type": "S",
+   "grupper": [
+    "G135",
+    "G142"
+   ]
+  },
+  "S24": {
+   "type": "S",
+   "grupper": [
+    "G146",
+    "G140"
+   ]
+  },
+  "S25": {
+   "type": "S",
+   "grupper": [
+    "G143",
+    "G144"
+   ]
+  },
+  "S26": {
+   "type": "S",
+   "grupper": [
+    "G147",
+    "G148"
+   ]
+  },
+  "S27": {
+   "type": "S",
+   "grupper": [
+    "G158",
+    "G159"
+   ]
+  },
+  "S28": {
+   "type": "S",
+   "grupper": [
+    "G162",
+    "G163"
+   ]
+  },
+  "S29": {
+   "type": "S",
+   "grupper": [
+    "G166",
+    "G165"
+   ]
+  },
+  "S30": {
+   "type": "S",
+   "grupper": [
+    "G169",
+    "G168"
+   ]
+  },
+  "S31": {
+   "type": "S",
+   "grupper": [
+    "G175",
+    "G176"
+   ]
+  },
+  "S32": {
+   "type": "S",
+   "grupper": [
+    "G188",
+    "G189"
+   ]
+  },
+  "S33": {
+   "type": "S",
+   "grupper": [
+    "G191",
+    "G192"
+   ]
+  },
+  "S34": {
+   "type": "S",
+   "grupper": [
+    "G199",
+    "G200",
+    "G198",
+    "G201"
+   ]
+  },
+  "S35": {
+   "type": "S",
+   "grupper": [
+    "G204",
+    "G205"
+   ]
+  },
+  "S36": {
+   "type": "S",
+   "grupper": [
+    "G230",
+    "G231"
+   ]
+  },
+  "S37": {
+   "type": "S",
+   "grupper": [
+    "G233",
+    "G232"
+   ]
+  },
+  "S38": {
+   "type": "S",
+   "grupper": [
+    "G241",
+    "G236",
+    "G242"
+   ]
+  },
+  "S39": {
+   "type": "S",
+   "grupper": [
+    "G237",
+    "G239"
+   ]
+  },
+  "S40": {
+   "type": "S",
+   "grupper": [
+    "G246",
+    "G244"
+   ]
+  },
+  "S41": {
+   "type": "S",
+   "grupper": [
+    "G258",
+    "G264",
+    "G259"
+   ]
+  },
+  "S42": {
+   "type": "S",
+   "grupper": [
+    "G262",
+    "G261"
+   ]
+  },
+  "S43": {
+   "type": "S",
+   "grupper": [
+    "G266",
+    "G267"
+   ]
+  },
+  "S44": {
+   "type": "S",
+   "grupper": [
+    "G273",
+    "G279",
+    "G274"
+   ]
+  },
+  "S45": {
+   "type": "S",
+   "grupper": [
+    "G276",
+    "G277"
+   ]
+  },
+  "S46": {
+   "type": "S",
+   "grupper": [
+    "G281",
+    "G280"
+   ]
+  },
+  "S47": {
+   "type": "S",
+   "grupper": [
+    "G285",
+    "G284"
+   ]
+  },
+  "S48": {
+   "type": "S",
+   "grupper": [
+    "G296",
+    "G310",
+    "G305"
+   ]
+  },
+  "S49": {
+   "type": "S",
+   "grupper": [
+    "G297",
+    "G298"
+   ]
+  },
+  "S50": {
+   "type": "S",
+   "grupper": [
+    "G299",
+    "G300"
+   ]
+  },
+  "S51": {
+   "type": "S",
+   "grupper": [
+    "G303",
+    "G304"
+   ]
+  }
+ },
+ "snapshots": [
+  1,
+  5,
+  7,
+  19,
+  56,
+  57,
+  84,
+  94,
+  116,
+  119,
+  142,
+  163,
+  165,
+  170,
+  261,
+  263
+ ]
 }

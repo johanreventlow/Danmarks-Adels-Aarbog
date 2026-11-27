@@ -270,7 +270,7 @@ def test_plan_samler_kun_forvalg_og_har_kilde_hash():
     assert list(p)[:9] == ["version", "kilde_db", "kilde_hash", "opret", "saet", "sammenlaeg", "kopier",
                            "hoerer_under", "flyt"]
     assert 100 not in {s["estate"] for s in p["saet"]}
-    assert gruppe_med(f, 100).nr in p["aabne"]
+    assert f"G{gruppe_med(f, 100).nr}" in p["aabne"]
     assert [o["noegle"] for o in p["opret"]].count("ny:Aalstrup") == 1
     forslag.valider_plan(p, snapshots=set())
 
@@ -501,3 +501,150 @@ def test_ingen_dobbelt_art_og_ingen_kryptiske_koder():
     g = gruppe_med(forslag.byg_forslag(data([(100, "Silkeborg Len")])), 100)
     assert all(re.fullmatch(r"[A-P]", k) for k in g.alternativer)
     assert not any("art art" in a.tekst for a in g.alternativer.values())
+
+
+
+# ---------- runde 2: udfyldeligt ark og fletning af svar ----------
+
+import json as _json
+
+FIXTUR = [(5, "Wittenberg", 3), (405, "Wittenberg (1779)"), (100, "Silkeborg Len"),
+          (171, "Christianssæde med Pederstrup, Aalstrup og Frihedsminde"), (367, "Pederstrup med Skjelstofte (1725)"),
+          (369, "Taastrup og Aalstrup (1728)"), (198, "Broløkke", 2), (427, "Brolykke"), (199, "Brolykke (til)"),
+          (202, "stamhuset Krenkerup", 1, "1736\u2011†"), (210, "Krenkerup", 1, "1750\u2011†"),
+          (75, "Lundsgaard med Filipsborg"), (316, "Philipsburg i Angel (forpagtet 1700)")]
+KH = {"estate": "e", "relation": "r"}
+
+
+def _forslag():
+    f = forslag.byg_forslag(data(FIXTUR))
+    p = f.plan("db", KH)
+    return f, p, forslag.plan_sha(p)
+
+
+def _fuldt_svar(p, sha, **saerlige):
+    svar = {}
+    for pid in p["aabne"]:
+        if pid.startswith("S"):
+            svar[pid] = "nej"
+        elif pid.startswith("H"):
+            svar[pid] = {"svar": "nej"}
+        else:
+            svar[pid] = sorted(p["alternativer"][pid])[0]
+    svar.update(saerlige)
+    return {"version": 1, "kilde_hash": KH, "plan_forslag_sha256": sha, "svar": svar}
+
+
+def test_flet_fuldt_svar_giver_gyldig_plan():
+    f, p, sha = _forslag()
+    plan, opsum = forslag.flet(p, sha, _fuldt_svar(p, sha))
+    forslag.valider_plan(plan, f.snapshots)
+    assert list(plan)[:9] == ["version", "kilde_db", "kilde_hash", *forslag.OPS]
+    assert "aabne" not in plan and "alternativer" not in plan
+    assert any("sammenlægninger" in l for l in opsum)
+
+
+@pytest.mark.parametrize("fejl", ["mangler", "ukendt", "gammel_hash", "gammel_sha", "ugyldigt_valg", "ekstra_noegle",
+                                  "h_uden_citat"])
+def test_flet_afviser(fejl):
+    f, p, sha = _forslag()
+    s = _fuldt_svar(p, sha)
+    if fejl == "mangler":
+        del s["svar"][p["aabne"][0]]
+    elif fejl == "ukendt":
+        s["svar"]["G999"] = "A"
+    elif fejl == "gammel_hash":
+        s["kilde_hash"] = {"estate": "x", "relation": "r"}
+    elif fejl == "gammel_sha":
+        s["plan_forslag_sha256"] = "0" * 64
+    elif fejl == "ugyldigt_valg":
+        s["svar"][p["aabne"][0]] = "Z"
+    elif fejl == "ekstra_noegle":
+        s["bemaerkning"] = "x"
+    elif fejl == "h_uden_citat":
+        h = next(x for x in p["aabne"] if x.startswith("H"))
+        s["svar"][h] = {"svar": "ja", "periode": "1750-1760", "citat": "", "kilde": 1}
+    with pytest.raises(forslag.FletFejl):
+        forslag.flet(p, sha, s)
+
+
+def test_flet_h_ja_bruger_svarets_felter():
+    f, p, sha = _forslag()
+    h = next(x for x in p["aabne"] if x.startswith("H"))
+    plan, _ = forslag.flet(p, sha, _fuldt_svar(p, sha, **{h: {"svar": "ja", "periode": "1750-1760",
+                                                              "citat": "bogens ord", "kilde": 3}}))
+    assert plan["hoerer_under"] == [{"gaard": 210, "majorat": 202, "periode": "1750-1760", "source": 3,
+                                     "citat": "bogens ord", "gruppe": h}]
+
+
+def test_flet_s_ja_erstatter_gruppernes_egne_sammenlaegninger():
+    f, p, sha = _forslag()
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S"
+                and {198, 427} <= {m for g in x["grupper"] for m in p["poster"][g]["medlemmer"]})
+    gl = p["poster"][s_id]["grupper"]
+    hoved = p["poster"][gl[0]]["overlever"]
+    plan, _ = forslag.flet(p, sha, _fuldt_svar(p, sha, **{s_id: "ja"}))
+    medl = [m for g in gl for m in p["poster"][g]["medlemmer"] if m != hoved]
+    assert sorted(o["fra"] for o in plan["sammenlaeg"] if o["fra"] in medl) == sorted(medl)
+    assert all(o["til"] == hoved for o in plan["sammenlaeg"] if o["fra"] in medl)
+    assert not any(o["estate"] in medl for o in plan["saet"])
+
+
+def test_flet_s_ja_mod_behold_adskilt_afvises():
+    f, p, sha = _forslag()
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S"
+                and any(len(p["poster"][g]["medlemmer"]) > 1 for g in x["grupper"]))
+    g = next(g for g in p["poster"][s_id]["grupper"] if len(p["poster"][g]["medlemmer"]) > 1)
+    adskilt = next(k for k, a in p["alternativer"][g].items() if a.get("adskilt"))
+    with pytest.raises(forslag.FletFejl, match="adskilt"):
+        forslag.flet(p, sha, _fuldt_svar(p, sha, **{s_id: "ja", g: adskilt}))
+
+
+def test_ark_har_en_inputgruppe_pr_beslutning_og_ingen_personfelter():
+    f, p, sha = _forslag()
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH, "plan_sha": sha})
+    radio_navne = set(re.findall(r'type=radio name="([^"]+)"', html))
+    beslut = set(re.findall(r'data-id="([^"]+)"', html))
+    assert radio_navne == beslut
+    forventet = {f"G{g.nr}" for g in f.grupper if g.forvalg is None or len(g.alternativer) > 1}
+    forventet |= {s.nr for s in f.sammenhaenge} | {h.nr for h in f.hoerer}
+    assert beslut == forventet
+    alle_navne = set(re.findall(r'name="([^"]+)"', html.split("<script>")[0]))
+    assert all(re.fullmatch(r"[GSH]\d+(-periode|-citat|-kilde)?", n) for n in alle_navne), alle_navne
+    assert not re.search(r"person|fornavn|efternavn", html, re.I)
+    # ingen forvalg ved »Du skal vælge«
+    for pid in p["aabne"]:
+        assert not re.search(rf'name="{pid}" value="[^"]+" checked', html), pid
+    assert '"plan_sha": "' + sha in html and "http" not in html.split("<script>")[1]
+
+
+def test_rundtur_ark_svar_flet_valider():
+    f, p, sha = _forslag()
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH, "plan_sha": sha})
+    meta = _json.loads(re.search(r"<script type=application/json id=meta>(.*?)</script>", html).group(1))
+    svar = {}
+    for pid in sorted(set(re.findall(r'data-id="([^"]+)"', html))):
+        koder = re.findall(rf'name="{pid}" value="([^"]+)"', html)
+        if pid.startswith("H"):
+            svar[pid] = {"svar": "ja", "periode": "", "citat": "bogens ord", "kilde": 1}
+        elif pid in p["aabne"]:
+            svar[pid] = koder[-1]
+    plan, _ = forslag.flet(p, sha, {"version": 1, "kilde_hash": meta["kilde_hash"],
+                                    "plan_forslag_sha256": meta["plan_sha"], "svar": svar})
+    forslag.valider_plan(plan, f.snapshots)
+
+
+def test_cli_flet_skriver_intet_ved_fejl(tmp_path):
+    f, p, sha = _forslag()
+    pf = tmp_path / "plan.forslag.json"
+    pf.write_text(forslag.plan_tekst(p), encoding="utf-8")
+    svar = _fuldt_svar(p, sha)
+    del svar["svar"][p["aabne"][0]]
+    sf = tmp_path / "svar.json"
+    sf.write_text(_json.dumps(svar), encoding="utf-8")
+    ud = tmp_path / "plan.json"
+    assert forslag.main(["--flet", str(sf), "--plan", str(pf), "--plan-ud", str(ud)]) == 1
+    assert not ud.exists()
+    sf.write_text(_json.dumps(_fuldt_svar(p, sha)), encoding="utf-8")
+    assert forslag.main(["--flet", str(sf), "--plan", str(pf), "--plan-ud", str(ud)]) == 0
+    forslag.valider_plan(_json.loads(ud.read_text(encoding="utf-8")), f.snapshots)
