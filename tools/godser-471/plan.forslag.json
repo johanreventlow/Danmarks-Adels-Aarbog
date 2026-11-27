@@ -7,31 +7,31 @@
  },
  "opret": [
   {
-   "noegle": "ny:Sølyst",
+   "noegle": "ny:G32:Sølyst",
    "navn": "Sølyst",
    "slags": "gård",
    "gruppe": 32
   },
   {
-   "noegle": "ny:Egneborg",
+   "noegle": "ny:G32:Egneborg",
    "navn": "Egneborg",
    "slags": "gård",
    "gruppe": 32
   },
   {
-   "noegle": "ny:Høbbet",
+   "noegle": "ny:G32:Høbbet",
    "navn": "Høbbet",
    "slags": "gård",
    "gruppe": 32
   },
   {
-   "noegle": "ny:Brændegaard",
+   "noegle": "ny:G32:Brændegaard",
    "navn": "Brændegaard",
    "slags": "gård",
    "gruppe": 32
   },
   {
-   "noegle": "ny:Skjelstofte",
+   "noegle": "ny:G213:Skjelstofte",
    "navn": "Skjelstofte",
    "slags": "gård",
    "gruppe": 213
@@ -375,12 +375,6 @@
    "gruppe": 70
   },
   {
-   "estate": 336,
-   "navn": "Dörphof",
-   "slags": "gård",
-   "gruppe": 71
-  },
-  {
    "estate": 194,
    "navn": "Eckhof",
    "slags": "gård",
@@ -397,12 +391,6 @@
    "navn": "Elmenhorst",
    "slags": "gård",
    "gruppe": 74
-  },
-  {
-   "estate": 252,
-   "navn": "Elmenhorst",
-   "slags": "gård",
-   "gruppe": 75
   },
   {
    "estate": 145,
@@ -795,12 +783,6 @@
    "gruppe": 162
   },
   {
-   "estate": 361,
-   "navn": "Kollerup",
-   "slags": "gård",
-   "gruppe": 163
-  },
-  {
    "estate": 124,
    "navn": "Kollmar",
    "slags": "gård",
@@ -1099,12 +1081,6 @@
    "navn": "Rudbjerggaard",
    "slags": "gård",
    "gruppe": 230
-  },
-  {
-   "estate": 396,
-   "navn": "Rudbjerggaard",
-   "slags": "gård",
-   "gruppe": 231
   },
   {
    "estate": 169,
@@ -2063,25 +2039,25 @@
   },
   {
    "relation": 726,
-   "til": "ny:Sølyst",
+   "til": "ny:G32:Sølyst",
    "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
    "gruppe": 32
   },
   {
    "relation": 726,
-   "til": "ny:Egneborg",
+   "til": "ny:G32:Egneborg",
    "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
    "gruppe": 32
   },
   {
    "relation": 726,
-   "til": "ny:Høbbet",
+   "til": "ny:G32:Høbbet",
    "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
    "gruppe": 32
   },
   {
    "relation": 726,
-   "til": "ny:Brændegaard",
+   "til": "ny:G32:Brændegaard",
    "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
    "gruppe": 32
   },
@@ -2105,7 +2081,7 @@
   },
   {
    "relation": 2593,
-   "til": "ny:Skjelstofte",
+   "til": "ny:G213:Skjelstofte",
    "citat": "Pederstrup med Skjelstofte (1725)",
    "gruppe": 213
   },
@@ -2156,6 +2132,8 @@
   "G59",
   "G65",
   "G69",
+  "G71",
+  "G75",
   "G78",
   "G83",
   "G86",
@@ -2178,6 +2156,7 @@
   "G144",
   "G145",
   "G151",
+  "G163",
   "G165",
   "G166",
   "G167",
@@ -2195,6 +2174,7 @@
   "G217",
   "G222",
   "G225",
+  "G231",
   "G232",
   "G238",
   "G247",
@@ -2265,7 +2245,9 @@
   "S48",
   "S49",
   "S50",
-  "S51"
+  "S51",
+  "N1",
+  "N2"
  ],
  "forvalg": {
   "G1": "A",
@@ -2324,11 +2306,9 @@
   "G67": "A",
   "G68": "A",
   "G70": "A",
-  "G71": "A",
   "G72": "A",
   "G73": "A",
   "G74": "A",
-  "G75": "A",
   "G76": "A",
   "G77": "A",
   "G79": "A",
@@ -2394,7 +2374,6 @@
   "G160": "A",
   "G161": "A",
   "G162": "A",
-  "G163": "A",
   "G164": "A",
   "G168": "A",
   "G169": "A",
@@ -2445,7 +2424,6 @@
   "G228": "A",
   "G229": "A",
   "G230": "A",
-  "G231": "A",
   "G233": "A",
   "G234": "A",
   "G235": "A",
@@ -2910,10 +2888,10 @@
   },
   "G11": {
    "A": {
-    "tekst": "Del op: Ballegaard / Bøgskov er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov«) gemmes ved ejerforholdene · ejerforholdet står også på: Bøgskov (ny side)",
+    "tekst": "Del op: Ballegaard / Bøgskov er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov«) gemmes ved ejerforholdene · ejerforholdet står også på: G11:Bøgskov (ny side)",
     "opret": [
      {
-      "noegle": "ny:Bøgskov",
+      "noegle": "ny:G11:Bøgskov",
       "navn": "Bøgskov",
       "slags": "gård",
       "gruppe": 11
@@ -2931,7 +2909,7 @@
     "kopier": [
      {
       "relation": 871,
-      "til": "ny:Bøgskov",
+      "til": "ny:G11:Bøgskov",
       "citat": "Ballegaard og Bøgskov",
       "gruppe": 11
      }
@@ -2958,10 +2936,10 @@
   },
   "G12": {
    "A": {
-    "tekst": "Del op: Ballegaard / Bøgskov i Sundeved er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov i Sundeved«) gemmes ved ejerforholdene · ejerforholdet står også på: Bøgskov (ny side)",
+    "tekst": "Del op: Ballegaard / Bøgskov i Sundeved er hver sin gård. Siden viser: »Ballegaard« · slags: gård · bogens fulde tekst (»Ballegaard og Bøgskov i Sundeved«) gemmes ved ejerforholdene · ejerforholdet står også på: G12:Bøgskov (ny side)",
     "opret": [
      {
-      "noegle": "ny:Bøgskov",
+      "noegle": "ny:G12:Bøgskov",
       "navn": "Bøgskov",
       "slags": "gård",
       "gruppe": 12
@@ -2979,7 +2957,7 @@
     "kopier": [
      {
       "relation": 2633,
-      "til": "ny:Bøgskov",
+      "til": "ny:G12:Bøgskov",
       "citat": "Ballegaard og Bøgskov i Sundeved",
       "gruppe": 12
      }
@@ -3682,28 +3660,28 @@
   },
   "G32": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Brahetrolleborg« · slags: gård · 1 andre række (173) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Sølyst (ny side), Egneborg (ny side), Høbbet (ny side), Brændegaard (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Brahetrolleborg« · slags: gård · 1 andre række (173) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G32:Sølyst (ny side), G32:Egneborg (ny side), G32:Høbbet (ny side), G32:Brændegaard (ny side)",
     "opret": [
      {
-      "noegle": "ny:Sølyst",
+      "noegle": "ny:G32:Sølyst",
       "navn": "Sølyst",
       "slags": "gård",
       "gruppe": 32
      },
      {
-      "noegle": "ny:Egneborg",
+      "noegle": "ny:G32:Egneborg",
       "navn": "Egneborg",
       "slags": "gård",
       "gruppe": 32
      },
      {
-      "noegle": "ny:Høbbet",
+      "noegle": "ny:G32:Høbbet",
       "navn": "Høbbet",
       "slags": "gård",
       "gruppe": 32
      },
      {
-      "noegle": "ny:Brændegaard",
+      "noegle": "ny:G32:Brændegaard",
       "navn": "Brændegaard",
       "slags": "gård",
       "gruppe": 32
@@ -3727,25 +3705,25 @@
     "kopier": [
      {
       "relation": 726,
-      "til": "ny:Sølyst",
+      "til": "ny:G32:Sølyst",
       "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
       "gruppe": 32
      },
      {
       "relation": 726,
-      "til": "ny:Egneborg",
+      "til": "ny:G32:Egneborg",
       "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
       "gruppe": 32
      },
      {
       "relation": 726,
-      "til": "ny:Høbbet",
+      "til": "ny:G32:Høbbet",
       "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
       "gruppe": 32
      },
      {
       "relation": 726,
-      "til": "ny:Brændegaard",
+      "til": "ny:G32:Brændegaard",
       "citat": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
       "gruppe": 32
      }
@@ -4161,16 +4139,16 @@
   },
   "G48": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), Aalstrup (ny side), Frihedsminde (ny side)",
+    "tekst": "Kort navn. Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), G48:Aalstrup (ny side), G48:Frihedsminde (ny side)",
     "opret": [
      {
-      "noegle": "ny:Aalstrup",
+      "noegle": "ny:G48:Aalstrup",
       "navn": "Aalstrup",
       "slags": "gård",
       "gruppe": 48
      },
      {
-      "noegle": "ny:Frihedsminde",
+      "noegle": "ny:G48:Frihedsminde",
       "navn": "Frihedsminde",
       "slags": "gård",
       "gruppe": 48
@@ -4194,13 +4172,13 @@
      },
      {
       "relation": 724,
-      "til": "ny:Aalstrup",
+      "til": "ny:G48:Aalstrup",
       "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
       "gruppe": 48
      },
      {
       "relation": 724,
-      "til": "ny:Frihedsminde",
+      "til": "ny:G48:Frihedsminde",
       "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
       "gruppe": 48
      }
@@ -4209,16 +4187,16 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Christianssæde med Pederstrup, Aalstrup og Frihedsminde« · slags: gård · ejerforholdet står også på: Pederstrup (række 367), Aalstrup (ny side), Frihedsminde (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Christianssæde med Pederstrup, Aalstrup og Frihedsminde« · slags: gård · ejerforholdet står også på: Pederstrup (række 367), G48:Aalstrup (ny side), G48:Frihedsminde (ny side)",
     "opret": [
      {
-      "noegle": "ny:Aalstrup",
+      "noegle": "ny:G48:Aalstrup",
       "navn": "Aalstrup",
       "slags": "gård",
       "gruppe": 48
      },
      {
-      "noegle": "ny:Frihedsminde",
+      "noegle": "ny:G48:Frihedsminde",
       "navn": "Frihedsminde",
       "slags": "gård",
       "gruppe": 48
@@ -4242,13 +4220,13 @@
      },
      {
       "relation": 724,
-      "til": "ny:Aalstrup",
+      "til": "ny:G48:Aalstrup",
       "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
       "gruppe": 48
      },
      {
       "relation": 724,
-      "til": "ny:Frihedsminde",
+      "til": "ny:G48:Frihedsminde",
       "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
       "gruppe": 48
      }
@@ -4257,6 +4235,48 @@
     "flyt": []
    },
    "C": {
+    "tekst": "Kort navn, men »Aalstrup« er gården Astrup (række 139, gruppe 10). Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene · ejerforholdet står også på: Pederstrup (række 367), Astrup (række 139), G48:Frihedsminde (ny side)",
+    "opret": [
+     {
+      "noegle": "ny:G48:Frihedsminde",
+      "navn": "Frihedsminde",
+      "slags": "gård",
+      "gruppe": 48
+     }
+    ],
+    "saet": [
+     {
+      "estate": 171,
+      "navn": "Christianssæde",
+      "slags": "gård",
+      "gruppe": 48
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 724,
+      "til": 367,
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     },
+     {
+      "relation": 724,
+      "til": 139,
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     },
+     {
+      "relation": 724,
+      "til": "ny:G48:Frihedsminde",
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "D": {
     "tekst": "Kort navn, men uden kopier til de andre gårde. Siden viser: »Christianssæde« · slags: gård · bogens fulde tekst (»Christianssæde med Pederstrup, Aalstrup og Frihedsminde«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
@@ -5226,12 +5246,12 @@
     "flyt": []
    },
    "C": {
-    "tekst": "Behold som én side med det korte navn. Siden viser: »Eskær« · slags: gård · bogens fulde tekst (»Eskær, Astrup og Skivehus i Nørre H. (1735-50)«) gemmes ved ejerforholdene",
+    "tekst": "Behold som én side med det korte navn. Siden viser: »Eskær, Astrup og Skivehus i Nørre H.« · slags: gård · bogens fulde tekst (»Eskær, Astrup og Skivehus i Nørre H. (1735-50)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 338,
-      "navn": "Eskær",
+      "navn": "Eskær, Astrup og Skivehus i Nørre H.",
       "slags": "gård",
       "gruppe": 78
      }
@@ -6043,10 +6063,10 @@
   },
   "G100": {
    "A": {
-    "tekst": "Del op: Gaarz / Kaden er hver sin gård. Siden viser: »Gaarz« (gruppe 99) — denne række lægges ind i den, og bogens fulde tekst gemmes ved ejerforholdet · ejerforholdet står også på: Kaden (ny side)",
+    "tekst": "Del op: Gaarz / Kaden er hver sin gård. Siden viser: »Gaarz« (gruppe 99) — denne række lægges ind i den, og bogens fulde tekst gemmes ved ejerforholdet · ejerforholdet står også på: G100:Kaden (ny side)",
     "opret": [
      {
-      "noegle": "ny:Kaden",
+      "noegle": "ny:G100:Kaden",
       "navn": "Kaden",
       "slags": "gård",
       "gruppe": 100
@@ -6063,7 +6083,7 @@
     "kopier": [
      {
       "relation": 2432,
-      "til": "ny:Kaden",
+      "til": "ny:G100:Kaden",
       "citat": "Gaarz og Kaden (arvekrav 1528, trætte med Hr. Iven Reventlow)",
       "gruppe": 100
      }
@@ -7691,10 +7711,10 @@
   },
   "G141": {
    "A": {
-    "tekst": "Del op: Honnigsee / Barkau er hver sin gård. Siden viser: »Honnigsee« · slags: gård · bogens fulde tekst (»Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«) gemmes ved ejerforholdene · ejerforholdet står også på: Barkau (ny side)",
+    "tekst": "Del op: Honnigsee / Barkau er hver sin gård. Siden viser: »Honnigsee« · slags: gård · bogens fulde tekst (»Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«) gemmes ved ejerforholdene · ejerforholdet står også på: G141:Barkau (ny side)",
     "opret": [
      {
-      "noegle": "ny:Barkau",
+      "noegle": "ny:G141:Barkau",
       "navn": "Barkau",
       "slags": "gård",
       "gruppe": 141
@@ -7712,7 +7732,7 @@
     "kopier": [
      {
       "relation": 2406,
-      "til": "ny:Barkau",
+      "til": "ny:G141:Barkau",
       "citat": "Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)",
       "gruppe": 141
      }
@@ -8593,40 +8613,40 @@
   },
   "G167": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Koppel« · slags: gård · bogens fulde tekst (»Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«) gemmes ved ejerforholdene · ejerforholdet står også på: Gross-Koppel (ny side), Klein‑Koppel (ny side), Etelsen (ny side), Embsen (ny side), Ruschbaden (ny side), Nesehof (ny side)",
+    "tekst": "Kort navn. Siden viser: »Koppel« · slags: gård · bogens fulde tekst (»Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«) gemmes ved ejerforholdene · ejerforholdet står også på: G167:Gross-Koppel (ny side), G167:Klein‑Koppel (ny side), G167:Etelsen (ny side), G167:Embsen (ny side), G167:Ruschbaden (ny side), G167:Nesehof (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gross-Koppel",
+      "noegle": "ny:G167:Gross-Koppel",
       "navn": "Gross-Koppel",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Klein‑Koppel",
+      "noegle": "ny:G167:Klein‑Koppel",
       "navn": "Klein‑Koppel",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Etelsen",
+      "noegle": "ny:G167:Etelsen",
       "navn": "Etelsen",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Embsen",
+      "noegle": "ny:G167:Embsen",
       "navn": "Embsen",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Ruschbaden",
+      "noegle": "ny:G167:Ruschbaden",
       "navn": "Ruschbaden",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Nesehof",
+      "noegle": "ny:G167:Nesehof",
       "navn": "Nesehof",
       "slags": "gård",
       "gruppe": 167
@@ -8644,37 +8664,37 @@
     "kopier": [
      {
       "relation": 737,
-      "til": "ny:Gross-Koppel",
+      "til": "ny:G167:Gross-Koppel",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Klein‑Koppel",
+      "til": "ny:G167:Klein‑Koppel",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Etelsen",
+      "til": "ny:G167:Etelsen",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Embsen",
+      "til": "ny:G167:Embsen",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Ruschbaden",
+      "til": "ny:G167:Ruschbaden",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Nesehof",
+      "til": "ny:G167:Nesehof",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      }
@@ -8683,40 +8703,40 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof« · slags: gård · ejerforholdet står også på: Gross-Koppel (ny side), Klein‑Koppel (ny side), Etelsen (ny side), Embsen (ny side), Ruschbaden (ny side), Nesehof (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof« · slags: gård · ejerforholdet står også på: G167:Gross-Koppel (ny side), G167:Klein‑Koppel (ny side), G167:Etelsen (ny side), G167:Embsen (ny side), G167:Ruschbaden (ny side), G167:Nesehof (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gross-Koppel",
+      "noegle": "ny:G167:Gross-Koppel",
       "navn": "Gross-Koppel",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Klein‑Koppel",
+      "noegle": "ny:G167:Klein‑Koppel",
       "navn": "Klein‑Koppel",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Etelsen",
+      "noegle": "ny:G167:Etelsen",
       "navn": "Etelsen",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Embsen",
+      "noegle": "ny:G167:Embsen",
       "navn": "Embsen",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Ruschbaden",
+      "noegle": "ny:G167:Ruschbaden",
       "navn": "Ruschbaden",
       "slags": "gård",
       "gruppe": 167
      },
      {
-      "noegle": "ny:Nesehof",
+      "noegle": "ny:G167:Nesehof",
       "navn": "Nesehof",
       "slags": "gård",
       "gruppe": 167
@@ -8734,37 +8754,37 @@
     "kopier": [
      {
       "relation": 737,
-      "til": "ny:Gross-Koppel",
+      "til": "ny:G167:Gross-Koppel",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Klein‑Koppel",
+      "til": "ny:G167:Klein‑Koppel",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Etelsen",
+      "til": "ny:G167:Etelsen",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Embsen",
+      "til": "ny:G167:Embsen",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Ruschbaden",
+      "til": "ny:G167:Ruschbaden",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      },
      {
       "relation": 737,
-      "til": "ny:Nesehof",
+      "til": "ny:G167:Nesehof",
       "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
       "gruppe": 167
      }
@@ -9421,10 +9441,10 @@
   },
   "G189": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Filipsborg (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G189:Filipsborg (ny side)",
     "opret": [
      {
-      "noegle": "ny:Filipsborg",
+      "noegle": "ny:G189:Filipsborg",
       "navn": "Filipsborg",
       "slags": "gård",
       "gruppe": 189
@@ -9453,7 +9473,7 @@
     "kopier": [
      {
       "relation": 229,
-      "til": "ny:Filipsborg",
+      "til": "ny:G189:Filipsborg",
       "citat": "Lundsgaard med Filipsborg",
       "gruppe": 189
      }
@@ -9491,6 +9511,40 @@
     "flyt": []
    },
    "C": {
+    "tekst": "Læg sammen til én side, men »Filipsborg« er gården Philipsburg i Angel (række 316, gruppe 215). Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Philipsburg i Angel (række 316)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 75,
+      "navn": "Lundsgaard",
+      "slags": "gård",
+      "gruppe": 189
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 315,
+      "til": 75,
+      "gruppe": 189
+     },
+     {
+      "fra": 346,
+      "til": 75,
+      "gruppe": 189
+     }
+    ],
+    "kopier": [
+     {
+      "relation": 229,
+      "til": 316,
+      "citat": "Lundsgaard med Filipsborg",
+      "gruppe": 189
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "D": {
     "tekst": "Læg sammen til én side, men uden kopier til de andre gårde. Siden viser: »Lundsgaard« · slags: gård · bogens fulde tekst (»Lundsgaard med Filipsborg«) gemmes ved ejerforholdene · 2 andre rækker (315, 346) lægges ind i denne side; deres 2 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
@@ -10045,10 +10099,10 @@
   },
   "G209": {
    "A": {
-    "tekst": "Læg sammen til én side. Siden viser: »Osterrade« · slags: gård · 1 andre række (140) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: Bovenau (ny side)",
+    "tekst": "Læg sammen til én side. Siden viser: »Osterrade« · slags: gård · 1 andre række (140) lægges ind i denne side; deres 1 ejerforhold flyttes med, og deres navne gemmes ved ejerforholdene · ejerforholdet står også på: G209:Bovenau (ny side)",
     "opret": [
      {
-      "noegle": "ny:Bovenau",
+      "noegle": "ny:G209:Bovenau",
       "navn": "Bovenau",
       "slags": "gård",
       "gruppe": 209
@@ -10072,7 +10126,7 @@
     "kopier": [
      {
       "relation": 505,
-      "til": "ny:Bovenau",
+      "til": "ny:G209:Bovenau",
       "citat": "Osterrade med Bovenau",
       "gruppe": 209
      }
@@ -10220,10 +10274,10 @@
   },
   "G213": {
    "A": {
-    "tekst": "Kort navn. Siden viser: »Pederstrup« · slags: gård · bogens fulde tekst (»Pederstrup med Skjelstofte (1725)«) gemmes ved ejerforholdene · ejerforholdet står også på: Skjelstofte (ny side)",
+    "tekst": "Kort navn. Siden viser: »Pederstrup« · slags: gård · bogens fulde tekst (»Pederstrup med Skjelstofte (1725)«) gemmes ved ejerforholdene · ejerforholdet står også på: G213:Skjelstofte (ny side)",
     "opret": [
      {
-      "noegle": "ny:Skjelstofte",
+      "noegle": "ny:G213:Skjelstofte",
       "navn": "Skjelstofte",
       "slags": "gård",
       "gruppe": 213
@@ -10241,7 +10295,7 @@
     "kopier": [
      {
       "relation": 2593,
-      "til": "ny:Skjelstofte",
+      "til": "ny:G213:Skjelstofte",
       "citat": "Pederstrup med Skjelstofte (1725)",
       "gruppe": 213
      }
@@ -10250,10 +10304,10 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Pederstrup med Skjelstofte (1725)« · slags: gård · ejerforholdet står også på: Skjelstofte (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Pederstrup med Skjelstofte (1725)« · slags: gård · ejerforholdet står også på: G213:Skjelstofte (ny side)",
     "opret": [
      {
-      "noegle": "ny:Skjelstofte",
+      "noegle": "ny:G213:Skjelstofte",
       "navn": "Skjelstofte",
       "slags": "gård",
       "gruppe": 213
@@ -10271,7 +10325,7 @@
     "kopier": [
      {
       "relation": 2593,
-      "til": "ny:Skjelstofte",
+      "til": "ny:G213:Skjelstofte",
       "citat": "Pederstrup med Skjelstofte (1725)",
       "gruppe": 213
      }
@@ -10711,12 +10765,12 @@
     "flyt": []
    },
    "C": {
-    "tekst": "Behold som én side med det korte navn. Siden viser: »Raubart« · slags: gård · bogens fulde tekst (»Raubart, Starzeddel og Vettersfelde (1853-75)«) gemmes ved ejerforholdene",
+    "tekst": "Behold som én side med det korte navn. Siden viser: »Raubart, Starzeddel og Vettersfelde« · slags: gård · bogens fulde tekst (»Raubart, Starzeddel og Vettersfelde (1853-75)«) gemmes ved ejerforholdene",
     "opret": [],
     "saet": [
      {
       "estate": 415,
-      "navn": "Raubart",
+      "navn": "Raubart, Starzeddel og Vettersfelde",
       "slags": "gård",
       "gruppe": 225
      }
@@ -11429,10 +11483,10 @@
   },
   "G247": {
    "A": {
-    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: Gieschenhagen (ny side)",
+    "tekst": "Kort navn, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg« · slags: ikke angivet (vi ved ikke, om det er en gård) · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gieschenhagen",
+      "noegle": "ny:G247:Gieschenhagen",
       "navn": "Gieschenhagen",
       "slags": "gård",
       "gruppe": 247
@@ -11450,7 +11504,7 @@
     "kopier": [
      {
       "relation": 2580,
-      "til": "ny:Gieschenhagen",
+      "til": "ny:G247:Gieschenhagen",
       "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
       "gruppe": 247
      }
@@ -11459,10 +11513,10 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Behold navnet, som det står i databasen, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: ikke angivet (vi ved ikke, om det er en gård) · ejerforholdet står også på: Gieschenhagen (ny side)",
+    "tekst": "Behold navnet, som det står i databasen, men slags ikke angivet. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: ikke angivet (vi ved ikke, om det er en gård) · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gieschenhagen",
+      "noegle": "ny:G247:Gieschenhagen",
       "navn": "Gieschenhagen",
       "slags": "gård",
       "gruppe": 247
@@ -11480,7 +11534,7 @@
     "kopier": [
      {
       "relation": 2580,
-      "til": "ny:Gieschenhagen",
+      "til": "ny:G247:Gieschenhagen",
       "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
       "gruppe": 247
      }
@@ -11505,10 +11559,10 @@
     "flyt": []
    },
    "D": {
-    "tekst": "Kort navn. Siden viser: »Segeberg Kalkbjerg« · slags: gård · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: Gieschenhagen (ny side)",
+    "tekst": "Kort navn. Siden viser: »Segeberg Kalkbjerg« · slags: gård · bogens fulde tekst (»Segeberg Kalkbjerg med Gieschenhagen (1673–84)«) gemmes ved ejerforholdene · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gieschenhagen",
+      "noegle": "ny:G247:Gieschenhagen",
       "navn": "Gieschenhagen",
       "slags": "gård",
       "gruppe": 247
@@ -11526,7 +11580,7 @@
     "kopier": [
      {
       "relation": 2580,
-      "til": "ny:Gieschenhagen",
+      "til": "ny:G247:Gieschenhagen",
       "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
       "gruppe": 247
      }
@@ -11535,10 +11589,10 @@
     "flyt": []
    },
    "E": {
-    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: gård · ejerforholdet står også på: Gieschenhagen (ny side)",
+    "tekst": "Behold navnet, som det står i databasen. Siden viser: »Segeberg Kalkbjerg med Gieschenhagen (1673–84)« · slags: gård · ejerforholdet står også på: G247:Gieschenhagen (ny side)",
     "opret": [
      {
-      "noegle": "ny:Gieschenhagen",
+      "noegle": "ny:G247:Gieschenhagen",
       "navn": "Gieschenhagen",
       "slags": "gård",
       "gruppe": 247
@@ -11556,7 +11610,7 @@
     "kopier": [
      {
       "relation": 2580,
-      "til": "ny:Gieschenhagen",
+      "til": "ny:G247:Gieschenhagen",
       "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
       "gruppe": 247
      }
@@ -12361,10 +12415,10 @@
   },
   "G271": {
    "A": {
-    "tekst": "Del op: Taastrup / Aalstrup er hver sin gård. Siden viser: »Taastrup« · slags: gård · bogens fulde tekst (»Taastrup og Aalstrup (1728)«) gemmes ved ejerforholdene · ejerforholdet står også på: Aalstrup (ny side)",
+    "tekst": "Del op: Taastrup / Aalstrup er hver sin gård. Siden viser: »Taastrup« · slags: gård · bogens fulde tekst (»Taastrup og Aalstrup (1728)«) gemmes ved ejerforholdene · ejerforholdet står også på: G271:Aalstrup (ny side)",
     "opret": [
      {
-      "noegle": "ny:Aalstrup",
+      "noegle": "ny:G271:Aalstrup",
       "navn": "Aalstrup",
       "slags": "gård",
       "gruppe": 271
@@ -12382,7 +12436,7 @@
     "kopier": [
      {
       "relation": 2595,
-      "til": "ny:Aalstrup",
+      "til": "ny:G271:Aalstrup",
       "citat": "Taastrup og Aalstrup (1728)",
       "gruppe": 271
      }
@@ -13851,7 +13905,7 @@
   },
   "H1": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Baroniet Brahetrolleborg«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 189 (Brahetrolleborg) til række 261 (Baroniet Brahetrolleborg) — periode, udgave og bogens ord skal du give i svaret (fx »H1 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Baroniet Brahetrolleborg«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 189 (Brahetrolleborg) til række 261 (Baroniet Brahetrolleborg) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13880,7 +13934,7 @@
   },
   "H2": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Grevskabet Christianssæde«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 171 (Christianssæde) til række 170 (Grevskabet Christianssæde) — periode, udgave og bogens ord skal du give i svaret (fx »H2 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Grevskabet Christianssæde«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 171 (Christianssæde) til række 170 (Grevskabet Christianssæde) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13909,7 +13963,7 @@
   },
   "H3": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Grevskabet Sandberg«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 355 (Sandberg i Sundeved) til række 374 (Grevskabet Sandberg) — periode, udgave og bogens ord skal du give i svaret (fx »H3 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Grevskabet Sandberg«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 355 (Sandberg i Sundeved) til række 374 (Grevskabet Sandberg) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13941,7 +13995,7 @@
     "tekst": "Ja. Gårdens side viser »Hørte under Grevskabet Vallø«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra den nye gård Vallø til række 196 (Grevskabet Vallø), periode 1713-1730, kilde DAA 2018-20, med bogens ord som citat; den nye gård Vallø oprettes, og billedet (media 214) flyttes dertil",
     "opret": [
      {
-      "noegle": "ny:Vallø",
+      "noegle": "ny:H4:Vallø",
       "navn": "Vallø",
       "slags": "gård",
       "gruppe": "H4"
@@ -13952,7 +14006,7 @@
     "kopier": [],
     "hoerer_under": [
      {
-      "gaard": "ny:Vallø",
+      "gaard": "ny:H4:Vallø",
       "majorat": 196,
       "periode": "1713-1730",
       "source": 1,
@@ -13963,7 +14017,7 @@
     "flyt": [
      {
       "relation": 3439,
-      "til": "ny:Vallø",
+      "til": "ny:H4:Vallø",
       "gruppe": "H4"
      }
     ]
@@ -13980,7 +14034,7 @@
   },
   "H5": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Frisenvold«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 358 (Friisenvold) til række 201 (Stamhuset Frisenvold) — periode, udgave og bogens ord skal du give i svaret (fx »H5 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Frisenvold«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 358 (Friisenvold) til række 201 (Stamhuset Frisenvold) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -14009,7 +14063,7 @@
   },
   "H6": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Frisenvold«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 166 (Frisenvold) til række 201 (Stamhuset Frisenvold) — periode, udgave og bogens ord skal du give i svaret (fx »H6 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Frisenvold«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 166 (Frisenvold) til række 201 (Stamhuset Frisenvold) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -14038,7 +14092,7 @@
   },
   "H7": {
    "ja": {
-    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Krenkerup«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 210 (Krenkerup) til række 202 (Stamhuset Krenkerup) — periode, udgave og bogens ord skal du give i svaret (fx »H7 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
+    "tekst": "Ja. Gårdens side viser »Hørte under Stamhuset Krenkerup«, og majoratets side nævner gården. Der oprettes en »hører under«-relation fra række 210 (Krenkerup) til række 202 (Stamhuset Krenkerup) — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -14545,6 +14599,15 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "S18": {
@@ -15012,6 +15075,15 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "S35": {
@@ -15121,6 +15193,15 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "S39": {
@@ -15209,6 +15290,15 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "S42": {
@@ -15291,6 +15381,15 @@
    },
    "nej": {
     "tekst": "Nej, forskellige godser. Siderne forbliver adskilt, som grupperne selv bestemmer",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -15411,6 +15510,15 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "delvis": {
+    "tekst": "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); de lægges ind i den første af dem, og de øvrige forbliver egne sider",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "S49": {
@@ -15483,6 +15591,46 @@
    },
    "nej": {
     "tekst": "Nej, forskellige godser. Siderne forbliver adskilt, som grupperne selv bestemmer",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "N1": {
+   "ja": {
+    "tekst": "Ja, samme gård. Siden viser: »Aalstrup« — én ny side med ejerforholdene fra G48 og G271",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej, forskellige. Hver gruppe opretter sin egen side »Aalstrup«",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   }
+  },
+  "N2": {
+   "ja": {
+    "tekst": "Ja, samme gård. Siden viser: »Bøgskov« — én ny side med ejerforholdene fra G11 og G12",
+    "opret": [],
+    "saet": [],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "nej": {
+    "tekst": "Nej, forskellige. Hver gruppe opretter sin egen side »Bøgskov«",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -16080,7 +16228,7 @@
     336
    ],
    "overlever": 336,
-   "kategori": "aendring"
+   "kategori": "tvivl"
   },
   "G72": {
    "type": "gruppe",
@@ -16112,7 +16260,7 @@
     252
    ],
    "overlever": 252,
-   "kategori": "aendring"
+   "kategori": "tvivl"
   },
   "G76": {
    "type": "gruppe",
@@ -16857,7 +17005,7 @@
     361
    ],
    "overlever": 361,
-   "kategori": "aendring"
+   "kategori": "tvivl"
   },
   "G164": {
    "type": "gruppe",
@@ -17422,7 +17570,7 @@
     396
    ],
    "overlever": 396,
-   "kategori": "aendring"
+   "kategori": "tvivl"
   },
   "G232": {
    "type": "gruppe",
@@ -18167,112 +18315,243 @@
    "grupper": [
     "G3",
     "G4"
-   ]
+   ],
+   "flyttes": {
+    "G3": [
+     179
+    ],
+    "G4": [
+     394,
+     400
+    ]
+   }
   },
   "S2": {
    "type": "S",
    "grupper": [
     "G313",
     "G6"
-   ]
+   ],
+   "flyttes": {
+    "G313": [],
+    "G6": [
+     237
+    ]
+   }
   },
   "S3": {
    "type": "S",
    "grupper": [
     "G7",
     "G8"
-   ]
+   ],
+   "flyttes": {
+    "G7": [
+     146
+    ],
+    "G8": [
+     406
+    ]
+   }
   },
   "S4": {
    "type": "S",
    "grupper": [
     "G11",
     "G12"
-   ]
+   ],
+   "flyttes": {
+    "G11": [
+     213
+    ],
+    "G12": [
+     393
+    ]
+   }
   },
   "S5": {
    "type": "S",
    "grupper": [
     "G19",
     "G20"
-   ]
+   ],
+   "flyttes": {
+    "G19": [
+     25
+    ],
+    "G20": [
+     234
+    ]
+   }
   },
   "S6": {
    "type": "S",
    "grupper": [
     "G23",
     "G24"
-   ]
+   ],
+   "flyttes": {
+    "G23": [
+     115
+    ],
+    "G24": [
+     318,
+     330
+    ]
+   }
   },
   "S7": {
    "type": "S",
    "grupper": [
     "G129",
     "G26"
-   ]
+   ],
+   "flyttes": {
+    "G129": [
+     226
+    ],
+    "G26": [
+     384
+    ]
+   }
   },
   "S8": {
    "type": "S",
    "grupper": [
     "G27",
     "G28"
-   ]
+   ],
+   "flyttes": {
+    "G27": [
+     421
+    ],
+    "G28": [
+     423
+    ]
+   }
   },
   "S9": {
    "type": "S",
    "grupper": [
     "G36",
     "G35"
-   ]
+   ],
+   "flyttes": {
+    "G36": [
+     198
+    ],
+    "G35": [
+     427
+    ]
+   }
   },
   "S10": {
    "type": "S",
    "grupper": [
     "G51",
     "G164"
-   ]
+   ],
+   "flyttes": {
+    "G51": [
+     340
+    ],
+    "G164": [
+     124
+    ]
+   }
   },
   "S11": {
    "type": "S",
    "grupper": [
     "G52",
     "G170"
-   ]
+   ],
+   "flyttes": {
+    "G52": [
+     144
+    ],
+    "G170": [
+     343
+    ]
+   }
   },
   "S12": {
    "type": "S",
    "grupper": [
     "G68",
     "G183"
-   ]
+   ],
+   "flyttes": {
+    "G68": [
+     60
+    ],
+    "G183": [
+     295,
+     302
+    ]
+   }
   },
   "S13": {
    "type": "S",
    "grupper": [
     "G70",
     "G71"
-   ]
+   ],
+   "flyttes": {
+    "G70": [
+     93,
+     136,
+     352
+    ],
+    "G71": [
+     336
+    ]
+   }
   },
   "S14": {
    "type": "S",
    "grupper": [
     "G74",
     "G75"
-   ]
+   ],
+   "flyttes": {
+    "G74": [
+     79
+    ],
+    "G75": [
+     252
+    ]
+   }
   },
   "S15": {
    "type": "S",
    "grupper": [
     "G80",
     "G81"
-   ]
+   ],
+   "flyttes": {
+    "G80": [
+     160
+    ],
+    "G81": [
+     409
+    ]
+   }
   },
   "S16": {
    "type": "S",
    "grupper": [
     "G82",
     "G83"
-   ]
+   ],
+   "flyttes": {
+    "G82": [
+     10
+    ],
+    "G83": [
+     312
+    ]
+   }
   },
   "S17": {
    "type": "S",
@@ -18280,119 +18559,267 @@
     "G287",
     "G88",
     "G89"
-   ]
+   ],
+   "flyttes": {
+    "G287": [
+     45
+    ],
+    "G88": [
+     9
+    ],
+    "G89": [
+     246,
+     248
+    ]
+   }
   },
   "S18": {
    "type": "S",
    "grupper": [
     "G95",
     "G94"
-   ]
+   ],
+   "flyttes": {
+    "G95": [
+     166
+    ],
+    "G94": [
+     358
+    ]
+   }
   },
   "S19": {
    "type": "S",
    "grupper": [
     "G107",
     "G108"
-   ]
+   ],
+   "flyttes": {
+    "G107": [
+     32
+    ],
+    "G108": [
+     264
+    ]
+   }
   },
   "S20": {
    "type": "S",
    "grupper": [
     "G115",
     "G116"
-   ]
+   ],
+   "flyttes": {
+    "G115": [
+     90,
+     120,
+     334,
+     348
+    ],
+    "G116": [
+     322
+    ]
+   }
   },
   "S21": {
    "type": "S",
    "grupper": [
     "G126",
     "G127"
-   ]
+   ],
+   "flyttes": {
+    "G126": [
+     8,
+     311
+    ],
+    "G127": [
+     308
+    ]
+   }
   },
   "S22": {
    "type": "S",
    "grupper": [
     "G132",
     "G133"
-   ]
+   ],
+   "flyttes": {
+    "G132": [
+     325
+    ],
+    "G133": [
+     319
+    ]
+   }
   },
   "S23": {
    "type": "S",
    "grupper": [
     "G135",
     "G142"
-   ]
+   ],
+   "flyttes": {
+    "G135": [
+     148
+    ],
+    "G142": [
+     410
+    ]
+   }
   },
   "S24": {
    "type": "S",
    "grupper": [
     "G146",
     "G140"
-   ]
+   ],
+   "flyttes": {
+    "G146": [
+     130,
+     332
+    ],
+    "G140": [
+     134
+    ]
+   }
   },
   "S25": {
    "type": "S",
    "grupper": [
     "G143",
     "G144"
-   ]
+   ],
+   "flyttes": {
+    "G143": [
+     197
+    ],
+    "G144": [
+     200
+    ]
+   }
   },
   "S26": {
    "type": "S",
    "grupper": [
     "G147",
     "G148"
-   ]
+   ],
+   "flyttes": {
+    "G147": [
+     217
+    ],
+    "G148": [
+     380
+    ]
+   }
   },
   "S27": {
    "type": "S",
    "grupper": [
     "G158",
     "G159"
-   ]
+   ],
+   "flyttes": {
+    "G158": [
+     67
+    ],
+    "G159": [
+     303
+    ]
+   }
   },
   "S28": {
    "type": "S",
    "grupper": [
     "G162",
     "G163"
-   ]
+   ],
+   "flyttes": {
+    "G162": [
+     168
+    ],
+    "G163": [
+     361
+    ]
+   }
   },
   "S29": {
    "type": "S",
    "grupper": [
     "G166",
     "G165"
-   ]
+   ],
+   "flyttes": {
+    "G166": [
+     36
+    ],
+    "G165": [
+     266
+    ]
+   }
   },
   "S30": {
    "type": "S",
    "grupper": [
     "G169",
     "G168"
-   ]
+   ],
+   "flyttes": {
+    "G169": [
+     210
+    ],
+    "G168": [
+     420
+    ]
+   }
   },
   "S31": {
    "type": "S",
    "grupper": [
     "G175",
     "G176"
-   ]
+   ],
+   "flyttes": {
+    "G175": [
+     281,
+     298
+    ],
+    "G176": [
+     306
+    ]
+   }
   },
   "S32": {
    "type": "S",
    "grupper": [
     "G188",
     "G189"
-   ]
+   ],
+   "flyttes": {
+    "G188": [
+     88
+    ],
+    "G189": [
+     75,
+     315,
+     346
+    ]
+   }
   },
   "S33": {
    "type": "S",
    "grupper": [
     "G191",
     "G192"
-   ]
+   ],
+   "flyttes": {
+    "G191": [
+     225
+    ],
+    "G192": [
+     177
+    ]
+   }
   },
   "S34": {
    "type": "S",
@@ -18401,28 +18828,68 @@
     "G200",
     "G198",
     "G201"
-   ]
+   ],
+   "flyttes": {
+    "G199": [
+     106
+    ],
+    "G200": [
+     151
+    ],
+    "G198": [
+     262,
+     323
+    ],
+    "G201": [
+     412
+    ]
+   }
   },
   "S35": {
    "type": "S",
    "grupper": [
     "G204",
     "G205"
-   ]
+   ],
+   "flyttes": {
+    "G204": [
+     193
+    ],
+    "G205": [
+     401
+    ]
+   }
   },
   "S36": {
    "type": "S",
    "grupper": [
     "G230",
     "G231"
-   ]
+   ],
+   "flyttes": {
+    "G230": [
+     91,
+     183
+    ],
+    "G231": [
+     396
+    ]
+   }
   },
   "S37": {
    "type": "S",
    "grupper": [
     "G233",
     "G232"
-   ]
+   ],
+   "flyttes": {
+    "G233": [
+     169
+    ],
+    "G232": [
+     355
+    ]
+   }
   },
   "S38": {
    "type": "S",
@@ -18430,21 +18897,49 @@
     "G241",
     "G236",
     "G242"
-   ]
+   ],
+   "flyttes": {
+    "G241": [
+     96
+    ],
+    "G236": [
+     112
+    ],
+    "G242": [
+     317
+    ]
+   }
   },
   "S39": {
    "type": "S",
    "grupper": [
     "G237",
     "G239"
-   ]
+   ],
+   "flyttes": {
+    "G237": [
+     327
+    ],
+    "G239": [
+     233
+    ]
+   }
   },
   "S40": {
    "type": "S",
    "grupper": [
     "G246",
     "G244"
-   ]
+   ],
+   "flyttes": {
+    "G246": [
+     38
+    ],
+    "G244": [
+     271,
+     279
+    ]
+   }
   },
   "S41": {
    "type": "S",
@@ -18452,21 +18947,48 @@
     "G258",
     "G264",
     "G259"
-   ]
+   ],
+   "flyttes": {
+    "G258": [
+     30
+    ],
+    "G264": [
+     35
+    ],
+    "G259": [
+     259
+    ]
+   }
   },
   "S42": {
    "type": "S",
    "grupper": [
     "G262",
     "G261"
-   ]
+   ],
+   "flyttes": {
+    "G262": [
+     40
+    ],
+    "G261": [
+     272
+    ]
+   }
   },
   "S43": {
    "type": "S",
    "grupper": [
     "G266",
     "G267"
-   ]
+   ],
+   "flyttes": {
+    "G266": [
+     135
+    ],
+    "G267": [
+     333
+    ]
+   }
   },
   "S44": {
    "type": "S",
@@ -18474,28 +18996,65 @@
     "G273",
     "G279",
     "G274"
-   ]
+   ],
+   "flyttes": {
+    "G273": [
+     125
+    ],
+    "G279": [
+     6
+    ],
+    "G274": [
+     304,
+     305
+    ]
+   }
   },
   "S45": {
    "type": "S",
    "grupper": [
     "G276",
     "G277"
-   ]
+   ],
+   "flyttes": {
+    "G276": [
+     31
+    ],
+    "G277": [
+     260
+    ]
+   }
   },
   "S46": {
    "type": "S",
    "grupper": [
     "G281",
     "G280"
-   ]
+   ],
+   "flyttes": {
+    "G281": [
+     218
+    ],
+    "G280": [
+     385
+    ]
+   }
   },
   "S47": {
    "type": "S",
    "grupper": [
     "G285",
     "G284"
-   ]
+   ],
+   "flyttes": {
+    "G285": [
+     203
+    ],
+    "G284": [
+     370,
+     371
+    ]
+   }
   },
   "S48": {
    "type": "S",
@@ -18503,28 +19062,80 @@
     "G296",
     "G310",
     "G305"
-   ]
+   ],
+   "flyttes": {
+    "G296": [
+     175
+    ],
+    "G310": [
+     229
+    ],
+    "G305": [
+     390
+    ]
+   }
   },
   "S49": {
    "type": "S",
    "grupper": [
     "G297",
     "G298"
-   ]
+   ],
+   "flyttes": {
+    "G297": [
+     59
+    ],
+    "G298": [
+     292
+    ]
+   }
   },
   "S50": {
    "type": "S",
    "grupper": [
     "G299",
     "G300"
-   ]
+   ],
+   "flyttes": {
+    "G299": [
+     294,
+     301
+    ],
+    "G300": [
+     280
+    ]
+   }
   },
   "S51": {
    "type": "S",
    "grupper": [
     "G303",
     "G304"
-   ]
+   ],
+   "flyttes": {
+    "G303": [
+     76
+    ],
+    "G304": [
+     287
+    ]
+   }
+  },
+  "N1": {
+   "type": "N",
+   "noegler": {
+    "G48": "ny:G48:Aalstrup",
+    "G271": "ny:G271:Aalstrup"
+   },
+   "faelles": "ny:Aalstrup"
+  },
+  "N2": {
+   "type": "N",
+   "noegler": {
+    "G11": "ny:G11:Bøgskov",
+    "G12": "ny:G12:Bøgskov"
+   },
+   "faelles": "ny:Bøgskov"
   }
  },
  "snapshots": [
@@ -18544,5 +19155,9 @@
   170,
   261,
   263
- ]
+ ],
+ "kilder": {
+  "DAA 1939": 3,
+  "DAA 2018-20": 1
+ }
 }

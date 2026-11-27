@@ -145,10 +145,10 @@ def test_med_liste_gaard_og_kopi_til_tre_gaarde():
     ops = g.alternativer["A"].ops
     assert ops["saet"][0] == {"estate": 171, "navn": "Christianssæde", "slags": "gård", "gruppe": g.nr}
     til = [k["til"] for k in ops["kopier"]]
-    assert til == [367, "ny:Aalstrup", "ny:Frihedsminde"]
+    assert til == [367, f"ny:G{g.nr}:Aalstrup", f"ny:G{g.nr}:Frihedsminde"]
     assert {k["citat"] for k in ops["kopier"]} == {"Christianssæde med Pederstrup, Aalstrup og Frihedsminde"}
     assert {k["relation"] for k in ops["kopier"]} == {17100}
-    assert [o["noegle"] for o in ops["opret"]] == ["ny:Aalstrup", "ny:Frihedsminde"]
+    assert [o["noegle"] for o in ops["opret"]] == [f"ny:G{g.nr}:Aalstrup", f"ny:G{g.nr}:Frihedsminde"]
     assert all(o["slags"] == "gård" for o in ops["opret"])
 
 
@@ -272,7 +272,7 @@ def test_plan_samler_kun_forvalg_og_har_kilde_hash():
                            "hoerer_under", "flyt"]
     assert 100 not in {s["estate"] for s in p["saet"]}
     assert f"G{gruppe_med(f, 100).nr}" in p["aabne"]
-    assert [o["noegle"] for o in p["opret"]].count("ny:Aalstrup") == 1
+    assert [o["navn"] for o in p["opret"]].count("Aalstrup") == 1
     forslag.valider_plan(p, snapshots=set())
 
 
@@ -608,10 +608,10 @@ def test_ark_har_en_inputgruppe_pr_beslutning_og_ingen_personfelter():
     beslut = set(re.findall(r'data-id="([^"]+)"', html))
     assert radio_navne == beslut
     forventet = {f"G{g.nr}" for g in f.grupper if g.forvalg is None or len(g.alternativer) > 1}
-    forventet |= {s.nr for s in f.sammenhaenge} | {h.nr for h in f.hoerer}
+    forventet |= {s.nr for s in f.sammenhaenge} | {h.nr for h in f.hoerer} | {q.nr for q in f.nye}
     assert beslut == forventet
     alle_navne = set(re.findall(r'name="([^"]+)"', html.split("<script>")[0]))
-    assert all(re.fullmatch(r"[GSH]\d+(-periode|-citat|-kilde)?", n) for n in alle_navne), alle_navne
+    assert all(re.fullmatch(r"[GSHN]\d+(-periode|-citat|-kilde|-gruppe)?", n) for n in alle_navne), alle_navne
     assert not re.search(r"person|fornavn|efternavn", html, re.I)
     # ingen forvalg ved »Du skal vælge«
     for pid in p["aabne"]:
@@ -716,3 +716,182 @@ def test_autosave_noegle_pr_post_med_fingeraftryk():
     s = _fuldt_svar(p, "0" * 64)
     with pytest.raises(forslag.FletFejl, match="andet forslag"):
         forslag.flet(p, forslag.plan_sha(p), s)
+
+
+# ---------- review-runde 2 (runde 2-3): modstridende svar ----------
+
+def _alle_aabne(f, p, **saerlige):
+    svar = {}
+    for pid in p["aabne"]:
+        if pid[0] in "SN":
+            svar[pid] = "nej"
+        elif pid[0] == "H":
+            svar[pid] = {"svar": "nej"}
+        else:
+            svar[pid] = sorted(p["alternativer"][pid])[0]
+    svar.update(saerlige)
+    return svar
+
+
+def _flet(f, svar):
+    p = f.plan("db", KH)
+    sha = forslag.plan_sha(p)
+    return forslag.flet(p, sha, {"version": 1, "kilde_hash": KH, "plan_forslag_sha256": sha, "svar": svar})
+
+
+def _kode(g, navn=None, pred=None):
+    for k, a in g.alternativer.items():
+        if (navn is None or a.ops["saet"] and a.ops["saet"][0]["navn"] == navn) and (pred is None or pred(a)):
+            return k
+    raise AssertionError((navn, list(g.alternativer)))
+
+
+def test_m1_kort_navn_der_rammer_en_anden_gruppe_er_ikke_forslag_og_kollision_afvises():
+    f = forslag.byg_forslag(data([(162, "Kollerup"), (361, "Kollerup, Galten Herred (1692)")]))
+    g = gruppe_med(f, 361)
+    assert g.forvalg is None and any("også navnet på gruppe" in t for t in g.tvivl)
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    svar = _alle_aabne(f, p, **{f"G{g.nr}": _kode(g, "Kollerup")})
+    with pytest.raises(forslag.FletFejl, match=rf"»Kollerup«.*svar ja i {s_id}"):
+        _flet(f, svar)
+    plan, _ = _flet(f, {**svar, s_id: "ja"})
+    assert {"fra": 361, "til": 162, "gruppe": s_id} in plan["sammenlaeg"]
+
+
+def test_m2_nye_gaarde_deles_kun_ved_ja():
+    f = forslag.byg_forslag(data([(1, "Holm med Aalstrup"), (2, "Gram med Aalstrup")]))
+    g1, g2 = gruppe_med(f, 1), gruppe_med(f, 2)
+    n1 = g1.alternativer["A"].ops["opret"][0]["noegle"]
+    n2 = g2.alternativer["A"].ops["opret"][0]["noegle"]
+    assert n1 != n2 and n1.startswith(f"ny:G{g1.nr}:")
+    assert len(f.nye) == 1
+    nid = f.nye[0].nr
+    with pytest.raises(forslag.FletFejl, match=rf"»Aalstrup«.*svar ja i {nid}"):
+        _flet(f, {nid: "nej"})
+    plan, _ = _flet(f, {nid: "ja"})
+    assert [o["noegle"] for o in plan["opret"]] == ["ny:Aalstrup"]
+    assert {k["til"] for k in plan["kopier"]} == {"ny:Aalstrup"} and len(plan["kopier"]) == 2
+    # nej er i orden, når kun den ene gruppe opretter gården
+    plan, _ = _flet(f, {nid: "nej", f"G{g2.nr}": _kode(g2, pred=lambda a: not a.ops["kopier"])})
+    assert len(plan["opret"]) == 1
+
+
+FRIS = [(201, "stamhuset Frisenvold", 1, "1731‑†"), (166, "Frisenvold", 1, "1684-1703"),
+        (358, "Friisenvold")]
+
+
+def test_m3_hoerer_under_med_forskellige_citater_efter_s_ja_afvises_ens_citat_samles():
+    f = forslag.byg_forslag(data(FRIS))
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    h = [x.nr for x in f.hoerer]
+    assert len(h) == 2
+    ja = lambda c: {"svar": "ja", "periode": "1731-1800", "citat": c, "kilde": 1}
+    with pytest.raises(forslag.FletFejl, match="forskellige citater"):
+        _flet(f, _alle_aabne(f, p, **{s_id: "ja", h[0]: ja("ord A"), h[1]: ja("ord B")}))
+    plan, _ = _flet(f, _alle_aabne(f, p, **{s_id: "ja", h[0]: ja("ord A"), h[1]: ja("ord A")}))
+    # L4: »hører under« peger om på den overlevende gård
+    surv = p["poster"][p["poster"][s_id]["grupper"][0]]["overlever"]
+    assert [(o["gaard"], o["majorat"]) for o in plan["hoerer_under"]] == [(surv, 201)]
+
+
+def test_l4_kopier_og_flytninger_peger_om_efter_s_ja():
+    media = [{"rid": 3434, "media_id": 209, "estate": 170, "slags": "gods",
+              "titel": "Tresdorf (Selent Sogn) 1700-1800 i slægtens eje"}]
+    f = forslag.byg_forslag(data([(5, "Wittenberg med Tresdorf"), (6, "Tresdorf"), (7, "Tresdorff", 3),
+                                  (170, "grevskabet Tresdorf", 2)], media=media, udgave={6: "DAA 1939"}))
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    gl = p["poster"][s_id]["grupper"]
+    surv = p["poster"][gl[0]]["overlever"]
+    assert surv == 7  # 6 (1939) lægges ind i 7 (2018-20)
+    plan, _ = _flet(f, _alle_aabne(f, p, **{s_id: "ja"}))
+    fra = {o["fra"] for o in plan["sammenlaeg"]}
+    assert 6 in fra
+    assert {k["til"] for k in plan["kopier"]} == {7}
+    assert [x["til"] for x in plan["flyt"]] == [7]
+
+
+def test_m4_ingen_chatinstrukser_og_kopimaal_kan_vaelges_i_arket():
+    f = forslag.byg_forslag(data([(75, "Lundsgaard med Filipsborg"), (316, "Philipsburg i Angel (forpagtet 1700)"),
+                                  (1, "Neudorf"), (2, "Neudorff"), (3, "Neuendorf")]))
+    g = gruppe_med(f, 75)
+    maal = {a.ops["kopier"][0]["til"] for a in g.alternativer.values() if a.ops["kopier"]}
+    assert 316 in maal and any(isinstance(x, str) and x.endswith(":Filipsborg") for x in maal)
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    for t in ("svar med gruppenummeret", "svar »ny«", "sig til", "i chatten", "Svar evt.", "fx »H"):
+        assert t not in html, t
+    s = next(x for x in f.sammenhaenge if len(x.grupper) == 3)
+    assert "delvis" in s.alternativer and html.count(f'name="{s.nr}-gruppe"') == 3
+
+
+def test_s_delvis_laegger_kun_de_valgte_sammen():
+    f = forslag.byg_forslag(data([(1, "Neudorf", 2), (2, "Neudorff"), (3, "Neuendorf")]))
+    p = f.plan("db", KH)
+    s_id = next(pid for pid, x in p["poster"].items() if x["type"] == "S")
+    gl = p["poster"][s_id]["grupper"]
+    plan, _ = _flet(f, _alle_aabne(f, p, **{s_id: {"svar": "delvis", "grupper": [gl[2], gl[0]]}}))
+    head = p["poster"][gl[0]]["overlever"]
+    flyttet = {o["fra"] for o in plan["sammenlaeg"] if o["gruppe"] == s_id}
+    assert flyttet == set(p["poster"][s_id]["flyttes"][gl[2]]) and all(
+        o["til"] == head for o in plan["sammenlaeg"] if o["gruppe"] == s_id)
+    for daarlig in ({"svar": "delvis", "grupper": [gl[0]]}, {"svar": "delvis", "grupper": [gl[0], "G999"]},
+                    ["ja"], "delvis"):
+        with pytest.raises(forslag.FletFejl):
+            _flet(f, _alle_aabne(f, p, **{s_id: daarlig}))
+
+
+def test_og_liste_kort_navn_beholder_hele_listen():
+    n = forslag.parse_navn("Eskær, Astrup og Skivehus i Nørre H. (1735-50)")
+    assert forslag.kort_navn(n) == "Eskær, Astrup og Skivehus i Nørre H."
+
+
+@pytest.mark.parametrize("h", [{"svar": "ja", "citat": ["liste"], "kilde": 1},
+                               {"svar": "ja", "citat": "x", "kilde": 999},
+                               {"svar": "ja", "citat": "x", "kilde": 1.0},
+                               {"svar": "ja", "citat": "x", "kilde": True},
+                               {"svar": "ja", "periode": {"x": 1}, "citat": "x", "kilde": 1},
+                               {"svar": ["ja"]}])
+def test_l1_h_felternes_typer_og_kilde(h):
+    f = forslag.byg_forslag(data(FRIS))
+    p = f.plan("db", KH)
+    with pytest.raises(forslag.FletFejl):
+        _flet(f, _alle_aabne(f, p, **{f.hoerer[0].nr: h}))
+
+
+def test_l2_svar_sha_er_filens_bytes_og_l3_plan_ud_maa_ikke_vaere_forslaget(tmp_path):
+    f, p, sha = _forslag()
+    pf = tmp_path / "plan.forslag.json"
+    pf.write_text(forslag.plan_tekst(p), encoding="utf-8")
+    sf = tmp_path / "svar.json"
+    sf.write_bytes(("  " + _json.dumps(_fuldt_svar(p, sha), indent=3) + "\n").encode("utf-8"))
+    ud = tmp_path / "plan.json"
+    assert forslag.main(["--flet", str(sf), "--plan", str(pf), "--plan-ud", str(ud)]) == 0
+    import hashlib
+    assert _json.loads(ud.read_text())["grundlag"]["svar_sha256"] == hashlib.sha256(sf.read_bytes()).hexdigest()
+    foer = pf.read_bytes()
+    assert forslag.main(["--flet", str(sf), "--plan", str(pf), "--plan-ud", str(pf)]) == 1
+    assert pf.read_bytes() == foer
+
+
+def test_l3_samme_relation_flyttet_to_gange_afvises():
+    p = {"opret": [], "saet": [], "sammenlaeg": [], "kopier": [], "hoerer_under": [],
+         "flyt": [{"relation": 1, "til": 2}, {"relation": 1, "til": 3}]}
+    with pytest.raises(forslag.PlanFejl):
+        forslag.valider_plan(p, snapshots=set())
+
+
+def test_l3_to_nye_gaarde_under_samme_majorat_faar_hvert_sit_billede():
+    media = [{"rid": 10, "media_id": 1, "estate": 196, "slags": "gods",
+              "titel": "Vallø (Valløby Sogn) 1713-1730 hovedsæde i grevskabet Vallø"},
+             {"rid": 11, "media_id": 2, "estate": 196, "slags": "gods",
+              "titel": "Gammel Vallø (Valløby Sogn) 1700-1712 hovedsæde i grevskabet Vallø"}]
+    f = forslag.byg_forslag(data([(196, "grevskabet Vallø")], media=media))
+    flyt = sorted(h.alternativer["ja"].ops["flyt"][0]["relation"] for h in f.hoerer)
+    assert flyt == [10, 11]
+
+
+def test_l5_autosave_gemmer_ikke_uroerte_forslag():
+    js = forslag.JS
+    assert 'k.getAttribute("data-skal") !== "1" && v === k.getAttribute("data-forvalg")' in js

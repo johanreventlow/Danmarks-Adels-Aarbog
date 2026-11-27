@@ -84,7 +84,10 @@ besked om de poster, hvor valgmulighederne er ændret. »Gem svar« henter
  "svar": {"G12": "C", "S3": "nej", "H2": {"svar": "ja", "periode": "1729-1924", "citat": "…", "kilde": 1}}}
 ```
 
-Svaret indeholder kun besvarede poster og ændrede forslag; uændrede forslag er accepteret.
+Svaret indeholder kun besvarede poster og ændrede forslag; uændrede forslag er accepteret. Et S-spørgsmål med
+mere end to grupper kan besvares »kun nogle« med flueben: `{"svar": "delvis", "grupper": ["G198", "G199"]}`.
+N-spørgsmål (to grupper vil oprette en ny gård med samme navn) besvares `"ja"` (én fælles ny side) eller `"nej"`.
+Hvor et kopimål er usikkert (ligner en eksisterende gruppe), er »eksisterende gruppe« og »ny gård« hver sit valg.
 
 ## Fletning til plan.json (fail-closed)
 
@@ -102,6 +105,12 @@ Fletningen læser `plan.forslag.json` (standard: ved siden af værktøjet; eller
 - H-»ja« uden udgave eller citat;
 - et S-»ja«, hvor en af grupperne er valgt »behold rækkerne adskilt«;
 - en række, der lægges sammen to steder eller får to navne;
+- to overlevende sider med samme navn og slags (navnet sammenlignes uden hensyn til store/små bogstaver,
+  bindestregstype og mellemrum) — beskeden nævner grupperne og det S/N-spørgsmål, der kan løse det;
+- to »hører under« med samme gård, majorat, periode og udgave, men forskellige citater (`red_hoerer_under` ville
+  tabe det ene; ens citater samles til én);
+- H-felter af forkert type, og en udgave, der ikke er en af planens `kilder` (DAA-udgaverne);
+- `--plan-ud` lig med forslagsfilen;
 - en plan, som `valider_plan` afviser.
 
 Et S-»ja« erstatter de øvrige gruppers egne sammenlægninger og navne, og alle mål (kopier, flytninger, »hører
@@ -124,3 +133,18 @@ grupper; `snapshots` er rækkerne med slettede ejerforhold. Den endelige `plan.j
 har kun operationerne plus `grundlag` (sha256 af forslaget og svaret).
 
 `opret` slår Task 10 op på navn + art; `saet` sender altid `slags` (NULL = »art ukendt«, ikke »uændret«).
+
+## Til Task 10 (R): planens form
+
+`plan.json` har altid alle seks lister (`opret`, `saet`, `sammenlaeg`, `kopier`, `hoerer_under`, `flyt`), også
+tomme. Typerne er faste:
+
+- `estate`, `fra`, `relation` og `majorat` er heltal;
+- `til` (i `sammenlaeg` heltal, i `kopier`/`flyt` heltal eller `"ny:…"`) og `gaard` kan være en `"ny:…"`-nøgle fra
+  `opret` (enten `"ny:G48:Aalstrup"` pr. gruppe, `"ny:H4:Vallø"` pr. H-spørgsmål eller `"ny:Aalstrup"`, når et
+  N-spørgsmål er besvaret ja);
+- `gruppe` er et heltal (gruppenummer) eller en streng (`"S3"`, `"H2"`);
+- `slags` er en af `gård`, `grevskab`, `baroni`, `stamhus` eller `null`;
+- `periode` er en streng eller `null`; `source` er et kilde-id.
+
+`grundlag` rummer sha256 af forslaget og af svarfilens bytes.

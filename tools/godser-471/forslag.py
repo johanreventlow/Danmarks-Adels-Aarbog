@@ -356,11 +356,20 @@ def periode_spaend(periode: str | None):
     return min(aar), (None if aaben or (len(aar) == 1 and re.search(r"\d[-\u2010-\u2014]", tekst)) else max(aar))
 
 
+def navn_ens(navn: str) -> str:
+    """Navne, læseren ikke kan skelne: samme bogstaver uanset store/små, bindestregstype og mellemrum."""
+    s = unicodedata.normalize("NFC", navn or "").casefold()
+    s = re.sub(r"[\u2010-\u2014\-]", "-", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def kort_navn(n: Navn) -> str:
     """Godsets navn uden bogens tilføjelser: teksten før første parentes, komma eller tankestreg, uden »til«.
     For »X med Y« og »Grevskaberne X og Y« er det X. Hårde bindestreger og stavemåde bevares (ingen aa→å)."""
     if n.liste in ("med", "flertal"):
         return kanonisk_navn(n)
+    if n.liste == "og":
+        return n.hoved  # hele listen; aldrig kun første led
     s = unicodedata.normalize("NFC", n.original).translate(_BINDESTREG).strip()
     s = re.sub(r"^til\s+", "", s, flags=re.I)
     s = re.split(r"\s*[(\[,]|\s+[—–]\s+", s, maxsplit=1)[0].strip()
@@ -458,7 +467,7 @@ class Gruppe:
 
 @dataclass
 class Spoergsmaal:
-    """S (ligner hinanden) eller H (hører under)."""
+    """S (ligner hinanden), H (hører under) eller N (to grupper opretter en ny gård med samme navn)."""
     nr: str
     tekst: str
     medlemmer: list
@@ -469,6 +478,7 @@ class Spoergsmaal:
     majorat_gruppe: int | None = None
     gaard_gruppe: int | None = None
     krenkerup: bool = False
+    ekstra: dict = field(default_factory=dict)  # metadata til planens »poster« (S: flyttes; N: noegler, faelles)
 
 
 def _tomme_ops() -> dict:
@@ -488,6 +498,7 @@ class Forslag:
     grupper: list
     sammenhaenge: list
     hoerer: list
+    nye: list
     raekker: dict
     navne: dict
     snapshots: set
@@ -497,7 +508,7 @@ class Forslag:
     kilder: dict = field(default_factory=dict)
 
     def poster(self):
-        return list(self.grupper) + list(self.hoerer) + list(self.sammenhaenge)
+        return list(self.grupper) + list(self.hoerer) + list(self.sammenhaenge) + list(self.nye)
 
     def plan(self, kilde_db: str, kilde_hash: dict) -> dict:
         ops, aabne, forvalg, alternativer, poster = _tomme_ops(), [], {}, {}, {}
@@ -509,7 +520,9 @@ class Forslag:
                 poster[pid] = {"type": "gruppe", "medlemmer": p.medlemmer, "overlever": p.overlever,
                                "kategori": p.kategori}
             elif p.nr.startswith("S"):
-                poster[pid] = {"type": "S", "grupper": [f"G{n}" for n in p.grupper]}
+                poster[pid] = {"type": "S", "grupper": [f"G{n}" for n in p.grupper], **p.ekstra}
+            elif p.nr.startswith("N"):
+                poster[pid] = {"type": "N", **p.ekstra}
             else:
                 poster[pid] = {"type": "H", "grupper": [f"G{n}" for n in p.grupper]}
             if p.forvalg:
@@ -519,7 +532,8 @@ class Forslag:
                 aabne.append(pid)
         return {"version": 1, "kilde_db": kilde_db, "kilde_hash": kilde_hash, **ops,
                 "aabne": aabne, "forvalg": forvalg, "alternativer": alternativer, "poster": poster,
-                "snapshots": sorted(self.snapshots)}
+                "snapshots": sorted(self.snapshots),
+                "kilder": {k: v for k, v in sorted(self.kilder.items()) if k.startswith("DAA")}}
 
 
 def post_id(p) -> str:
@@ -610,13 +624,19 @@ def byg_forslag(data: dict) -> Forslag:
         return {fold(navne[m].kerne) for m in g.medlemmer} - {""}
 
     def find_maal(del_navn: str, art: str, egen: Gruppe):
-        """Et led i en liste → (mål, beskrivelse, tvivl-tekst eller None, eventuel ny-oprettelse)."""
+        """Et led i en liste → (mål, beskrivelse, tvivl-tekst, ny-oprettelse, kandidater).
+        Kandidater er de andre mulige mål [(mål, beskrivelse, ny-oprettelse)], som arket tilbyder som egne valg.
+        En ny gård får en nøgle pr. gruppe (»ny:G48:Aalstrup«), så to grupper aldrig deler en ny gård tavst."""
         dn = parse_navn(del_navn)
         g = efter_gnoegle.get(f"{art}:{_norm(dn.hoved)}")
         if g is egen:
-            return None, None, None, None
+            return None, None, None, None, []
         if g:
-            return g.overlever, f"{ART_ETIKET[art]}en {g.navn} (række {g.overlever}, gruppe {g.nr})", None, None
+            return (g.overlever, f"{ART_ETIKET[art]}en {g.navn} (række {g.overlever}, gruppe {g.nr})", None, None,
+                    [])
+        ny_navn = dn.kerne or dn.hoved
+        ny = {"noegle": f"ny:G{egen.nr}:{ny_navn}", "navn": ny_navn, "slags": art}
+        ny_beskr = f"en ny {ART_ETIKET[art]} {ny_navn}"
         fk = fold(dn.kerne or dn.hoved)
         lign = [x for x in grupper if x.art == art and x is not egen and fk and fk in loese(x)]
         if len(fk) < 5:
@@ -624,35 +644,36 @@ def byg_forslag(data: dict) -> Forslag:
             lign += [x for x in grupper if x.art == art and x is not egen and x not in lign
                      and any(fk in {fold(w) for w in re.split(r"[\s\-\u2010-\u2012/]+", navne[m].kerne)}
                              for m in x.medlemmer)]
+
+        def eksisterende(x):
+            return (x.overlever, f"{ART_ETIKET[art]}en {x.navn} (række {x.overlever}, gruppe {x.nr})", None)
         if len(lign) >= 2 or (lign and len(fk) < 5 and lign[0].noegle.split(":", 1)[1] != _norm(dn.hoved)):
-            ny_navn = dn.kerne or dn.hoved
-            noegle = f"ny:{ny_navn}"
-            return (noegle, f"en ny {ART_ETIKET[art]} {ny_navn}",
+            return (ny["noegle"], ny_beskr,
                     f"»{del_navn}« passer løst på " + ", ".join(f"gruppe {x.nr} ({x.navn})" for x in lign) +
-                    f" — forslaget opretter en ny {ART_ETIKET[art]}; svar med gruppenummeret, hvis det er en af dem",
-                    {"noegle": noegle, "navn": ny_navn, "slags": art})
+                    f" — vælg nedenfor, om kopien skal til en af dem eller til en ny {ART_ETIKET[art]}",
+                    ny, [eksisterende(x) for x in lign])
         if len(lign) == 1:
             x = lign[0]
             return (x.overlever, f"{ART_ETIKET[art]}en {x.navn} (række {x.overlever}, gruppe {x.nr})",
-                    f"»{del_navn}« er lagt sammen med gruppe {x.nr} ({x.navn}) ud fra et løst navnematch — "
-                    f"svar »ny«, hvis det er en anden {ART_ETIKET[art]}", None)
-        ny_navn = dn.kerne or dn.hoved
-        noegle = f"ny:{ny_navn}"
-        tv = None
+                    f"»{del_navn}« er koblet til gruppe {x.nr} ({x.navn}) ud fra et løst navnematch — vælg nedenfor, "
+                    f"om det i stedet er en ny {ART_ETIKET[art]}", None, [(ny["noegle"], ny_beskr, ny)])
         naer = [x for x in grupper if x.art == art and x is not egen and fk and any(_naer(fk, b) for b in loese(x))]
+        tv = None
         if naer:
             tv = (f"»{del_navn}« ligner " + ", ".join(f"gruppe {x.nr} ({x.navn})" for x in naer) +
-                  f" — forslaget opretter en ny {ART_ETIKET[art]}; svar med gruppenummeret, hvis det er samme")
-        return (noegle, f"en ny {ART_ETIKET[art]} {ny_navn}", tv,
-                {"noegle": noegle, "navn": ny_navn, "slags": art})
+                  f" — vælg nedenfor, om kopien skal til en af dem eller til en ny {ART_ETIKET[art]}")
+        return ny["noegle"], ny_beskr, tv, ny, [eksisterende(x) for x in naer]
 
-    def kopier_for(m: int, g: Gruppe, dele: list, art: str, ops: dict, tvivl: list, info: list):
+    def kopier_for(m: int, g: Gruppe, dele: list, art: str, ops: dict, tvivl: list, info: list,
+                   valgfri: list | None = None):
         sogne = [sted_dele(estates[x].get("sted")).get("sogn") for x in (m, g.overlever)]
         sogne += [n_ for t_, n_ in sogne_i_navn(navne[m].original) if t_ == "sogn"]
         for d in dele:
-            maal, beskr, tv, ny = find_maal(d, art, g)
+            maal, beskr, tv, ny, kand = find_maal(d, art, g)
             if maal is None:
                 continue
+            if kand and valgfri is not None:
+                valgfri.append((d, kand))
             if tv:
                 tvivl.append(tv)
             sogn = next((x for x in sogne if x and fold(x) == fold(parse_navn(d).kerne or d)), None)
@@ -675,7 +696,7 @@ def byg_forslag(data: dict) -> Forslag:
                     info.append(f"samme ejer som i ejerforhold {e['rid']} står allerede på {beskr} "
                                 f"(relation {fund[0][0]}); kopien giver en linje mere")
                 ops["kopier"].append({"relation": e["rid"], "til": maal, "citat": navne[m].original,
-                                      "gruppe": g.nr})
+                                      "gruppe": g.nr, "_del": d})
 
     def billeder_flyt(g: Gruppe, ops: dict, info: list, tvivl: list):
         for m in g.medlemmer:
@@ -757,8 +778,7 @@ def byg_forslag(data: dict) -> Forslag:
         if any(navne[m].sammen_med for m in medl):
             info.append("»sammen med …« nævner en medejer, ikke en gård; intet kopieres")
         if any(navne[m].parentes_med for m in medl):
-            tvivl.append("parentesen nævner flere godser (»med …«); de kopieres ikke automatisk — sig til, "
-                         "hvis ejerforholdet også skal stå på dem")
+            tvivl.append("parentesen nævner flere godser (»med …«); ejerforholdet kopieres ikke til dem i fase 1")
         if any(navne[m].tvivl_dele for m in medl):
             tvivl.append("listen har led, der ikke ligner hele gårdnavne (fx »Gross- og Klein-…«)")
         if any(m in media_pr_gods for m in medl):
@@ -774,7 +794,7 @@ def byg_forslag(data: dict) -> Forslag:
 
         # Basis-alternativet A: læg sammen (eller sæt navn og art på en enkelt række).
         a = _tomme_ops()
-        a_tvivl, a_info = [], []
+        a_tvivl, a_info, valgfri = [], [], []
         if len(medl) == 1:
             if n_ov.liste in ("med", "flertal"):
                 a_navn = kanonisk_navn(n_ov)
@@ -799,7 +819,7 @@ def byg_forslag(data: dict) -> Forslag:
         for m in medl:
             n = navne[m]
             if n.liste in ("med", "flertal") and n.dele:
-                kopier_for(m, g, n.dele, "gård" if n.liste == "med" else n.art, a, a_tvivl, a_info)
+                kopier_for(m, g, n.dele, "gård" if n.liste == "med" else n.art, a, a_tvivl, a_info, valgfri)
         billeder_flyt(g, a, a_info, a_tvivl)
         tvivl.extend(t for t in a_tvivl if t not in tvivl)
         info.extend(t for t in a_info if t not in info)
@@ -871,7 +891,7 @@ def byg_forslag(data: dict) -> Forslag:
             # Del op: første led bliver gården, de øvrige får en kopi af ejerforholdet.
             delt = _tomme_ops()
             d_tvivl, d_info = [], []
-            maal, _, tv, ny = find_maal(n_ov.dele[0], g.art, g)
+            maal, _, tv, ny, _k = find_maal(n_ov.dele[0], g.art, g)
             if tv:
                 d_info.append(tv)
             if isinstance(maal, int) and ov not in snapshots and ov not in andre:
@@ -907,6 +927,17 @@ def byg_forslag(data: dict) -> Forslag:
                     tvivl.append(f"det korte navn »{kort}« er ikke oplagt et godsnavn — vælg selv")
                 if len(kort) < len(n_ov.original) - 1:
                     info.extend(x for x in parentes_forklaring(n_ov.original) if x not in info)
+        for d, kand in valgfri:
+            for maal, beskr, ny in kand:
+                v = json.loads(json.dumps(alts[0][1]))
+                for k in v["kopier"]:
+                    if k.get("_del") == d:
+                        k["til"] = maal
+                if ny:
+                    v["opret"].append({**ny, "gruppe": g.nr})
+                brugt = {k["til"] for k in v["kopier"]}
+                v["opret"] = [o for o in v["opret"] if o["noegle"] in brugt]
+                alts.append((f"{alts[0][0]}, men »{d}« er {beskr}", v))
         if a["kopier"]:
             # Kopierne skal kunne fravælges for sig (»X med Y« kan også være én gård med et andet navn).
             uk = json.loads(json.dumps(alts[0][1]))
@@ -923,8 +954,13 @@ def byg_forslag(data: dict) -> Forslag:
                 ekstra.append((tekst + ", men slags ikke angivet", u))
             # Navnet tyder ikke på en gård: »slags ikke angivet« er det sandsynlige svar og står først.
             alts = ekstra + alts
+        for _t, ops in alts:
+            for k in ops["kopier"]:
+                k.pop("_del", None)
+            for k in [k for k in ops["opret"]]:
+                k.pop("_del", None)
         for i, (tekst, ops) in enumerate(alts):
-            kode = "ABCDEFGHIJKLMNOP"[i]
+            kode = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i]
             g.alternativer[kode] = Alternativ(kode, f"{tekst}. {beskriv(ops)}", ops,
                                              adskilt=tekst.startswith("Behold rækkerne adskilt"))
         g.problem = _problem(g, navne, ikke_gaard)
@@ -953,20 +989,20 @@ def byg_forslag(data: dict) -> Forslag:
                     evidens.append((b, mm))
         par = [x for x in grupper if x.art == "gård" and (x.noegle.split(":", 1)[1] == base
                                                            or (loese(x) & loese(mg)))]
+        par = [(x, next(((b, mm) for b, mm in evidens if _norm(mm.group("gaard")) == x.noegle.split(":", 1)[1]),
+                        None)) for x in par]
         for b, mm in evidens:
-            if not any(_norm(mm.group("gaard")) == x.noegle.split(":", 1)[1] for x in par):
-                par.append(None)  # gården findes ikke som række
-        for gg in par:
+            if not any(_norm(mm.group("gaard")) == x.noegle.split(":", 1)[1] for x, _ in par if x):
+                par.append((None, (b, mm)))  # gården findes ikke som række; hver får sit eget billede
+        for gg, ev in par:
             nr = f"H{len(hoerer) + 1}"
             h = Spoergsmaal(nr=nr, tekst="", medlemmer=list(mg.medlemmer) + (gg.medlemmer if gg else []),
                             grupper=[mg.nr] + ([gg.nr] if gg else []), majorat_gruppe=mg.nr,
                             gaard_gruppe=gg.nr if gg else None)
-            ev = next(((b, mm) for b, mm in evidens
-                       if gg is None or _norm(mm.group("gaard")) == gg.noegle.split(":", 1)[1]), None)
             ja = _tomme_ops()
             if gg is None:
                 gnavn = ev[1].group("gaard").strip()
-                gaard = f"ny:{gnavn}"
+                gaard = f"ny:{nr}:{gnavn}"
                 ja["opret"].append({"noegle": gaard, "navn": gnavn, "slags": "gård", "gruppe": nr})
                 ja["flyt"].append({"relation": ev[0]["rid"], "til": gaard, "gruppe": nr})
                 h.info.append(f"gården {gnavn} findes ikke som række; »ja« opretter den og flytter billedet "
@@ -983,7 +1019,7 @@ def byg_forslag(data: dict) -> Forslag:
                 ja["hoerer_under"].append({"gaard": gaard, "majorat": mg.overlever, "periode": None,
                                            "source": None, "citat": None, "gruppe": nr})
                 h.tekst = (f"Hørte gården {gnavn} (gruppe {gg.nr}) under {mg.navn} (gruppe {mg.nr})? Godsnavnene "
-                           f"siger det ikke; svar »ja« med periode, udgave og bogens ord — eller »nej«.")
+                           f"siger det ikke; vælg »ja« og udfyld periode, udgave og bogens ord — eller »nej«.")
                 if gg.noegle.split(":", 1)[1] != base:
                     h.info.append("navnene ligner kun hinanden (løst match)")
             hu = ja["hoerer_under"][0]
@@ -995,8 +1031,7 @@ def byg_forslag(data: dict) -> Forslag:
                              + (f"; den nye gård {gnavn} oprettes, og billedet (media {ev[0]['media_id']}) flyttes dertil"
                                 if gg is None else ""))
             else:
-                ja_tekst += (" — periode, udgave og bogens ord skal du give i svaret (fx »" + nr +
-                             " ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes")
+                ja_tekst += " — udfyld periode, udgave og bogens ord i felterne nedenfor; ingen ejerforhold flyttes"
             h.alternativer["ja"] = Alternativ("ja", ja_tekst, ja)
             h.alternativer["nej"] = Alternativ("nej", "Nej. Siderne viser ingen forbindelse mellem gården og "
                                                       "majoratet", _tomme_ops())
@@ -1086,8 +1121,11 @@ def byg_forslag(data: dict) -> Forslag:
         s = Spoergsmaal(nr=nr, medlemmer=[m for x in gs for m in x.medlemmer], grupper=[x.nr for x in gs],
                         tekst=(f"Er {', '.join(f'gruppe {x.nr} ({x.navn})' for x in gs[:-1])} og gruppe "
                                f"{gs[-1].nr} ({gs[-1].navn}) samme {ART_ETIKET[hoved_g.art]}? Navnene er ens "
-                               f"bortset fra stavning eller en stedtilføjelse. Svar evt. kun for nogle af "
-                               f"grupperne (fx »{nr} ja {rest[0].nr}, nej …«)."))
+                               f"bortset fra stavning eller en stedtilføjelse." +
+                               (" Er kun nogle af dem samme gods, så vælg »kun nogle« og sæt flueben ved dem."
+                                if len(gs) > 2 else "")))
+        s.ekstra = {"flyttes": {f"G{x.nr}": [m for m in x.medlemmer if m not in snapshots and m not in andre]
+                                for x in gs}}
         ja = _tomme_ops()
         for x in rest:
             if any(m in snapshots for m in x.medlemmer):
@@ -1104,11 +1142,73 @@ def byg_forslag(data: dict) -> Forslag:
                   f"(det erstatter de gruppers egne valg om sammenlægning)", ja)
         s.alternativer["nej"] = Alternativ("nej", "Nej, forskellige godser. Siderne forbliver adskilt, som grupperne "
                                                   "selv bestemmer", _tomme_ops())
+        if len(gs) > 2:
+            s.alternativer["delvis"] = Alternativ(
+                "delvis", "Kun nogle af grupperne er samme gods. Sæt flueben ved dem, der er samme gods (mindst to); "
+                          "de lægges ind i den første af dem, og de øvrige forbliver egne sider", _tomme_ops())
         sammenhaenge.append(s)
         for x in gs:
             x.info.append(f"ligner gruppe {', '.join(str(y.nr) for y in gs if y is not x)} — se {nr}")
 
-    return Forslag(grupper=grupper, sammenhaenge=sammenhaenge, hoerer=hoerer, raekker=estates, navne=navne,
+    def resultatnavn(x):
+        a_ = x.alternativer.get(x.forvalg or "A")
+        if not a_:
+            return None
+        sv = [o for o in a_.ops["saet"] if o["estate"] == x.overlever]
+        return sv[0]["navn"] if sv else None
+
+    s_af = {}
+    for q in sammenhaenge:
+        for n_ in q.grupper:
+            s_af[n_] = q.nr
+    navne_ud = {}
+    for x in grupper:
+        r = resultatnavn(x)
+        if r:
+            navne_ud.setdefault((navn_ens(r), x.art), []).append(x)
+    for x in grupper:
+        if not x.forvalg or not x.alternativer[x.forvalg].tekst.startswith(("Kort navn", "Ret skrivemåden")):
+            continue
+        andre_g = [y for y in navne_ud.get((navn_ens(resultatnavn(x)), x.art), []) if y is not x]
+        if andre_g:
+            x.forvalg = None
+            x.kategori = "tvivl"
+            x.tvivl.append(f"det korte navn »{resultatnavn(x)}« er også navnet på " +
+                           ", ".join(f"gruppe {y.nr}" + (f" (se {s_af[y.nr]})" if s_af.get(y.nr) == s_af.get(x.nr)
+                                                          and s_af.get(x.nr) else "") for y in andre_g) +
+                           " — to sider med samme navn kan læseren ikke skelne; vælg selv")
+
+    nye = {}
+    for x in list(grupper) + list(hoerer):
+        for a_ in x.alternativer.values():
+            for o in a_.ops["opret"]:
+                nye.setdefault((navn_ens(o["navn"]), o["slags"]), {}).setdefault(post_id(x), o["noegle"])
+    nye_q = []
+    for (nv, sl), noegler in sorted(nye.items()):
+        if len(noegler) < 2:
+            continue
+        nr = f"N{len(nye_q) + 1}"
+        navn_vis = next(o["navn"] for x in list(grupper) + list(hoerer) for a_ in x.alternativer.values()
+                        for o in a_.ops["opret"] if (navn_ens(o["navn"]), o["slags"]) == (nv, sl))
+        gnr = [int(k[1:]) for k in noegler if k.startswith("G")]
+        q = Spoergsmaal(nr=nr, medlemmer=[m for x in grupper if x.nr in gnr for m in x.medlemmer], grupper=gnr,
+                        tekst=(f"Er den nye {ART_ETIKET[sl]} »{navn_vis}«, som {' og '.join(noegler)} hver vil "
+                               f"oprette, samme {ART_ETIKET[sl]}?"))
+        q.ekstra = {"noegler": noegler, "faelles": f"ny:{navn_vis}"}
+        q.info.append("»Ja«: der oprettes én side, og alle kopierne står på den. »Nej«: to sider med samme navn "
+                      "kan læseren ikke skelne, så højst én af grupperne må oprette den (vælg »uden kopier« i en af dem).")
+        q.alternativer["ja"] = Alternativ("ja", f"Ja, samme {ART_ETIKET[sl]}. Siden viser: »{navn_vis}« — én ny side "
+                                                f"med ejerforholdene fra {' og '.join(noegler)}", _tomme_ops())
+        q.alternativer["nej"] = Alternativ("nej", f"Nej, forskellige. Hver gruppe opretter sin egen side "
+                                                  f"»{navn_vis}«", _tomme_ops())
+        for k in noegler:
+            for x in grupper:
+                if post_id(x) == k:
+                    x.info.append(f"den nye {ART_ETIKET[sl]} »{navn_vis}« vil også blive oprettet af "
+                                  f"{', '.join(y for y in noegler if y != k)} — se {nr}")
+        nye_q.append(q)
+
+    return Forslag(grupper=grupper, sammenhaenge=sammenhaenge, hoerer=hoerer, nye=nye_q, raekker=estates, navne=navne,
                    snapshots=snapshots, ejer_pr_gods=ejer_pr_gods, media_pr_gods=media_pr_gods,
                    sprunget_over=sorted(sammenlagt_allerede), kilder=dict(data.get("kilder", {})))
 
@@ -1124,6 +1224,12 @@ def valider_plan(p: dict, snapshots: set) -> None:
         raise PlanFejl(f"kæde: {sorted(set(fra) & til)} er både fra og til")
     if set(fra) & snapshots:
         raise PlanFejl(f"rækker med slettede ejerforhold lægges sammen væk: {sorted(set(fra) & snapshots)}")
+    fl = [f_["relation"] for f_ in p.get("flyt", [])]
+    if len(fl) != len(set(fl)):
+        raise PlanFejl(f"samme relation flyttes flere gange: {sorted({x for x in fl if fl.count(x) > 1})}")
+    kp = [(k["relation"], k["til"]) for k in p.get("kopier", [])]
+    if len(kp) != len(set(kp)):
+        raise PlanFejl("samme kopi står flere gange")
     oprettet = {o["noegle"] for o in p.get("opret", [])}
     maal = ([k["til"] for k in p.get("kopier", [])] + [f["til"] for f in p.get("flyt", [])] +
             [h["gaard"] for h in p.get("hoerer_under", [])] + [h["majorat"] for h in p.get("hoerer_under", [])])
@@ -1300,6 +1406,12 @@ def _spoergsmaal_html(f, q, kilder: dict) -> str:
                   f"<label>Udgave <select name=\"{pid}-kilde\">{opts}</select></label>"
                   f"<label>Bogens ord (citat) <textarea name=\"{pid}-citat\" rows=2>{_e(hu.get('citat') or '')}"
                   f"</textarea></label><div class=fejl data-fejl=\"{pid}\"></div></div>")
+    if "delvis" in q.alternativer:
+        ud.append(f"<div class=hfelter data-delvis=\"{pid}\"><p class=muted>Sæt flueben ved de grupper, der er samme "
+                  f"gods (mindst to):</p>" +
+                  "".join(f"<label><input type=checkbox name=\"{pid}-gruppe\" value=\"G{n}\"> gruppe {n} "
+                          f"({_e(next(g.navn for g in f.grupper if g.nr == n))})</label>" for n in q.grupper) +
+                  f"<div class=fejl data-fejl=\"{pid}\"></div></div>")
     ud.append("</section>")
     return "".join(ud)
 
@@ -1323,10 +1435,15 @@ JS = r"""
     if (!felt(id + "-citat").trim()) m.push("bogens ord");
     return m;
   }
+  function delvisValgt(id) {
+    return Array.prototype.map.call(document.querySelectorAll('input[name="' + id + '-gruppe"]:checked'),
+                                    function (c) { return c.value; });
+  }
   function besvaret(k) {
     var id = k.id, v = valgt(id);
     if (!v) return false;
     if (id.charAt(0) === "H" && v === "ja") return hMangler(id).length === 0;
+    if (v === "delvis") return delvisValgt(id).length >= 2;
     return true;
   }
   function svar() {
@@ -1339,6 +1456,8 @@ JS = r"""
         if (v === "ja") { o.periode = felt(id + "-periode").trim(); o.citat = felt(id + "-citat").trim();
                           o.kilde = Number(felt(id + "-kilde")); }
         ud[id] = o;
+      } else if (v === "delvis") {
+        ud[id] = { svar: "delvis", grupper: delvisValgt(id) };
       } else if (k.getAttribute("data-skal") === "1" || v !== k.getAttribute("data-forvalg")) {
         ud[id] = v;
       }
@@ -1349,9 +1468,12 @@ JS = r"""
     var tilstand = gemt_tilstand();
     beslut.forEach(function (k) {
       var v = valgt(k.id), o = { h: k.getAttribute("data-valghash"), v: v };
-      if (k.id.charAt(0) === "H") { o.f = {}; ["periode", "citat", "kilde"].forEach(function (f) {
+      // Et urørt forslag gemmes ikke: så giver et nyt ark ingen falsk besked om ændrede valg.
+      if (v && k.getAttribute("data-skal") !== "1" && v === k.getAttribute("data-forvalg")) v = o.v = null;
+      if (k.id.charAt(0) === "H" && v) { o.f = {}; ["periode", "citat", "kilde"].forEach(function (f) {
         o.f[f] = felt(k.id + "-" + f); }); }
-      if (v || o.f) tilstand[k.id] = o; else delete tilstand[k.id];
+      if (v === "delvis") o.g = delvisValgt(k.id);
+      if (v) tilstand[k.id] = o; else delete tilstand[k.id];
     });
     try { window.localStorage.setItem(NOEGLE, JSON.stringify(tilstand)); q("#gemt").textContent = "Gemt i browseren"; }
     catch (e) { q("#gemt").textContent = "Kan ikke gemme i browseren — brug »Gem svar«"; }
@@ -1372,6 +1494,9 @@ JS = r"""
                  if (r) r.checked = true; }
       if (o.f) Object.keys(o.f).forEach(function (f) { var el = k.querySelector('[name="' + id + "-" + f + '"]');
                                                         if (el) el.value = o.f[f]; });
+      if (o.g) o.g.forEach(function (gid) { var c = k.querySelector('input[name="' + id + '-gruppe"][value="' +
+                                                                     String(gid).replace(/"/g, "") + '"]');
+                                             if (c) c.checked = true; });
     });
     if (aendret.length) {
       var b = q("#aendret");
@@ -1391,6 +1516,12 @@ JS = r"""
         hf.classList.toggle("vis", ja);
         var m = ja ? hMangler(id) : [];
         fe.textContent = m.length ? "Mangler: " + m.join(" og ") : "";
+      }
+      var dv = k.querySelector("[data-delvis]");
+      if (dv) {
+        var del = valgt(id) === "delvis";
+        dv.classList.toggle("vis", del);
+        dv.querySelector("[data-fejl]").textContent = del && delvisValgt(id).length < 2 ? "Vælg mindst to grupper" : "";
       }
     });
     q("#taeller").textContent = n + " af " + skal.length + " besvaret";
@@ -1457,6 +1588,7 @@ JS = r"""
   }
   document.addEventListener("change", function () { opdater(); });
   document.addEventListener("input", function (e) { if (e.target.closest(".hfelter")) opdater(); });
+  // (afkrydsningsfelterne for »kun nogle« udløser »change« og dermed opdater)
   document.addEventListener("click", function (e) { var k = e.target.closest("section.kort"); if (k && k !== aktiv) {
     if (aktiv) aktiv.classList.remove("aktiv"); aktiv = k; k.classList.add("aktiv"); } });
   document.addEventListener("keydown", function (e) {
@@ -1498,6 +1630,7 @@ def taelling(f, plan: dict) -> dict:
         "grupper_uden_forvalg": sum(1 for g in f.grupper if not g.forvalg),
         "spoergsmaal_S": len(f.sammenhaenge),
         "spoergsmaal_H": len(f.hoerer),
+        "spoergsmaal_N": len(f.nye),
         "krenkerup": sum(1 for h in f.hoerer if h.krenkerup),
         **{f"plan_{k}": len(plan[k]) for k in OPS},
         "aabne": len(plan["aabne"]),
@@ -1534,7 +1667,7 @@ def render_html(f, meta: dict) -> str:
         "<li>Vælg et svar ved hvert kort. Står der <span class=vaelg>Du skal vælge</span>, er intet valgt på "
         "forhånd. Står der <span class=forslag>Forslag</span>, er forslaget valgt, men du kan ændre det.</li>"
         "<li>Dine valg gemmes i browseren, mens du arbejder. Når du er færdig: tryk <b>Gem svar</b> (henter "
-        "filen <code>471-svar.json</code>) eller <b>Kopiér svar</b> og send den i chatten.</li>"
+        "filen <code>471-svar.json</code>) eller <b>Kopiér svar</b>, og giv filen eller teksten videre.</li>"
         "<li>Taster: <kbd>n</kbd> næste ubesvarede, <kbd>j</kbd>/<kbd>k</kbd> næste/forrige kort, "
         "<kbd>1</kbd>-<kbd>9</kbd> vælger svar i det markerede kort.</li>"
         "<li>»Læg sammen« flytter ejerforhold og billeder over på den række, der bliver stående; bogens "
@@ -1561,6 +1694,9 @@ def render_html(f, meta: dict) -> str:
         "<p class=muted>Svar »ja«, hvis grupperne er samme gods. »Ja« lægger alle rækkerne ind i den første "
         "gruppes række og erstatter de andre gruppers egne sammenlægninger.</p>",
         *(_spoergsmaal_html(f, s_, f.kilder) for s_ in f.sammenhaenge), "</div>",
+        f"<div class=afsnit><h2>Nye gårde med samme navn (N, {len(f.nye)})</h2>"
+        "<p class=muted>To grupper vil hver oprette en ny side med samme navn.</p>",
+        *(_spoergsmaal_html(f, q_, f.kilder) for q_ in f.nye), "</div>",
         f"<div class=afsnit><h2>Forslag ({len(aendr)})</h2>", *(_gruppe_html(f, g) for g in aendr), "</div>",
         f"<div class=afsnit><h2>Enkle rækker ({len(enkel)})</h2>"
         "<p class=muted>Navnet beholdes; kun arten sættes.</p>", *(_gruppe_html(f, g) for g in enkel), "</div>",
@@ -1577,8 +1713,16 @@ class FletFejl(PlanFejl):
         super().__init__("svarene kan ikke flettes:\n- " + "\n- ".join(fejl))
 
 
-def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
-    """Projektejerens svar + plan.forslag.json → (plan, opsummering). Kaster FletFejl ved enhver uklarhed."""
+def _gruppe_af_estate(poster: dict) -> dict:
+    return {m: pid for pid, x in poster.items() if x["type"] == "gruppe" for m in x["medlemmer"]}
+
+
+def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | None = None) -> tuple:
+    """Projektejerens svar + plan.forslag.json → (plan, opsummering). Kaster FletFejl ved enhver uklarhed.
+
+    S-»ja« (eller »delvis« med de afkrydsede grupper) erstatter de berørte gruppers egne sammenlægninger og navne;
+    alle mål, der pegede på deres rækker, peger om. N-»ja« lader grupperne dele én ny gård. To overlevende sider med
+    samme navn og slags afvises (læseren kan ikke skelne dem)."""
     fejl = []
     if not isinstance(svar, dict) or set(svar) != {"version", "kilde_hash", "plan_forslag_sha256", "svar"}:
         raise FletFejl(["svarfilen skal have præcis nøglerne version, kilde_hash, plan_forslag_sha256 og svar"])
@@ -1589,6 +1733,7 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
     if svar["plan_forslag_sha256"] != forslag_sha:
         fejl.append("svarene er givet på et andet forslag (plan_forslag_sha256 passer ikke)")
     alt, poster = forslag_plan["alternativer"], forslag_plan["poster"]
+    kilde_ids = set(forslag_plan.get("kilder", {}).values())
     s_ = svar["svar"] if isinstance(svar["svar"], dict) else None
     if s_ is None:
         raise FletFejl(fejl + ["»svar« skal være et objekt"])
@@ -1601,18 +1746,30 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
             if not isinstance(v, dict) or not set(v) <= {"svar", "periode", "citat", "kilde"} or "svar" not in v:
                 fejl.append(f"{pid}: svaret skal være {{svar, periode, citat, kilde}}")
                 continue
-            if v["svar"] not in alt[pid]:
+            if not isinstance(v["svar"], str) or v["svar"] not in alt[pid]:
                 fejl.append(f"{pid}: ukendt svar {v['svar']!r} (mulige: {', '.join(alt[pid])})")
                 continue
             if v["svar"] == "ja":
-                if not str(v.get("citat") or "").strip():
-                    fejl.append(f"{pid}: »ja« kræver bogens ord (citat)")
-                if not isinstance(v.get("kilde"), int) or isinstance(v.get("kilde"), bool) or v["kilde"] <= 0:
-                    fejl.append(f"{pid}: »ja« kræver udgaven som kilde-id (fx 1 = DAA 2018-20, 3 = DAA 1939)")
+                if not isinstance(v.get("citat"), str) or not v["citat"].strip():
+                    fejl.append(f"{pid}: »ja« kræver bogens ord (citat) som tekst")
+                if v.get("periode") is not None and not isinstance(v.get("periode"), str):
+                    fejl.append(f"{pid}: perioden skal være tekst")
+                k_ = v.get("kilde")
+                if not isinstance(k_, int) or isinstance(k_, bool) or k_ not in kilde_ids:
+                    fejl.append(f"{pid}: »ja« kræver udgaven som et af kilde-id'erne "
+                                f"{', '.join(f'{i_} ({n_})' for n_, i_ in forslag_plan.get('kilder', {}).items())}")
             valg[pid] = v
+        elif pid[0] == "S" and isinstance(v, dict):
+            gl = poster[pid]["grupper"]
+            if ("delvis" not in alt[pid] or set(v) != {"svar", "grupper"} or v["svar"] != "delvis"
+                    or not isinstance(v["grupper"], list) or len(set(map(str, v["grupper"]))) < 2
+                    or not set(map(str, v["grupper"])) <= set(gl) or len(set(v["grupper"])) != len(v["grupper"])):
+                fejl.append(f"{pid}: »kun nogle« skal være {{svar: delvis, grupper: [mindst to af {', '.join(gl)}]}}")
+                continue
+            valg[pid] = {"svar": "delvis", "grupper": [g for g in gl if g in v["grupper"]]}
         else:
-            if not isinstance(v, str) or v not in alt[pid]:
-                fejl.append(f"{pid}: ukendt valg {v!r} (mulige: {', '.join(alt[pid])})")
+            if not isinstance(v, str) or v not in alt[pid] or v == "delvis":
+                fejl.append(f"{pid}: ukendt valg {v!r} (mulige: {', '.join(k for k in alt[pid] if k != 'delvis')})")
                 continue
             valg[pid] = {"svar": v}
     for pid in forslag_plan["aabne"]:
@@ -1624,23 +1781,31 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
     def kode(pid):
         return valg[pid]["svar"] if pid in valg else forslag_plan["forvalg"].get(pid)
 
-    # S-»ja«: de øvrige gruppers sammenlægninger og navne erstattes; mål, der pegede på deres rækker, peger om.
-    s_ja = {pid: poster[pid]["grupper"] for pid in poster if poster[pid]["type"] == "S" and kode(pid) == "ja"}
-    opsl = {}  # række → ny overlevende
-    erstattet = set()
-    for pid, gl in s_ja.items():
-        hoved, rest = gl[0], gl[1:]
-        til = poster[hoved]["overlever"]
+    # S: de grupper, der er samme gods (alle ved »ja«, de afkrydsede ved »delvis«), lægges ind i den første af dem.
+    opsl, erstattet, s_valgt, s_ops = {}, set(), {}, []
+    for pid, x in poster.items():
+        if x["type"] != "S" or kode(pid) not in ("ja", "delvis"):
+            continue
+        gl = x["grupper"] if kode(pid) == "ja" else valg[pid]["grupper"]
+        s_valgt[pid] = gl
+        til = poster[gl[0]]["overlever"]
         for g in gl:
-            a = alt[g][kode(g)]
-            if a.get("adskilt") and len(poster[g]["medlemmer"]) > 1:
-                fejl.append(f"{pid} ja lægger grupperne {', '.join(gl)} sammen, men {g} er valgt »behold rækkerne "
+            if alt[g][kode(g)].get("adskilt") and len(poster[g]["medlemmer"]) > 1:
+                fejl.append(f"{pid} siger, at {', '.join(gl)} er samme gods, men {g} er valgt »behold rækkerne "
                             f"adskilt« ({kode(g)}) — vælg ét af dem")
-        for o in alt[pid]["ja"]["sammenlaeg"]:
-            opsl[o["fra"]] = til
-        erstattet |= set(rest)
+        for g in gl[1:]:
+            for m in x["flyttes"][g]:
+                opsl[m] = til
+                s_ops.append({"fra": m, "til": til, "gruppe": pid})
+            erstattet.add(g)
     if fejl:
         raise FletFejl(fejl)
+    # N: delte nye gårde
+    ny_om = {}
+    for pid, x in poster.items():
+        if x["type"] == "N" and kode(pid) == "ja":
+            for noegle in x["noegler"].values():
+                ny_om[noegle] = x["faelles"]
 
     ops = _tomme_ops()
     aendret = []
@@ -1655,15 +1820,21 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
         if pid in erstattet:
             stk["sammenlaeg"] = []
             stk["saet"] = [x for x in stk["saet"] if x["estate"] not in opsl]
-        if pid[0] == "H" and k == "ja":
+        if pid[0] == "H" and k == "ja" and pid in valg:
             for hu in stk["hoerer_under"]:
-                hu["periode"] = (str(valg[pid].get("periode") or "").strip() or None) if pid in valg else hu["periode"]
-                hu["citat"] = str(valg[pid].get("citat") or "").strip() if pid in valg else hu["citat"]
-                hu["source"] = valg[pid].get("kilde") if pid in valg else hu["source"]
+                hu["periode"] = (valg[pid].get("periode") or "").strip() or None
+                hu["citat"] = valg[pid]["citat"].strip()
+                hu["source"] = valg[pid]["kilde"]
         _laeg_til(ops, stk)
+    _laeg_til(ops, {"sammenlaeg": s_ops})
 
     def om(x):
-        return opsl.get(x, x)
+        return ny_om.get(x, opsl.get(x, x)) if isinstance(x, (int, str)) else x
+    for o in ops["opret"]:
+        if o["noegle"] in ny_om:
+            o["noegle"] = ny_om[o["noegle"]]
+    ops["opret"] = [o for i_, o in enumerate(ops["opret"])
+                    if all(o["noegle"] != x["noegle"] for x in ops["opret"][:i_])]
     for o in ops["sammenlaeg"]:
         o["til"] = om(o["til"])
     ops["sammenlaeg"] = [o for o in ops["sammenlaeg"] if o["fra"] != o["til"]]
@@ -1671,41 +1842,84 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict) -> tuple:
         o["til"] = om(o["til"])
     for o in ops["hoerer_under"]:
         o["gaard"], o["majorat"] = om(o["gaard"]), om(o["majorat"])
-    # Samme række må kun lægges sammen én gang og kun have ét navn.
+
+    # Samme række må kun lægges sammen ét sted og kun have ét navn.
     set_fra = {}
     for o in ops["sammenlaeg"]:
         if o["fra"] in set_fra and set_fra[o["fra"]] != o["til"]:
             fejl.append(f"række {o['fra']} lægges sammen to steder ({set_fra[o['fra']]} og {o['til']})")
         set_fra[o["fra"]] = o["til"]
-    ops["sammenlaeg"] = [o for i, o in enumerate(ops["sammenlaeg"])
-                         if all(o["fra"] != x["fra"] for x in ops["sammenlaeg"][:i])]
+    ops["sammenlaeg"] = [o for i_, o in enumerate(ops["sammenlaeg"])
+                         if all(o["fra"] != x["fra"] for x in ops["sammenlaeg"][:i_])]
     set_saet = {}
     for o in ops["saet"]:
         if o["estate"] in set_saet and (set_saet[o["estate"]]["navn"], set_saet[o["estate"]]["slags"]) != (
                 o["navn"], o["slags"]):
-            fejl.append(f"række {o['estate']} får to forskellige navne/arter "
+            fejl.append(f"række {o['estate']} får to forskellige navne/slags "
                         f"(gruppe {set_saet[o['estate']]['gruppe']} og {o['gruppe']})")
         set_saet[o["estate"]] = o
-    ops["saet"] = [o for o in ops["saet"] if set_saet[o["estate"]] is o]
-    ops["saet"] = [o for o in ops["saet"] if o["estate"] not in set_fra]
+    ops["saet"] = [o for o in ops["saet"] if set_saet[o["estate"]] is o and o["estate"] not in set_fra]
+    # Kopier: samme kopi to gange er én; »hører under« med samme nøgle og forskelligt citat ville tabe et citat.
+    ops["kopier"] = [o for i_, o in enumerate(ops["kopier"])
+                     if all((o["relation"], o["til"]) != (x["relation"], x["til"]) for x in ops["kopier"][:i_])]
+    hu_set = {}
+    for o in ops["hoerer_under"]:
+        n_ = (o["gaard"], o["majorat"], o["periode"], o["source"])
+        if n_ in hu_set and hu_set[n_]["citat"] != o["citat"]:
+            fejl.append(f"{hu_set[n_]['gruppe']} og {o['gruppe']} giver begge »hører under« {o['gaard']} → "
+                        f"{o['majorat']} ({o['periode'] or 'uden periode'}, samme udgave) med forskellige citater; "
+                        f"kun ét kan gemmes — ret perioden eller citatet i en af dem")
+        hu_set.setdefault(n_, o)
+    ops["hoerer_under"] = [o for o in ops["hoerer_under"]
+                           if hu_set[(o["gaard"], o["majorat"], o["periode"], o["source"])] is o]
+
+    # Navnekollision: to overlevende sider med samme navn og slags kan læseren ikke skelne.
+    g_af = _gruppe_af_estate(poster)
+    sider = {}
+    for o in ops["saet"]:
+        sider.setdefault((navn_ens(o["navn"]), o["slags"]), []).append((o["navn"], g_af.get(o["estate"],
+                                                                                            str(o["gruppe"]))))
+    for o in ops["opret"]:
+        sider.setdefault((navn_ens(o["navn"]), o["slags"]), []).append(
+            (o["navn"], o["noegle"].split(":")[1] if o["noegle"].count(":") == 2 else o["noegle"]))
+    s_af = {}
+    for q, x in poster.items():
+        if x["type"] in ("S", "N"):
+            for g in (x.get("grupper") or list(x.get("noegler", {}))):
+                s_af.setdefault(g, set()).add(q)
+    for (_nv, sl), liste in sider.items():
+        if len(liste) < 2:
+            continue
+        hvem = sorted({h for _, h in liste})
+        if len(hvem) == 1:
+            fejl.append(f"{hvem[0]}: rækkerne holdes adskilt, men {len(liste)} af dem ville vise »{liste[0][0]}« "
+                        f"({ART_ETIKET.get(sl, sl)}) — to sider med samme navn kan læseren ikke skelne; vælg »læg "
+                        f"sammen« i {hvem[0]}")
+            continue
+        spm = sorted(set.intersection(*[s_af.get(h, set()) for h in hvem]))
+        fejl.append(f"{' og '.join(hvem)} ville begge vise »{liste[0][0]}« ({ART_ETIKET.get(sl, sl)}) — to sider "
+                    f"med samme navn kan læseren ikke skelne: " +
+                    (f"svar ja i {', '.join(spm)}, eller " if spm else "") +
+                    "vælg et andet navn (eller »uden kopier«) i en af grupperne")
     if fejl:
         raise FletFejl(fejl)
+    svar_sha = hashlib.sha256(svar_bytes if svar_bytes is not None else
+                              json.dumps(svar, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     plan = {"version": 1, "kilde_db": forslag_plan["kilde_db"], "kilde_hash": forslag_plan["kilde_hash"],
-            **ops, "grundlag": {"plan_forslag_sha256": forslag_sha,
-                                "svar_sha256": hashlib.sha256(json.dumps(svar, sort_keys=True, ensure_ascii=False)
-                                                              .encode("utf-8")).hexdigest()}}
+            **ops, "grundlag": {"plan_forslag_sha256": forslag_sha, "svar_sha256": svar_sha}}
     try:
         valider_plan(plan, set(forslag_plan.get("snapshots", [])))
     except PlanFejl as e:
         raise FletFejl([f"planen holder ikke: {e}"])
     forslag_tal = {k: len(forslag_plan[k]) for k in OPS}
-    ops_ord = {"opret": "nye gårde", "saet": "navn/art sat", "sammenlaeg": "sammenlægninger", "kopier": "kopier",
+    ops_ord = {"opret": "nye gårde", "saet": "navn/slags sat", "sammenlaeg": "sammenlægninger", "kopier": "kopier",
                "hoerer_under": "»hører under«", "flyt": "flytninger"}
     opsum = ["Planen efter dine svar (forslaget i parentes):"]
     opsum += [f"  {ops_ord[k]}: {len(plan[k])} ({forslag_tal[k]})" for k in OPS]
     opsum.append(f"  besvaret: {len(valg)} poster ({sum(1 for x in valg if x in forslag_plan['aabne'])} åbne), "
-                 f"{len(aendret)} forslag ændret; "
-                 f"S-ja: {len(s_ja)}; H-ja: {sum(1 for p_ in valg if p_[0] == 'H' and valg[p_]['svar'] == 'ja')}")
+                 f"{len(aendret)} forslag ændret; S samme gods: {len(s_valgt)}; "
+                 f"H-ja: {sum(1 for p_ in valg if p_[0] == 'H' and valg[p_]['svar'] == 'ja')}; "
+                 f"N-ja: {sum(1 for p_ in valg if p_[0] == 'N' and valg[p_]['svar'] == 'ja')}")
     if aendret:
         opsum.append("  ændret: " + ", ".join(aendret))
     return plan, opsum
@@ -1725,15 +1939,19 @@ def main(argv=None) -> int:
     if a.flet:
         if not a.plan_ud:
             ap.error("--flet kræver --plan-ud")
+        if Path(a.plan_ud).resolve() == Path(a.plan).resolve():
+            print("FEJL — intet skrevet. --plan-ud må ikke være forslagsfilen selv", file=sys.stderr)
+            return 1
         raa = Path(a.plan).read_bytes()
         try:
             forslag_plan = json.loads(raa.decode("utf-8"))
-            svar = json.loads(Path(a.flet).read_text(encoding="utf-8"))
+            svar_raa = Path(a.flet).read_bytes()
+            svar = json.loads(svar_raa.decode("utf-8"))
         except (OSError, ValueError) as e:
             print(f"FEJL: kan ikke læse filerne: {e}", file=sys.stderr)
             return 2
         try:
-            plan, opsum = flet(forslag_plan, hashlib.sha256(raa).hexdigest(), svar)
+            plan, opsum = flet(forslag_plan, hashlib.sha256(raa).hexdigest(), svar, svar_raa)
         except FletFejl as e:
             print(f"FEJL — intet skrevet. {e}", file=sys.stderr)
             return 1
