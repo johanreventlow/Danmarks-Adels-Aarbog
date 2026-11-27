@@ -49,7 +49,7 @@ beforeEach(() => {
 
 const gren: PresensGren = {
   anker: { personId: 'A', linje: 'II', gren: 1, raaVaerdi: 'II linje, 1. gren' },
-  ankerBlok: { id: 'A', levende: true, forbindelsesled: false, partnere: [{ id: 'P', levende: true }], boern: [
+  ankerBlok: { id: 'A', levende: true, forbindelsesled: false, partnere: [{ id: 'P', levende: true, skilsmisse: null }], boern: [
     { id: 'B', levende: true, forbindelsesled: false, partnere: [], boern: [], usikker: false, krydsReference: false },
   ], usikker: false, krydsReference: false },
   grupper: [

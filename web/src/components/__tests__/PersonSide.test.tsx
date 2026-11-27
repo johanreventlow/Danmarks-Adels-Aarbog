@@ -402,7 +402,7 @@ describe('PersonSide', () => {
   });
 
   it('de første 7 embeder, så »Vis alle«', () => {
-    const offices = Array.from({ length: 9 }, (_, i) => ({ label: `Embede ${i + 1}`, period: `${1660 + i}` }));
+    const offices = Array.from({ length: 9 }, (_, i) => ({ label: `Embede ${i + 1}`, period: `${1660 + i}`, rolle: 'amtmand' }));
     render(<PersonSide {...props({ detail: detalje({ offices }) })} />);
     expect(screen.getByText('Embede 7')).toBeTruthy();
     expect(screen.queryByText('Embede 8')).toBeNull();
@@ -411,7 +411,7 @@ describe('PersonSide', () => {
   });
 
   it('embeder: sektionen vises, når der er mindst ét', () => {
-    render(<PersonSide {...props({ detail: detalje({ offices: [{ label: 'Amtmand', period: '1700' }] }) })} />);
+    render(<PersonSide {...props({ detail: detalje({ offices: [{ label: 'Amtmand', period: '1700', rolle: 'amtmand' }] }) })} />);
     expect(screen.getByText('Embeder og hverv')).toBeTruthy();
     expect(screen.getByText('Amtmand')).toBeTruthy();
   });
