@@ -10,7 +10,7 @@ DO $t1$
 DECLARE v_koder text; v_state text; v_msg text; v_antal bigint;
 BEGIN
   SELECT string_agg(v.code, ',' ORDER BY v.code COLLATE "C") INTO v_koder FROM public.vocab v WHERE v.scheme = 'estate_slags';
-  IF v_koder IS DISTINCT FROM 'baroni,grevskab,gård,stamhus' THEN
+  IF v_koder IS DISTINCT FROM 'baroni,grevskab,gård,ikke_gods,stamhus' THEN
     RAISE EXCEPTION 'GODSER_T1: vocab estate_slags er »%«', v_koder;
   END IF;
 
@@ -1130,6 +1130,64 @@ BEGIN
   IF current_user <> session_user THEN RAISE EXCEPTION 'GODSER_T6: rollen blev ikke nulstillet'; END IF;
 END
 $t6$;
+
+-- ---------- 7. »Ikke et gods« (estate.slags = 'ikke_gods'; 8b) ----------
+DO $t7$
+DECLARE
+  ig bigint; g bigint; m bigint; ig2 bigint; p bigint; md bigint; r_ej bigint; r_hu bigint; v_label text; v_antal bigint;
+BEGIN
+  SELECT v.label INTO v_label FROM public.vocab v WHERE v.scheme = 'estate_slags' AND v.code = 'ikke_gods';
+  IF v_label IS DISTINCT FROM 'Ikke et gods' THEN RAISE EXCEPTION 'GODSER_T7: label for ikke_gods er »%«', v_label; END IF;
+
+  INSERT INTO public.estate(navn, slags) VALUES ('__t7_ikke__', 'ikke_gods') RETURNING id INTO ig;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t7_ikke2__', 'ikke_gods') RETURNING id INTO ig2;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t7_gaard__', 'gård') RETURNING id INTO g;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t7_majorat__', 'grevskab') RETURNING id INTO m;
+  INSERT INTO public.person DEFAULT VALUES RETURNING id INTO p;
+  INSERT INTO public.media(slags) VALUES ('gods') RETURNING id INTO md;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',ig,'ejer') RETURNING id INTO r_ej;
+  -- Et ejerforhold til en ikke_gods-række må gerne findes (rækken og dens ejerforhold bevares til fase 2).
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p,'estate',g,'ejer');
+
+  -- hører_under må ikke have en ikke_gods-række i nogen ende.
+  PERFORM pg_temp.g471_afvist(format($s$INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',%s,'estate',%s,'hører_under')$s$, ig, m), 'ESTATE_HOERER_UNDER_ART', 'ikke_gods hører under grevskab');
+  PERFORM pg_temp.g471_afvist(format($s$INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',%s,'estate',%s,'hører_under')$s$, g, ig), 'ESTATE_HOERER_UNDER_ART', 'gård hører under ikke_gods');
+  -- sammenlagt_i heller ikke, i nogen retning.
+  PERFORM pg_temp.g471_afvist(format($s$INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',%s,'estate',%s,'sammenlagt_i')$s$, g, ig), 'ESTATE_IKKE_GODS', 'sammenlagt_i ind i ikke_gods');
+  PERFORM pg_temp.g471_afvist(format($s$INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',%s,'estate',%s,'sammenlagt_i')$s$, ig2, g), 'ESTATE_IKKE_GODS', 'sammenlagt_i fra ikke_gods');
+
+  -- Arten ændres ikke til ikke_gods, mens rækken hører under et majorat eller har gårde under sig.
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',g,'estate',m,'hører_under') RETURNING id INTO r_hu;
+  PERFORM pg_temp.g471_afvist(format($s$UPDATE public.estate SET slags = 'ikke_gods' WHERE id = %s$s$, g),
+    'ESTATE_HOERER_UNDER_ART', 'gård med hører_under ændres til ikke_gods');
+  PERFORM pg_temp.g471_afvist(format($s$UPDATE public.estate SET slags = 'ikke_gods' WHERE id = %s$s$, m),
+    'ESTATE_HOERER_UNDER_ART', 'majorat med gårde under sig ændres til ikke_gods');
+  -- Uden hører_under kan arten skiftes frit til og fra.
+  UPDATE public.estate SET slags = 'gård' WHERE id = ig2;
+  UPDATE public.estate SET slags = 'ikke_gods' WHERE id = ig2;
+
+  -- RPC'erne afviser en ikke_gods-række som mål (redaktion).
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_flyt_estate_relation(%s, %s)', r_ej, ig2),
+    '23514', 'ESTATE_IKKE_GODS', 'red_flyt_estate_relation til ikke_gods');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_kopier_ejerforhold(%s, %s, %L)', r_ej, ig2, 'bogens ordlyd'),
+    '23514', 'ESTATE_IKKE_GODS', 'red_kopier_ejerforhold til ikke_gods');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', ig2, ig),
+    '23514', 'ESTATE_IKKE_GODS', 'red_sammenlaeg_estate af ikke_gods i ikke_gods');
+  PERFORM pg_temp.g471_afvist_som('redaktion', format('SELECT public.red_sammenlaeg_estate(%s, %s)', g, ig),
+    '23514', 'ESTATE_IKKE_GODS', 'red_sammenlaeg_estate af gård i ikke_gods');
+
+  -- Intet blev ændret af de afviste kald.
+  SELECT count(*) INTO v_antal FROM public.relation r WHERE r.objekt_type = 'estate' AND r.objekt_id = ig AND r.rolle = 'ejer';
+  IF v_antal <> 1 THEN RAISE EXCEPTION 'GODSER_T7: ejerforholdet til ikke_gods-rækken blev rørt (% tilbage)', v_antal; END IF;
+END
+$t7$;
 
 -- NY AFSNIT TILFØJES HER (før OK-linjen).
 ROLLBACK;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Godsernes oprydning, fase 1 (#471). Prods deploy-form: blokken `-- BEGIN godser-fase1` … `-- END godser-fase1` sidst
-# i db-migrations.sql alene, i ÉN psql-transaktion (-1). Blokken indsætter ordlisten estate_slags (4 vocab-rækker),
+# i db-migrations.sql alene, i ÉN psql-transaktion (-1). Blokken indsætter ordlisten estate_slags (5 vocab-rækker),
 # skaber to triggerfunktioner i private med deres triggere (trg_estate_slags på estate, trg_estate_relation_vagt på
 # relation) og fem red_*-RPC'er med REVOKE + GRANT til authenticated (db-rls.sql's allow-liste nævner dem også, så hele
 # db-rls.sql oveni ændrer intet; den køres ikke i prod-ceremonien, jf. ACCESS EXCLUSIVE-låsene).
@@ -10,14 +10,14 @@
 #    klientrollerne (så blokkens REVOKE skal navngive dem). Godser, en afdød og et ejerforhold som i prod (slags NULL).
 #    Intet af blokken findes på basen, og verify-enheden er RØD på den.
 # 3) Deploy-transaktionen: kataloget efter = frisk; funktionsretterne = frisk og præcis de fem nye retter
-#    (red_*:authenticated); kun vocab ændres (+4), godserne og relationerne er uændrede; blokken to gange ændrer intet, og
+#    (red_*:authenticated); kun vocab ændres (+5), godserne og relationerne er uændrede; blokken to gange ændrer intet, og
 #    hele db-rls.sql oveni ændrer hverken politikker, ACL eller funktionsretter.
 # 4) Enheden er GRØN på den opgraderede base; fuld db-verify på en anden, ens opgraderet base.
 # Kun lokalt/CI. Ved succes droppes de tre baser, scriptet selv oprettede (<db>_f, _p, _v); ved fejl står de tilbage.
 set -euo pipefail
 name=${1:?database}; base=${2:?base-commit}
 dbf="${name}_f"; dbp="${name}_p"; dbv="${name}_v"
-FRA='-- BEGIN godser-fase1'; TIL='-- END godser-fase1'; N_FN=7; N_TRIG=2; N_VOCAB=4
+FRA='-- BEGIN godser-fase1'; TIL='-- END godser-fase1'; N_FN=7; N_TRIG=2; N_VOCAB=5
 # regprocedure::text uden public. (search_path), sorteret som facl() (COLLATE "C").
 NYE_RETTER='red_flyt_estate_relation(bigint,bigint):authenticated red_hoerer_under(bigint,bigint,text,bigint,text):authenticated red_kopier_ejerforhold(bigint,bigint,text):authenticated red_saet_estate(bigint,text,text):authenticated red_sammenlaeg_estate(bigint,bigint):authenticated'
 RPC='red_saet_estate(bigint,text,text) red_flyt_estate_relation(bigint,bigint) red_sammenlaeg_estate(bigint,bigint) red_kopier_ejerforhold(bigint,bigint,text) red_hoerer_under(bigint,bigint,text,bigint,text)'

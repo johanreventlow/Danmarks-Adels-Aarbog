@@ -50717,7 +50717,8 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('estate_slags','gård',     'Gård'),
   ('estate_slags','grevskab', 'Grevskab'),
   ('estate_slags','baroni',   'Baroni'),
-  ('estate_slags','stamhus',  'Stamhus')
+  ('estate_slags','stamhus',  'Stamhus'),
+  ('estate_slags','ikke_gods','Ikke et gods')
 ON CONFLICT (scheme, code) DO NOTHING;
 
 -- Alle skriveveje til estate.slags går gennem denne trigger; en ikke-NULL værdi uden for ordlisten afvises med 23514.
@@ -50809,6 +50810,11 @@ BEGIN
     IF v_fundet <> 2 THEN
       RAISE EXCEPTION 'ESTATE_RELATION_ENDEPUNKT: % mellem gods % og gods %, men et af dem findes ikke',
         NEW.rolle, NEW.subjekt_id, NEW.objekt_id USING ERRCODE = '23514';
+    END IF;
+    -- En række markeret »ikke et gods« (bogen nævner intet gods) kan hverken lægges sammen eller være mål for en sammenlægning.
+    IF NEW.rolle = 'sammenlagt_i' AND (v_sub_slags = 'ikke_gods' OR v_obj_slags = 'ikke_gods') THEN
+      RAISE EXCEPTION 'ESTATE_IKKE_GODS: sammenlagt_i mellem gods % og gods % afvist, fordi en af rækkerne er markeret »ikke et gods«',
+        NEW.subjekt_id, NEW.objekt_id USING ERRCODE = '23514';
     END IF;
   ELSE
     -- Andre roller: lås hver estate-ende FOR SHARE (findes den ikke, er det ikke denne vagts sag).
@@ -50943,6 +50949,10 @@ BEGIN
   IF p_til_estate IS NULL OR NOT EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate) THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_til_estate USING ERRCODE = 'P0002';
   END IF;
+  IF EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate AND e.slags = 'ikke_gods') THEN
+    RAISE EXCEPTION 'ESTATE_IKKE_GODS: gods % er markeret »ikke et gods« og kan ikke modtage ejerforhold eller billeder', p_til_estate
+      USING ERRCODE = '23514';
+  END IF;
   SELECT * INTO v_r FROM relation r WHERE r.id = p_relation_id FOR NO KEY UPDATE;
   IF NOT FOUND OR v_r.objekt_type IS DISTINCT FROM 'estate' OR v_r.objekt_id IS DISTINCT FROM v_fra
      OR v_r.rolle IS DISTINCT FROM v_rolle THEN
@@ -51004,6 +51014,10 @@ BEGIN
   END IF;
   IF v_fundet <> 2 THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % eller gods % findes ikke', p_fra, p_til USING ERRCODE = 'P0002';
+  END IF;
+  IF EXISTS (SELECT 1 FROM estate e WHERE e.id IN (p_fra, p_til) AND e.slags = 'ikke_gods') THEN
+    RAISE EXCEPTION 'ESTATE_IKKE_GODS: gods % eller gods % er markeret »ikke et gods« og kan ikke lægges sammen', p_fra, p_til
+      USING ERRCODE = '23514';
   END IF;
   IF EXISTS (SELECT 1 FROM relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = p_fra AND r.rolle = 'sammenlagt_i') THEN
     RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er allerede lagt sammen med et andet gods', p_fra USING ERRCODE = '23514';
@@ -51104,6 +51118,10 @@ BEGIN
   END IF;
   IF p_til_estate IS NULL OR NOT EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate) THEN
     RAISE EXCEPTION 'ESTATE_FINDES_IKKE: gods % findes ikke', p_til_estate USING ERRCODE = 'P0002';
+  END IF;
+  IF EXISTS (SELECT 1 FROM estate e WHERE e.id = p_til_estate AND e.slags = 'ikke_gods') THEN
+    RAISE EXCEPTION 'ESTATE_IKKE_GODS: gods % er markeret »ikke et gods« og kan ikke modtage ejerforhold eller billeder', p_til_estate
+      USING ERRCODE = '23514';
   END IF;
   -- Kilden skal være ét entydigt bogudsagn: præcis én påstand med præcis én citation, valgt af en afklaret konklusion.
   SELECT count(*) INTO v_n FROM assertion a WHERE a.target_type = 'relation' AND a.target_id = p_relation_id;

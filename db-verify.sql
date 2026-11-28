@@ -13658,9 +13658,10 @@ DO $verify_godser_fase1$
 DECLARE v_fejl text; v_antal bigint; v_state text; v_msg text;
   f regprocedure := to_regprocedure('private.validate_estate_slags()');
 BEGIN
-  -- (1) Præcis de fire koder med deres labels.
+  -- (1) Præcis de fem koder med deres labels.
   WITH forventet(code, label) AS (VALUES
-    ('gård','Gård'), ('grevskab','Grevskab'), ('baroni','Baroni'), ('stamhus','Stamhus')),
+    ('gård','Gård'), ('grevskab','Grevskab'), ('baroni','Baroni'), ('stamhus','Stamhus'),
+    ('ikke_gods','Ikke et gods')),
   faktisk AS (SELECT v.code, v.label FROM public.vocab v WHERE v.scheme = 'estate_slags')
   SELECT coalesce(string_agg(CASE WHEN f2.code IS NULL THEN ' mangler:'||e.code||'='||e.label
                                   ELSE ' uventet:'||f2.code||'='||coalesce(f2.label,'NULL') END, ''
@@ -13708,7 +13709,7 @@ BEGIN
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
   IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
-    RAISE NOTICE 'OK: godser-fase1 — estate_slags er de fire koder; trg_estate_slags afviser alt andet end NULL og ordlisten';
+    RAISE NOTICE 'OK: godser-fase1 — estate_slags er de fem koder; trg_estate_slags afviser alt andet end NULL og ordlisten';
   ELSE RAISE; END IF;
 END $verify_godser_fase1$;
 
