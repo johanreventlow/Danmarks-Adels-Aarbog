@@ -6,7 +6,7 @@ import { buildAux } from './buildAux';
 import { byggUdgaveLag, type UdgaveLag } from './udgaveLag';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
-  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
+  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, erIkkeGods, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
   byggLinjeAdelsnavne, slaegtsrodensNavn, type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow, type LinjeAdelsnavne,
   type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage,
@@ -489,7 +489,7 @@ export async function loadFromSupabase(opts?: {
     ]);
     // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som web.
     return buildGeo(
-      { facts, estates, places, persons: db.persons, unions: db.unions },
+      { facts, estates: estates.filter((e) => !erIkkeGods(e.slags)), places, persons: db.persons, unions: db.unions },
       collapsed.canonicalIdById,
     );
   };

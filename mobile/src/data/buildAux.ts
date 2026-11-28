@@ -1,7 +1,7 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference + citations-faldback), embeder/godser (relation), medier. Linjerne bor siden 6e (batch 4) på
 // modellen (model.lineage, data/udgaveLag.ts): nøglet på den kanoniske linje, ikke på den trykte kode.
-import { buildProvenanceSources, compareDanish, estateArtEtiket, estateKanonisk, flettKilder, MAJORAT_SLAGS, parseYear, stripParen, type CitationProvenanceRow, type EstateSlags, type SourceRef } from '@daa/core';
+import { buildProvenanceSources, compareDanish, erIkkeGods, estateArtEtiket, estateKanonisk, flettKilder, MAJORAT_SLAGS, parseYear, stripParen, type CitationProvenanceRow, type EstateSlags, type SourceRef } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -85,12 +85,15 @@ export function buildAux(
     const pid = cid(String(r.subjekt_id));
     const per = stripParen(r.periode_raw);
     if (r.objekt_type === 'estate') {
-      (estatesBy[pid] = estatesBy[pid] || []).push({
-        id: String(r.objekt_id),
-        navn: estById[String(r.objekt_id)] || 'Gods #' + r.objekt_id,
-        period: per,
-        personId: String(r.subjekt_id),
-      });
+      // »Ikke et gods« (#471): rækken og ejerforholdet bevares, men personen får ikke en besiddelse at vise.
+      if (!erIkkeGods(estById2[String(r.objekt_id)]?.slags)) {
+        (estatesBy[pid] = estatesBy[pid] || []).push({
+          id: String(r.objekt_id),
+          navn: estById[String(r.objekt_id)] || 'Gods #' + r.objekt_id,
+          period: per,
+          personId: String(r.subjekt_id),
+        });
+      }
       if ((r.rolle || '').toLowerCase() === 'ejer') {
         (ownersByEstate[String(r.objekt_id)] = ownersByEstate[String(r.objekt_id)] || []).push({
           personId: pid,
@@ -154,15 +157,18 @@ export function buildAux(
   const estateById: Aux['estateById'] = {};
   const estateList: Aux['estateList'] = Object.keys(ownersByEstate)
     .filter((eid) => !erSammenlagt(eid))
-    .map((eid) => {
+    .flatMap((eid) => {
       const d = detalje(eid);
       estateById[eid] = d;
       ownersByEstate[eid].sort((a, b) => a._y - b._y);
-      return { id: eid, navn: d.navn, ownerCount: antalEjere(ownersByEstate[eid]) };
+      // Rækker markeret »ikke et gods« står ikke i oversigten, men er i estateById (direkte link til /estate/<id>; #471).
+      return erIkkeGods(d.slags) ? [] : [{ id: eid, navn: d.navn, ownerCount: antalEjere(ownersByEstate[eid]) }];
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
   // Gamle (sammenlagte) id'er viser den overlevende; ejere hentes på det kanoniske id (estate.id).
   Object.keys(estById2).filter(erSammenlagt).forEach((eid) => { estateById[eid] = estateById[kanon(eid)] ?? detalje(kanon(eid)); });
+  // Også en »ikke et gods«-række uden registrerede ejere kan åbnes direkte.
+  Object.keys(estById2).filter((eid) => erIkkeGods(estById2[eid].slags) && !estateById[eid]).forEach((eid) => { estateById[eid] = detalje(eid); });
 
   // Medier pr. person: relation person(subjekt) → media(objekt), rolle 'afbildet' (samme retning
   // som DB'ens afbildet-gating). media-rækken slås op på id. RLS har allerede skjult ikke-offentlige
@@ -243,7 +249,7 @@ export function buildAux(
   };
   medieListe.forEach((m) => m.koeer.forEach((koe) => { medieKoeTaellere[koe] += 1; }));
   // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).
-  const godsListe = (estates || []).filter((e) => !erSammenlagt(String(e.id))).map((e) => ({
+  const godsListe = (estates || []).filter((e) => !erSammenlagt(String(e.id)) && !erIkkeGods(e.slags)).map((e) => ({
     id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '',
     ownerCount: antalEjere(ownersByEstate[String(e.id)] || []),
   })).sort((a, b) => compareDanish(a.navn, b.navn));

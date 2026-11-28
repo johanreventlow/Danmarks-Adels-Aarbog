@@ -231,3 +231,28 @@ describe('buildAux: sammenlagte godser og hører under (#471)', () => {
     expect(aux.estateById['405'].id).toBe('405');
   });
 });
+
+describe('buildAux: rækker markeret »ikke et gods« (#471)', () => {
+  const ejer = (id: number, gods: number) => ({ subjekt_type: 'person', subjekt_id: id, objekt_type: 'estate', objekt_id: gods, rolle: 'ejer', periode_raw: '1399' });
+  const input = {
+    ...base,
+    estates: [
+      { id: 5, navn: 'Gods fem', slags: 'gård' }, { id: 9, navn: 'Forlening af Preetz Kloster (1399)', slags: 'ikke_gods' },
+      { id: 10, navn: 'Skænket, ikke i eje', slags: 'ikke_gods' },
+    ] as never,
+    relations: [ejer(1, 5), ejer(1, 9)] as never,
+  };
+  test('skjules i oversigt, godsliste og personens besiddelser, men ejerforholdet bevares', () => {
+    const aux = buildAux(input);
+    expect(aux.estateList.map((g) => g.id)).toEqual(['5']);
+    expect(aux.godsListe.map((g) => g.id)).toEqual(['5']);
+    expect(aux.estatesBy['1'].map((e) => e.id)).toEqual(['5']);
+    expect(aux.ownersByEstate['9']).toHaveLength(1);
+  });
+  test('direkte link virker, også uden ejere, og viser artsetiketten »Ikke et gods«', () => {
+    const aux = buildAux(input);
+    expect(aux.estateById['9'].art).toBe('Ikke et gods');
+    expect(aux.estateById['10'].navn).toBe('Skænket, ikke i eje');
+    expect(aux.estateById['10'].art).toBe('Ikke et gods');
+  });
+});

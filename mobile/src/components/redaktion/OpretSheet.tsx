@@ -19,7 +19,8 @@ const KILDE_SLAGS = ['kirkebog', 'DAA-udgave', 'bog', 'artikel', 'diplomsamling'
 const ORG_SLAGS = ['amt', 'regiment', 'hof', 'institution', 'ridderorden'];
 // Eksplicit map (ikke ternary-fallthrough): en type uden slags-entry får tom liste, ikke ORG_SLAGS.
 const SLAGS_BY_TYPE: Partial<Record<EntType, string[]>> = {
-  estate: [...ESTATE_SLAGS], kilde: KILDE_SLAGS, organisation: ORG_SLAGS,
+  // ikke_gods er en markering af en eksisterende række (arket i #471), ikke noget, man opretter et nyt gods som.
+  estate: ESTATE_SLAGS.filter((s) => s !== 'ikke_gods'), kilde: KILDE_SLAGS, organisation: ORG_SLAGS,
 };
 
 function Pille({ valgt, label, onPress }: { valgt: boolean; label: string; onPress: () => void }) {
