@@ -329,3 +329,16 @@ test('cyklus i sammenlagt (a→b, b→a) giver ingen omdirigerings-pingpong (#47
   await new Promise((r) => setTimeout(r, 100));
   expect(navigate).not.toHaveBeenCalledWith(expect.stringMatching(/^\/besiddelse\/\d+$/), expect.objectContaining({ replace: true }));
 });
+
+test('/besiddelse/<id> på en række markeret »ikke et gods« vises med artsetiketten, ikke som »findes ikke« (#471)', async () => {
+  mocks.fetchEstates.mockResolvedValue({
+    estates: [{ id: '5', navn: 'Christianssæde', slags: 'grevskab', ownerCount: 0 }],
+    sammenlagt: new Map(), hoererUnder: [],
+    ikkeGods: [{ id: '9', navn: 'Forlening af Preetz Kloster (1399)', slags: 'ikke_gods', ownerCount: 0 }],
+  });
+  window.history.replaceState({}, '', '/besiddelse/9');
+  render(<Folgesvend />);
+  expect(await screen.findByRole('heading', { name: 'Forlening af Preetz Kloster (1399)' })).toBeTruthy();
+  expect(screen.getByText('Ikke et gods')).toBeTruthy();
+  expect(screen.queryByRole('heading', { name: 'Besiddelsen findes ikke i Aarbogen' })).toBeNull();
+});

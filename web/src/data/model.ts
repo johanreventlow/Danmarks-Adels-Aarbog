@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, byggBogNr, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, byggBogNr, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, erIkkeGods, EMPTY_GEO } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -175,7 +175,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
       ]);
       // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som mobile.
       return buildGeo(
-        { facts, estates, places, persons: collapsed.db.persons, unions: collapsed.db.unions },
+        { facts, estates: estates.filter((e) => !erIkkeGods(e.slags)), places, persons: collapsed.db.persons, unions: collapsed.db.unions },
         collapsed.canonicalIdById,
       );
     },

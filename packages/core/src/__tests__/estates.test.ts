@@ -1,20 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { ESTATE_SLAGS, MAJORAT_SLAGS, estateArtEtiket, estateKanonisk } from '../estates';
+import { ESTATE_SLAGS, MAJORAT_SLAGS, erIkkeGods, estateArtEtiket, estateKanonisk } from '../estates';
 
 describe('estates', () => {
-  it('ESTATE_SLAGS er præcis de fire koder', () => {
-    expect([...ESTATE_SLAGS]).toEqual(['gård', 'grevskab', 'baroni', 'stamhus']);
+  it('ESTATE_SLAGS er præcis de fem koder', () => {
+    expect([...ESTATE_SLAGS]).toEqual(['gård', 'grevskab', 'baroni', 'stamhus', 'ikke_gods']);
   });
   it('MAJORAT_SLAGS er grevskab, baroni og stamhus — ikke gård', () => {
     expect([...MAJORAT_SLAGS].sort()).toEqual(['baroni', 'grevskab', 'stamhus']);
     expect(MAJORAT_SLAGS.has('gård')).toBe(false);
+    expect(MAJORAT_SLAGS.has('ikke_gods')).toBe(false);
   });
   it('estateArtEtiket giver label, og null for NULL og ukendt', () => {
     expect(estateArtEtiket('grevskab')).toBe('Grevskab');
     expect(estateArtEtiket('gård')).toBe('Gård');
+    expect(estateArtEtiket('ikke_gods')).toBe('Ikke et gods');
     expect(estateArtEtiket(null)).toBeNull();
     expect(estateArtEtiket('ukendt')).toBeNull();
     expect(estateArtEtiket('toString')).toBeNull();
+  });
+  it('erIkkeGods er kun sand for ikke_gods', () => {
+    expect(erIkkeGods('ikke_gods')).toBe(true);
+    for (const s of ['gård', 'grevskab', 'baroni', 'stamhus', '', null, undefined]) expect(erIkkeGods(s)).toBe(false);
   });
   it('estateKanonisk følger sammenlagt_i og lader andre id uberørte', () => {
     const m = new Map([['405', '5']]);

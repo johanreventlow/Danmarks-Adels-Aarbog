@@ -5,7 +5,7 @@
 import { supabase } from '../supabase';
 import type { Model } from './types';
 import type { EjerRelation } from './ejerraekke';
-import { byggAboutSections, type AboutSection, type RawAboutRow, type RawAboutLineage, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, estateKanonisk, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { byggAboutSections, type AboutSection, type RawAboutRow, type RawAboutLineage, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, estateKanonisk, erIkkeGods, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
 import { laesCitationer } from './citationLaes';
 import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, fetchMediaAfSlags, type MediaItem } from './media';
@@ -97,6 +97,9 @@ export type EstatesData = {
   // sammenlagt gods → det gods, det blev lagt ind i (alle id'er som tekst). Sammenlagte rækker står ikke i `estates`.
   sammenlagt: Map<string, string>;
   hoererUnder: HoererUnder[];
+  // Rækker markeret »ikke et gods« (bogen nævner intet gods): skjult fra lister, søgning, feed og kort, men direkte
+  // link til /besiddelse/<id> viser dem (#471).
+  ikkeGods: EstateItem[];
 };
 
 type RawEstateGodsRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
@@ -129,11 +132,11 @@ export async function fetchEstates(): Promise<EstatesData> {
     set.add(nøgle);
     hoererUnder.push({ gaard, majorat, periode: r.periode_raw ?? '' });
   });
-  const items = estates
+  const alle = estates
     .filter((e) => !sammenlagt.has(String(e.id)))
     .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: ejere[String(e.id)]?.size ?? 0, ejerIds: [...(ejere[String(e.id)] ?? [])] }))
     .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
-  return { estates: items, sammenlagt, hoererUnder };
+  return { estates: alle.filter((e) => !erIkkeGods(e.slags)), sammenlagt, hoererUnder, ikkeGods: alle.filter((e) => erIkkeGods(e.slags)) };
 }
 
 // Ejer-relationerne for én besiddelse. En relation kan være registreret under et foldet alias-person-id → kanonisér
@@ -188,14 +191,16 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
 
 // Slå organisation/estate-navne op i ét hug (delt af person-detalje + relations-læsning).
-export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string> }> {
+export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string>; estateIkkeGods: Set<string> }> {
   const [orgs, ests] = await Promise.all([
     orgIds.length ? supabase.from('organisation').select('id,navn').in('id', orgIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[], error: null }),
-    estIds.length ? supabase.from('estate').select('id,navn').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[], error: null }),
+    estIds.length ? supabase.from('estate').select('id,navn,slags').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null; slags?: string | null }[], error: null }),
   ]);
   return {
     org: new Map((orThrow(orgs, 'resolveOrgEstateNames/organisation') ?? []).map((o) => [String(o.id), o.navn ?? ''])),
     estate: new Map((orThrow(ests, 'resolveOrgEstateNames/estate') ?? []).map((e) => [String(e.id), e.navn ?? ''])),
+    // Rækker markeret »ikke et gods«: navnet kan slås op, men personsiden viser dem ikke som besiddelser (#471).
+    estateIkkeGods: new Set((orThrow(ests, 'resolveOrgEstateNames/estate') ?? []).filter((e) => erIkkeGods(e.slags ?? null)).map((e) => String(e.id))),
   };
 }
 
@@ -418,7 +423,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     // sammenlagt gods, så personsiden bruger id'erne direkte (ingen ekstra rundtur).
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     // Navne og redaktørens kildetekster i samme bølge (ingen ekstra seriel rundtur for personsiden).
-    const [{ org: orgNavn, estate: estNavn }, fritekstKilde] = await Promise.all([
+    const [{ org: orgNavn, estate: estNavn, estateIkkeGods }, fritekstKilde] = await Promise.all([
       resolveOrgEstateNames(orgIds, estIds),
       factRows ? fetchFritekstKilde(factRows) : Promise.resolve({} as Record<string, string[]>),
     ]);
@@ -431,7 +436,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       (o) => `${o.label}|${o.period}`,
     );
     const estates = dedupBy(
-      rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
+      rels.filter((r) => r.objekt_type === 'estate' && !estateIkkeGods.has(String(r.objekt_id))).map((r) => ({
         id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`, personId: String(r.subjekt_id),
       })),
       (e) => `${e.personId}|${e.id}`,

@@ -196,6 +196,8 @@ export default function Folgesvend() {
   };
   const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
+  // Rækker markeret »ikke et gods«: skjult fra alle lister, men direkte link til /besiddelse/<id> viser dem (#471).
+  const [ikkeGods, setIkkeGods] = useState<EstateItem[]>([]);
   // Sammenlagte godser (id → overlevende) og »hører under« (#471); tomme, til de er hentet eller hvis der ingen er.
   const [sammenlagt, setSammenlagt] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [hoererUnder, setHoererUnder] = useState<HoererUnder[]>([]);
@@ -269,7 +271,7 @@ export default function Folgesvend() {
   // ikke ved et tavst skift til listen.
   useEffect(() => {
     if (estates || estatesFejl) return;
-    fetchEstates().then((d) => { setSammenlagt(d.sammenlagt); setHoererUnder(d.hoererUnder); setEstates(d.estates); })
+    fetchEstates().then((d) => { setSammenlagt(d.sammenlagt); setHoererUnder(d.hoererUnder); setIkkeGods(d.ikkeGods ?? []); setEstates(d.estates); })
       .catch(() => { setEstates([]); setEstatesFejl(true); });
   }, [estates, estatesFejl]);
   // Et link til et sammenlagt gods (/besiddelse/405) ender på det gods, det blev lagt ind i — som alias-personer (replace).
@@ -582,7 +584,7 @@ export default function Folgesvend() {
   const titelPerson = mode === 'person' && focusId ? model?.byId[focusId]?.name ?? null : null;
   const titelA = relA ? model?.byId[relA]?.name ?? null : null;
   const titelB = relB ? model?.byId[relB]?.name ?? null : null;
-  const titelBesiddelse = estateId ? estatesVist?.find((e) => e.id === estateId)?.navn ?? null : null;
+  const titelBesiddelse = estateId ? (estatesVist?.find((e) => e.id === estateId) ?? ikkeGods.find((e) => e.id === estateId))?.navn ?? null : null;
   useEffect(() => {
     document.title = err ? VAERK : sidetitel({ mode, slaegtNavn: titelSlaegt, personNavn: titelPerson, aNavn: titelA, bNavn: titelB,
       q: soegFiltreNu.q, besiddelseNavn: titelBesiddelse });
@@ -687,7 +689,7 @@ export default function Folgesvend() {
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} relA={relA} relB={relB} meId={meCanon} slug={slug} onVaelg={findSlaegtskab} />
             : mode === 'estates' ? <EstatesView estates={estatesVist} hoererUnder={hoererUnder} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
-              estateId={estateId} estate={estatesVist?.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
+              estateId={estateId} estate={estatesVist?.find((e) => e.id === estateId) ?? ikkeGods.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
               slaegt={findSlaegt(slug) ?? SLAEGTER[0]} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onPickOwner={visPerson}
               besiddelserHref={pathForMode('estates', slug)} onBesiddelser={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
