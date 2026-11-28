@@ -636,7 +636,7 @@ def test_rundtur_ark_svar_flet_valider():
         if pid.startswith("H"):
             svar[pid] = {"svar": "ja", "periode": "", "citat": "bogens ord", "kilde": 1}
         elif pid in p["aabne"]:
-            svar[pid] = [k for k in koder if k != "del"][-1]
+            svar[pid] = [k for k in koder if k not in ("del", "samme")][-1]
     plan, _ = forslag.flet(p, sha, {"version": 1, "kilde_hash": meta["kilde_hash"],
                                     "plan_forslag_sha256": meta["plan_sha"], "svar": svar})
     forslag.valider_plan(plan, f.snapshots)
@@ -966,6 +966,9 @@ def _tilfaeldige_valg(p, n, frø=0):
             if pid not in p["aabne"] and rng.random() < 0.6:
                 continue
             k = rng.choice(list(alts))
+            if pid[0] == "G" and rng.random() < 0.05:
+                v[pid] = {"svar": "samme", "maal": rng.choice([x for x in p["poster"] if x[0] == "G" and x != pid])}
+                continue
             if pid[0] == "G" and rng.random() < 0.08:
                 maal = rng.choice(["ny", rng.choice([x for x in p["poster"] if x[0] == "G" and x != pid])])
                 v[pid] = {"svar": "del", "dele": [{"navn": f"Del{pid}", "slags": "gård", "maal": "ny"},
@@ -1197,3 +1200,57 @@ def test_del_op_navnekonflikt_vises_i_reglen():
                                                {"navn": "X", "slags": "gård", "maal": "ny"}]}}
     ks = forslag.konflikter(forslag.konfliktdata(p), v)
     assert any(k["navn"] == "Koppel" for k in ks)
+
+
+
+# ---------- »samme gods som en anden gruppe« ----------
+
+def _sogn_data():
+    d = data([(157, "Kaltenhof", 1, "1750-1780"), (351, "Dänischenhagen Sogn (til 1780)", 1, "-1780"),
+              (5, "Wittenberg", 2)], udgave={157: "DAA 1939", 351: "DAA 1939"})
+    d["samme_ejer"] = [[35100, 157, 15700, False], [15700, 351, 35100, False]]
+    return d
+
+
+def test_samme_gods_laegger_raekken_ind_med_citat_og_hint():
+    f = forslag.byg_forslag(_sogn_data())
+    g69, g154 = gruppe_med(f, 351), gruppe_med(f, 157)
+    assert g69.samme_hint == [[f"G{g154.nr}", "Kaltenhof"]] and not gruppe_med(f, 5).samme_hint
+    p = f.plan("db", KH)
+    plan, opsum = _flet(f, _alle_aabne(f, p, **{f"G{g69.nr}": {"svar": "samme", "maal": f"G{g154.nr}"}}))
+    assert {"fra": 351, "til": 157, "gruppe": g69.nr} in plan["sammenlaeg"]
+    assert not any(o["estate"] == 351 for o in plan["saet"])  # navnet gemmes som citat af sammenlægningen
+    assert any("samme gods som" in l for l in opsum)
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    assert "Mulig rigtig gård" in html and 'value="samme"' in html and "slet ikke et gods" in html
+
+
+def test_samme_gods_kaede_og_snapshot_afvises():
+    f = forslag.byg_forslag(_sogn_data())
+    g69, g154, g5 = gruppe_med(f, 351), gruppe_med(f, 157), gruppe_med(f, 5)
+    p = f.plan("db", KH)
+    with pytest.raises(forslag.FletFejl, match="lægges selv ind i"):
+        _flet(f, _alle_aabne(f, p, **{f"G{g69.nr}": {"svar": "samme", "maal": f"G{g154.nr}"},
+                                      f"G{g154.nr}": {"svar": "samme", "maal": f"G{g5.nr}"}}))
+    with pytest.raises(forslag.FletFejl, match="sig selv"):
+        _flet(f, _alle_aabne(f, p, **{f"G{g69.nr}": {"svar": "samme", "maal": f"G{g69.nr}"}}))
+    d = _sogn_data()
+    d["snapshots"] = [351]
+    f = forslag.byg_forslag(d)
+    p = f.plan("db", KH)
+    with pytest.raises(forslag.FletFejl, match="slettede ejerforhold"):
+        _flet(f, _alle_aabne(f, p, **{f"G{gruppe_med(f, 351).nr}": {"svar": "samme",
+                                                                     "maal": f"G{gruppe_med(f, 157).nr}"}}))
+
+
+def test_raekke_uden_ejerforhold_beholder_bogens_navn():
+    f = forslag.byg_forslag(data([(360, "Kain (1690)", 0)]))
+    g = gruppe_med(f, 360)
+    assert {a.ops["saet"][0]["navn"] for a in g.alternativer.values()} == {"Kain (1690)"}
+    assert any("ingen ejerforhold" in t for t in g.info)
+    p = f.plan("db", KH)
+    with pytest.raises(forslag.FletFejl, match="ingen ejerforhold"):
+        _flet(f, _alle_aabne(f, p, **{f"G{g.nr}": {"svar": "del", "dele": [
+            {"navn": "Kain", "slags": "gård", "maal": "ny"}, {"navn": "Holm", "slags": "gård", "maal": "ny"}]}}))
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    assert 'data-uden-ejer="Kain (1690)"' in html
