@@ -359,6 +359,10 @@ def periode_spaend(periode: str | None):
 # Ejerskabsformer, som ikke er en del af et godsnavn (»Fideikommisgodserne Varste-Polle« → »Varste-Polle«).
 _RETSFORM_RE = re.compile(r"^(?:fideikommis\w*|stamhus\w*|grevskab\w*|baroni\w*)\s+", re.I)
 SLAGS = ("gård", "grevskab", "baroni", "stamhus")
+IKKE_GODS = "ikke_gods"  # ny vocab-værdi: rækken er ikke et gods og skjules fra listen (navn og ejerforhold bevares)
+# Navne, der lyder som bogens oplysning om et ejerforhold, ikke som et gods (kun et hint, aldrig forvalgt).
+_IKKE_GODS_RE = re.compile(r"^(?:til\s+)?(?:forlening|forlenet|skænkede|pant\w*|arvekrav|andel\s+(?:i|af)|forpagter\s+af"
+                           r"|o\.s\.v)\b|\bbortgivet\b|\bikke i eje\b", re.I)
 
 
 def navn_ens(navn: str) -> str:
@@ -483,6 +487,7 @@ class Gruppe:
     flytbare: list = field(default_factory=list)  # rækker, der må lægges sammen væk (ikke snapshot/andre koblinger)
     ejerforhold: list = field(default_factory=list)  # [[relation, bogens fulde navn]] for kopierbare ejerforhold
     dele_forslag: list = field(default_factory=list)  # arkets udfyldning af »del op«
+    ikke_hint: bool = False  # navnet lyder som en oplysning (forlening, pant …), ikke et gods
     samme_hint: list = field(default_factory=list)  # [[gruppe-id, navn]]: mulig rigtig gård (samme ejer, samme udgave)
 
 
@@ -1218,6 +1223,7 @@ def byg_forslag(data: dict) -> Forslag:
                     maal = f"G{x.nr}"
             forsl.append({"navn": navn_, "slags": art, "maal": maal})
         g.dele_forslag = forsl
+        g.ikke_hint = any(_IKKE_GODS_RE.search(navne[m].original) for m in g.medlemmer)
         # Mulig rigtig gård: rækken er ikke en gård (sogn, herred, len …), og samme ejer ejer et andet gods i samme
         # udgave (fx »Dänischenhagen Sogn (til 1780)« = sognet for Kaltenhof). Kun et hint; aldrig forvalgt.
         # Kun når selve navnet (ikke en parentes eller stedtilføjelse) er et sogn/herred eller ikke en gård.
@@ -1448,13 +1454,17 @@ DEL_TEKST = ("Del op i flere godser. Hver del bliver sin egen side: del 1 er den
              "eksisterende gruppe), og de øvrige dele får en kopi af gruppens ejerforhold; bogens fulde tekst gemmes "
              "som citat ved ejerforholdene")
 RETSFORM_HINT = "Fideikommis-, stamhus-, grev-, baroni- er ejerskabsformer, ikke gårdnavne."
+IKKE_TEKST = ("Ikke et gods (skjules). Rækken skjules fra listen og beholder sit navn; teksten står fortsat i "
+              "biografien, og ejerforholdene behandles i fase 2")
 SAMME_TEKST = ("Samme gods som en anden gruppe. Alle rækkerne lægges ind i den valgte gruppes række, og bogens "
                "fulde tekst gemmes som citat ved ejerforholdene — brug det også, når rækken slet ikke er et gods, men "
                "et sted eller en oplysning om et andet gods")
 
 
 def _samme_html(g) -> str:
-    hint = "".join(f"<div class=hint>Mulig rigtig gård: <a href=\"#{_e(gid)}\">gruppe {_e(gid[1:])} »{_e(navn)}«</a> "
+    ikke = ("<div class=hint>Forslag: Ikke et gods — navnet lyder som bogens oplysning om et ejerforhold, ikke som et "
+            "gods <button type=button class=i-vaelg>vælg</button></div>" if g.ikke_hint else "")
+    hint = ikke + "".join(f"<div class=hint>Mulig rigtig gård: <a href=\"#{_e(gid)}\">gruppe {_e(gid[1:])} »{_e(navn)}«</a> "
                    f"(samme ejer, samme udgave) <button type=button class=s-vaelg data-maal=\"{_e(gid)}\">vælg</button>"
                    f"</div>" for gid, navn in g.samme_hint)
     return (f"{hint}<div class=sammefelt data-samme=\"G{g.nr}\"><label>Læg rækkerne ind i gruppe "
@@ -1481,6 +1491,8 @@ def _valg_html(pid: str, p, forvalg: str | None, legend: str = "Dit valg", del_o
         ud.append(f"<label><input type=radio name=\"{_e(pid)}\" value=\"del\"> <b>Del</b> — {_e(DEL_TEKST)}</label>")
         ud.append(f"<label><input type=radio name=\"{_e(pid)}\" value=\"samme\"> <b>Samme</b> — "
                   f"{_e(SAMME_TEKST)}</label>")
+        ud.append(f"<label><input type=radio name=\"{_e(pid)}\" value=\"ikke\"> <b>Ikke</b> — "
+                  f"{_e(IKKE_TEKST)}</label>")
     ud.append("</fieldset>")
     if del_op:
         ud.append(_del_html(p) + _samme_html(p))
@@ -1596,6 +1608,12 @@ function delAlt(poster, pid, dele) {
   });
   return { saet: saet, opret: opret, fra: sammen.map(function (a) { return a[0]; }), sammen: sammen, kopier: kopier };
 }
+// Ordret oversættelse af ikke_alt() i forslag.py.
+function ikkeAlt(poster, pid) {
+  var x = poster[pid];
+  return { saet: x.medlemmer.map(function (m) { return [m, x.navne[String(m)], "ikke_gods"]; }), opret: [], fra: [],
+           sammen: [], kopier: [] };
+}
 // Ordret oversættelse af samme_alt() i forslag.py.
 function sammeAlt(poster, pid, maal) {
   var x = poster[pid], til = poster[maal].overlever, flyt = {};
@@ -1614,7 +1632,7 @@ function afgjorte(D, valg) {
       : x.grupper.filter(function (g) { return (v.grupper || []).indexOf(g) >= 0; });
     gl.slice(1).forEach(function (g) {
       var vg = har(valg, g) ? valg[g] : null;
-      if (kun[g] && x.flyttes[g].length === poster[g].medlemmer.length && !(vg && (vg.svar === "del" || vg.svar === "samme"))) ud[g] = [pid, gl[0]];
+      if (kun[g] && x.flyttes[g].length === poster[g].medlemmer.length && !(vg && (vg.svar === "del" || vg.svar === "samme" || vg.svar === "ikke"))) ud[g] = [pid, gl[0]];
     });
   });
   return ud;
@@ -1647,6 +1665,7 @@ function konflikter(D, valg) {
     var k = kode(pid), a;
     if (k === "del") a = delAlt(poster, pid, valg[pid].dele);
     else if (k === "samme") a = sammeAlt(poster, pid, valg[pid].maal);
+    else if (k === "ikke") a = ikkeAlt(poster, pid);
     else if (k === null || k === undefined || !har(alt[pid], k)) return;
     else a = alt[pid][k];
     if (!erstattet[pid]) a.fra.forEach(function (f) { fra[f] = true; });
@@ -1664,7 +1683,7 @@ function konflikter(D, valg) {
     sider[k].push([navn, hvem]);
   }
   Object.keys(saet).map(Number).sort(function (a, b) { return a - b; }).forEach(function (e) {
-    if (har(fra, e)) return;
+    if (har(fra, e) || saet[e][1] === "ikke_gods") return;
     tilfoej(saet[e][0], saet[e][1], har(gAf, e) ? gAf[e] : String(e));
   });
   Object.keys(opret).sort().forEach(function (n) {
@@ -1767,6 +1786,7 @@ JS = r"""
       else if (/[(),\[]|\s(ved|i|på)\s[A-ZÆØÅÄÖÜ]|^til\s/.test(x.navn)) f.push("del " + (i + 1) + ": kun godsets eget navn");
       if (x.maal === "?") f.push("del " + (i + 1) + ": ukendt gruppe");
       if (x.maal === id) f.push("del " + (i + 1) + ": kan ikke pege på gruppen selv");
+      if (x.maal !== "ny" && x.maal !== "?" && erIkke(x.maal)) f.push("del " + (i + 1) + ": " + x.maal + " er markeret »ikke et gods«");
       if (x.maal !== "ny" && har(AFG, x.maal)) f.push("del " + (i + 1) + ": " + x.maal + " lægges ind i " + AFG[x.maal][1] + " — peg på den");
     });
     var kk = document.getElementById(id), ue = kk && kk.getAttribute("data-uden-ejer");
@@ -1777,6 +1797,7 @@ JS = r"""
     return f;
   }
   function delGyldig(id) { return delFejl(id).length === 0; }
+  function erIkke(gid) { return valgt(gid) === "ikke"; }
   function sammeMaal(id) { var k = document.getElementById(id), i = k && k.querySelector(".s-maal"); return delMaal(i ? i.value : ""); }
   function sammeFejl(id) {
     var m = sammeMaal(id);
@@ -1784,6 +1805,7 @@ JS = r"""
     if (m === "?") return ["ukendt gruppe"];
     if (m === id) return ["en gruppe kan ikke lægges ind i sig selv"];
     if (har(AFG, m)) return [m + " lægges ind i " + AFG[m][1] + " — vælg den i stedet"];
+    if (erIkke(m)) return [m + " er markeret »ikke et gods«"];
     return [];
   }
   function besvaret(k) {
@@ -2001,6 +2023,12 @@ JS = r"""
     });
     synkSpejle();
     visKonflikter();
+    // Grupper markeret »ikke et gods« kan ikke vælges som mål: vis det i søgelisten.
+    Array.prototype.forEach.call(document.querySelectorAll("#grupperliste option"), function (o) {
+      var gid = o.getAttribute("data-g"), ikke = erIkke(gid);
+      o.value = gid + " — " + GNAVN[gid] + (ikke ? " (ikke et gods — kan ikke vælges)" : "");
+      o.disabled = ikke;
+    });
     n = 0;
     skal.forEach(function (k) { var b = besvaret(k); if (b) n++; k.classList.toggle("besvaret", b); k.classList.toggle("mangler", !b); });
     q("#taeller").textContent = n + " af " + skal.length + " besvaret";
@@ -2077,6 +2105,12 @@ JS = r"""
   });
   document.addEventListener("input", function (e) {
     if (e.target.closest(".hfelter") || e.target.closest(".delfelter") || e.target.closest(".sammefelt")) opdater(); });
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t.classList || !t.classList.contains("i-vaelg")) return;
+    var r = t.closest("section.kort").querySelector('input[type=radio][value="ikke"]');
+    if (r) { r.checked = true; opdater(); }
+  });
   document.addEventListener("click", function (e) {
     var t = e.target;
     if (!t.classList || !t.classList.contains("s-vaelg")) return;
@@ -2177,8 +2211,8 @@ def render_html(f, meta: dict) -> str:
         "<input type=search id=soeg placeholder='Søg navn eller nummer' aria-label=Søg></div></header><main>",
         "<h1>Godserne: dine valg</h1>",
         "<div class=kort><b>Sådan gør du</b><ul>"
-        "<li>Er en række slet ikke et gods, men et sted eller en oplysning om et andet gods, så vælg »Samme gods "
-        "som en anden gruppe«.</li>"
+        "<li>Er en række slet ikke et gods: vælg »Samme gods som en anden gruppe«, når den er et sted eller en "
+        "oplysning om et andet gods; vælg »Ikke et gods (skjules)«, når der ikke er nævnt noget gods.</li>"
         "<li><b>Svar først på, om grupperne er samme gods — så falder mange valg bort.</b> Spørgsmålet står både "
         "for sig selv (S/N) og inde i de grupper, det handler om; de to steder følges ad.</li>"
         "<li>Vælg et svar ved hvert kort. Står der <span class=vaelg>Du skal vælge</span>, er intet valgt på "
@@ -2202,7 +2236,7 @@ def render_html(f, meta: dict) -> str:
         "<div id=aendret class=tvivl></div>"
         "<button id=snej>Alle ubesvarede S-spørgsmål: nej</button>"
         "<textarea id=kopiboks readonly aria-label='Svar til kopiering'></textarea></div>",
-        "<datalist id=grupperliste>" + "".join(f"<option value=\"G{g.nr} — {_e(g.navn)}\"></option>"
+        "<datalist id=grupperliste>" + "".join(f"<option data-g=\"G{g.nr}\" value=\"G{g.nr} — {_e(g.navn)}\"></option>"
                                                for g in f.grupper) + "</datalist>",
         f"<div class=afsnit><h2>Skal afgøres: grupper ({len(tvivl)}) og spørgsmål om samme gods "
         f"(S {len(f.sammenhaenge)}, N {len(f.nye)})</h2>"
@@ -2314,6 +2348,13 @@ def tjek_dele(poster: dict, pid: str, v) -> tuple:
     return (None if fejl else {"svar": "del", "dele": ud}), fejl
 
 
+def ikke_alt(poster: dict, pid: str) -> dict:
+    """»Ikke et gods (skjules)«: alle gruppens rækker beholder navnet og får slags ikke_gods. Ordret JS: ikkeAlt."""
+    x = poster[pid]
+    return {"saet": [[m, x["navne"][str(m)], IKKE_GODS] for m in x["medlemmer"]], "opret": [], "fra": [],
+            "sammen": [], "kopier": []}
+
+
 def samme_alt(poster: dict, pid: str, maal: str) -> dict:
     """»Samme gods som en anden gruppe«: alle gruppens rækker lægges ind i målgruppens overlevende række (som et S-»ja«
     med denne gruppe som nr. 2). Arkets JavaScript (sammeAlt) har en ordret kopi."""
@@ -2353,7 +2394,7 @@ def afgjorte(d: dict, valg: dict) -> dict:
         for g in gl[1:]:
             vg = valg.get(g)
             if (g in kun and len(x["flyttes"][g]) == len(poster[g]["medlemmer"])
-                    and not (vg and vg["svar"] in ("del", "samme"))):
+                    and not (vg and vg["svar"] in ("del", "samme", "ikke"))):
                 ud[g] = [pid, gl[0]]
     return ud
 
@@ -2387,6 +2428,8 @@ def konflikter(d: dict, valg: dict) -> list:
             a = del_alt(poster, pid, valg[pid]["dele"])
         elif k == "samme":
             a = samme_alt(poster, pid, valg[pid]["maal"])
+        elif k == "ikke":
+            a = ikke_alt(poster, pid)
         elif k is None or k not in alts:
             continue
         else:
@@ -2402,7 +2445,7 @@ def konflikter(d: dict, valg: dict) -> list:
     g_af = {m: pid for pid, x in poster.items() if x["type"] == "gruppe" for m in x["medlemmer"]}
     sider = {}
     for e in sorted(saet):
-        if e in fra:
+        if e in fra or saet[e][1] == IKKE_GODS:
             continue
         navn, sl = saet[e]
         sider.setdefault((navn_ens(navn), sl or ""), []).append((navn, g_af.get(e, str(e))))
@@ -2501,6 +2544,8 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
             fejl.extend(fj)
             if norm:
                 valg[pid] = norm
+        elif pid[0] == "G" and v == "ikke":
+            valg[pid] = {"svar": "ikke"}
         else:
             if not isinstance(v, str) or v not in alt[pid] or v == "delvis":
                 fejl.append(f"{pid}: ukendt valg {v!r} (mulige: {', '.join(k for k in alt[pid] if k != 'delvis')})")
@@ -2532,7 +2577,10 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
         s_valgt[pid] = gl
         til = poster[gl[0]]["overlever"]
         for g in gl:
-            if kode(g) not in (None, "del", "samme") and alt[g][kode(g)].get("adskilt") and len(poster[g]["medlemmer"]) > 1:
+            if kode(g) == "ikke":
+                fejl.append(f"{g} er markeret »ikke et gods«, men {pid} siger, at {', '.join(gl)} er samme gods — "
+                            f"vælg ét af dem")
+            if kode(g) not in (None, "del", "samme", "ikke") and alt[g][kode(g)].get("adskilt") and len(poster[g]["medlemmer"]) > 1:
                 fejl.append(f"{pid} siger, at {', '.join(gl)} er samme gods, men {g} er valgt »behold rækkerne "
                             f"adskilt« ({kode(g)}) — vælg ét af dem")
         for g in gl[1:]:
@@ -2577,13 +2625,17 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
                  "opret": [{"noegle": k_, "navn": n, "slags": sl, "gruppe": nr} for k_, n, sl in da["opret"]],
                  "kopier": [{"relation": r, "til": t, "citat": c, "gruppe": nr} for r, t, c in da["kopier"]]}
             aendret.append(f"{pid}: delt op i {len(valg[pid]['dele'])} godser")
+        elif k == "ikke":
+            a = {"saet": [{"estate": e, "navn": n, "slags": sl, "gruppe": int(pid[1:])}
+                          for e, n, sl in ikke_alt(poster, pid)["saet"]]}
+            aendret.append(f"{pid}: ikke et gods (skjules)")
         elif k == "samme":
             sa = samme_alt(poster, pid, valg[pid]["maal"])
             a = {"sammenlaeg": [{"fra": f_, "til": t, "gruppe": int(pid[1:])} for f_, t in sa["sammen"]]}
             aendret.append(f"{pid}: samme gods som {valg[pid]['maal']}")
         else:
             a = alt[pid][k]
-        if pid in valg and pid in forslag_plan["forvalg"] and k not in ("del", "samme", forslag_plan["forvalg"][pid]):
+        if pid in valg and pid in forslag_plan["forvalg"] and k not in ("del", "samme", "ikke", forslag_plan["forvalg"][pid]):
             aendret.append(f"{pid}: {k} (forslag {forslag_plan['forvalg'][pid]})")
         stk = {o: [dict(x) for x in a.get(o, [])] for o in OPS}
         if pid in erstattet:
@@ -2628,6 +2680,25 @@ def flet(forslag_plan: dict, forslag_sha: str, svar: dict, svar_bytes: bytes | N
                         f"(gruppe {set_saet[o['estate']]['gruppe']} og {o['gruppe']})")
         set_saet[o["estate"]] = o
     ops["saet"] = [o for o in ops["saet"] if set_saet[o["estate"]] is o and o["estate"] not in set_fra]
+    g_af_e = _gruppe_af_estate(poster)
+    ikke_e = {o["estate"] for o in ops["saet"] if o["slags"] == IKKE_GODS}
+
+    def hvis(e):
+        return f"{g_af_e.get(e, e)} (række {e})"
+    for o in ops["sammenlaeg"]:
+        if o["til"] in ikke_e or o["fra"] in ikke_e:
+            e = o["til"] if o["til"] in ikke_e else o["fra"]
+            fejl.append(f"{hvis(e)} er markeret »ikke et gods«, men {o['gruppe']} lægger række {o['fra']} ind i "
+                        f"række {o['til']} — vælg ét af dem")
+    for o in ops["kopier"] + ops["flyt"]:
+        if o["til"] in ikke_e:
+            fejl.append(f"{hvis(o['til'])} er markeret »ikke et gods«, men {o['gruppe']} vil lægge "
+                        f"{'en kopi af ' if 'citat' in o else ''}relation {o['relation']} på den — vælg ét af dem")
+    for o in ops["hoerer_under"]:
+        for e in (o["gaard"], o["majorat"]):
+            if e in ikke_e:
+                fejl.append(f"{hvis(e)} er markeret »ikke et gods«, men {o['gruppe']} vil lade den indgå i »hører "
+                            f"under« — vælg ét af dem")
     navne_alle = {int(m): n for x in poster.values() if x["type"] == "gruppe" for m, n in x["navne"].items()}
     uden_alle = {m for x in poster.values() if x["type"] == "gruppe" for m in x.get("uden_ejer", [])}
     for o in ops["saet"]:

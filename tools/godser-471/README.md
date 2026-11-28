@@ -88,6 +88,12 @@ Svaret indeholder kun besvarede poster og ændrede forslag; uændrede forslag er
 mere end to grupper kan besvares »kun nogle« med flueben: `{"svar": "delvis", "grupper": ["G198", "G199"]}`.
 N-spørgsmål (to grupper vil oprette en ny gård med samme navn) besvares `"ja"` (én fælles ny side) eller `"nej"`.
 Hvor et kopimål er usikkert (ligner en eksisterende gruppe), er »eksisterende gruppe« og »ny gård« hver sit valg.
+En gruppe kan også markeres **»Ikke et gods (skjules)«** (`"ikke"`). Rækkerne beholder navn og ejerforhold og får
+`saet` med slags `ikke_gods` (ny vocab-værdi, som DB og app understøtter i en anden opgave). En sådan række må ikke være
+mål for sammenlægning, kopi, flytning eller »hører under«; `--flet` afviser det, og arkets søgeliste markerer den. Det
+kan ikke kombineres med et S-»ja«. Valget er aldrig forvalgt; navne, der lyder som en oplysning (forlening, skænkede,
+pant, arvekrav, andel i/af, forpagter af, bortgivet, ikke i eje), får et hint med én knap.
+
 Enhver gruppe kan desuden **deles op i flere godser** (valget »Del«):
 `{"svar": "del", "dele": [{"navn": "Varste-Polle", "slags": "gård", "maal": "ny"},
 {"navn": "Koppel", "slags": "gård", "maal": "G167"}]}`.

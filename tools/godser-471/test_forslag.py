@@ -967,6 +967,9 @@ def _tilfaeldige_valg(p, n, frø=0):
                 continue
             k = rng.choice(list(alts))
             if pid[0] == "G" and rng.random() < 0.05:
+                v[pid] = {"svar": "ikke"}
+                continue
+            if pid[0] == "G" and rng.random() < 0.05:
                 v[pid] = {"svar": "samme", "maal": rng.choice([x for x in p["poster"] if x[0] == "G" and x != pid])}
                 continue
             if pid[0] == "G" and rng.random() < 0.08:
@@ -1254,3 +1257,59 @@ def test_raekke_uden_ejerforhold_beholder_bogens_navn():
             {"navn": "Kain", "slags": "gård", "maal": "ny"}, {"navn": "Holm", "slags": "gård", "maal": "ny"}]}}))
     html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
     assert 'data-uden-ejer="Kain (1690)"' in html
+
+
+
+# ---------- »ikke et gods (skjules)« ----------
+
+IKKE = [(251, "Forlening af Preetz Kloster (1399)"),
+        (230, "Skænkede o. 1240-45 (sammen med hustru X) et stykke jord til Bredenberg Sogn — bortgivet, ikke i eje."),
+        (237, "andel af Ziesendorf (forlenet 1397)"), (84, "Ziesendorf", 3), (5, "Wittenberg", 2),
+        (64, "Wittenberg med Ziesendorf")]
+
+
+def test_ikke_gods_hint_og_aldrig_forvalgt():
+    f = forslag.byg_forslag(data(IKKE))
+    for eid in (251, 230, 237):
+        g = gruppe_med(f, eid)
+        assert g.ikke_hint and g.forvalg != "ikke" and "ikke" not in g.alternativer
+    assert not gruppe_med(f, 84).ikke_hint and not gruppe_med(f, 5).ikke_hint
+    html = forslag.render_html(f, {"kilde_db": "db", "kilde_hash": KH})
+    assert "Forslag: Ikke et gods" in html and 'value="ikke"' in html and "Ikke et gods (skjules)" in html
+    assert not re.search(r'value="ikke" checked', html)
+
+
+def test_ikke_gods_saetter_slags_og_beholder_navn():
+    f = forslag.byg_forslag(data(IKKE))
+    p = f.plan("db", KH)
+    g90, g230 = gruppe_med(f, 251), gruppe_med(f, 230)
+    plan, opsum = _flet(f, _alle_aabne(f, p, **{f"G{g90.nr}": "ikke", f"G{g230.nr}": "ikke"}))
+    for g, eid in ((g90, 251), (g230, 230)):
+        assert {"estate": eid, "navn": f.raekker[eid]["navn"], "slags": "ikke_gods", "gruppe": g.nr} in plan["saet"]
+    assert not any(o["fra"] in (251, 230) or o["til"] in (251, 230) for o in plan["sammenlaeg"])
+    assert any("ikke et gods" in l for l in opsum)
+
+
+def test_ikke_gods_kan_ikke_vaere_maal():
+    f = forslag.byg_forslag(data(IKKE))
+    p = f.plan("db", KH)
+    g84, g64, g237 = f"G{gruppe_med(f, 84).nr}", f"G{gruppe_med(f, 64).nr}", f"G{gruppe_med(f, 237).nr}"
+    # kopien fra »Wittenberg med Ziesendorf« peger på Ziesendorf
+    with pytest.raises(forslag.FletFejl, match="ikke et gods"):
+        _flet(f, _alle_aabne(f, p, **{g84: "ikke"}))
+    with pytest.raises(forslag.FletFejl, match="ikke et gods"):
+        _flet(f, _alle_aabne(f, p, **{g84: "ikke", g64: _kode(gruppe_med(f, 64), pred=lambda a: not a.ops["kopier"]),
+                                      g237: {"svar": "samme", "maal": g84}}))
+    d = forslag.konfliktdata(p)
+    assert forslag.konflikter(d, {g237: {"svar": "ikke"}}) == []  # skjulte rækker kolliderer ikke
+
+
+def test_ikke_gods_mod_s_ja_afvises():
+    f = forslag.byg_forslag(data([(84, "Ziesendorf", 3), (237, "andel af Ziesendorf (forlenet 1397)")]))
+    p = f.plan("db", KH)
+    s_id = next((pid for pid, x in p["poster"].items() if x["type"] == "S"), None)
+    if s_id is None:
+        pytest.skip("intet S-spørgsmål i fixturen")
+    g = p["poster"][s_id]["grupper"][1]
+    with pytest.raises(forslag.FletFejl, match="ikke et gods"):
+        _flet(f, _alle_aabne(f, p, **{s_id: "ja", g: "ikke"}))
